@@ -11,14 +11,15 @@ import { ErrorChunk } from "./error-chunk";
 
 interface ChunkRendererProps {
   chunk: ChatChunk;
+  isComplete?: boolean;
 }
 
-export function ChunkRenderer({ chunk }: ChunkRendererProps) {
+export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
   let content: React.ReactNode;
 
   switch (chunk.type) {
     case "status":
-      content = <StatusChunk content={chunk.content ?? ""} />;
+      content = <StatusChunk content={chunk.content ?? ""} isComplete={isComplete} />;
       break;
     case "tool_call":
       content = <ToolCallChunk content={chunk.content ?? ""} />;

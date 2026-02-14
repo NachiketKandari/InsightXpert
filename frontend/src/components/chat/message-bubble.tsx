@@ -4,6 +4,7 @@ import { motion } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
 import { MessageActions } from "@/components/chat/message-actions";
+import { useChatStore } from "@/stores/chat-store";
 import type { Message } from "@/types/chat";
 
 interface MessageBubbleProps {
@@ -19,6 +20,7 @@ export function MessageBubble({
   onRetry,
   onFeedback,
 }: MessageBubbleProps) {
+  const isStreaming = useChatStore((s) => s.isStreaming);
   const isUser = message.role === "user";
 
   return (
@@ -36,7 +38,15 @@ export function MessageBubble({
         <div className="w-full space-y-3">
           {message.chunks.length > 0 ? (
             message.chunks.map((chunk, i) => (
-              <ChunkRenderer key={i} chunk={chunk} />
+              <ChunkRenderer
+                key={i}
+                chunk={chunk}
+                isComplete={
+                  chunk.type === "status"
+                    ? i < message.chunks.length - 1 || !isStreaming
+                    : undefined
+                }
+              />
             ))
           ) : (
             <div className="space-y-2">
