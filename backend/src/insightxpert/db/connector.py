@@ -19,8 +19,11 @@ class DatabaseConnector:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._engine
 
-    def connect(self, url: str) -> None:
-        self._engine = create_engine(url, pool_pre_ping=True)
+    def connect(self, url: str, *, auth_token: str = "") -> None:
+        connect_args = {}
+        if "libsql" in url and auth_token:
+            connect_args = {"auth_token": auth_token}
+        self._engine = create_engine(url, connect_args=connect_args, pool_pre_ping=True)
         logger.debug("Engine created for %s", url)
 
     def disconnect(self) -> None:
@@ -34,7 +37,7 @@ class DatabaseConnector:
     ) -> list[dict]:
         start = time.time()
         with self.engine.connect() as conn:
-            if read_only:
+            if read_only and "libsql" not in str(self.engine.url):
                 conn.execute(text("PRAGMA query_only = ON"))
             result = conn.execute(text(sql))
             if result.returns_rows:

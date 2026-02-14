@@ -817,6 +817,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "python-jose", extra = ["cryptography"] },
     { name = "sqlalchemy" },
+    { name = "sqlalchemy-libsql" },
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -843,6 +844,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "python-jose", extras = ["cryptography"], specifier = ">=3.3" },
     { name = "sqlalchemy", specifier = ">=2.0" },
+    { name = "sqlalchemy-libsql", specifier = ">=0.2.0" },
     { name = "sse-starlette", specifier = ">=2.0" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.30.0" },
 ]
@@ -905,6 +907,24 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/2c/8f/85bf51ad4150f64e8c665daf0d9dfe9787ae92005efb9a4d1cba592bd79d/kubernetes-35.0.0.tar.gz", hash = "sha256:3d00d344944239821458b9efd484d6df9f011da367ecb155dadf9513f05f09ee", size = 1094642, upload-time = "2026-01-16T01:05:27.76Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0c/70/05b685ea2dffcb2adbf3cdcea5d8865b7bc66f67249084cf845012a0ff13/kubernetes-35.0.0-py2.py3-none-any.whl", hash = "sha256:39e2b33b46e5834ef6c3985ebfe2047ab39135d41de51ce7641a7ca5b372a13d", size = 2017602, upload-time = "2026-01-16T01:05:25.991Z" },
+]
+
+[[package]]
+name = "libsql-experimental"
+version = "0.0.55"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/14/d3eb81673e2096f38eb48f08e38b447f6f2fdc37a50bdb1810d4a225a7aa/libsql_experimental-0.0.55.tar.gz", hash = "sha256:34df13ad6da446e4ccede9b3803af40684da399c8f304848b54ea37e7111b249", size = 31954, upload-time = "2025-06-09T07:26:48.682Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/86/5d/27315a4287356d9d859e7702dda54146a560581f973f3efb6c65515ca7ad/libsql_experimental-0.0.55-cp311-cp311-macosx_10_12_x86_64.whl", hash = "sha256:213a0fb80117e5946f16cfc5e4d99fc961829bdb6ded3121ba94516a327d7b79", size = 4874679, upload-time = "2025-06-09T07:26:26.989Z" },
+    { url = "https://files.pythonhosted.org/packages/e9/ed/72132173b149933d539f00cd308d036d9de526db2dcb844912b9e7869101/libsql_experimental-0.0.55-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:c858f49a3270127f4f9e7b5835dde3e89c5df8eed375c9f17afd13d9d5723ed5", size = 4653222, upload-time = "2025-06-09T07:26:29.34Z" },
+    { url = "https://files.pythonhosted.org/packages/8f/e6/186db46aedf96edab9392c9a72e4e5e965616620e9c82efe0832c5a081bd/libsql_experimental-0.0.55-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:dacab03d6579c228e502833c30597af6a6d6b399d50debb482fc87e3b199e513", size = 5270078, upload-time = "2025-06-09T07:26:30.778Z" },
+    { url = "https://files.pythonhosted.org/packages/25/28/72e3bea3d9f28fbabcf11648d791f1f20fe42c288f58afdfbd978bd5500e/libsql_experimental-0.0.55-cp312-cp312-macosx_10_12_x86_64.whl", hash = "sha256:cffb9cd0c4bb39b37a5060ad492516c921ecbcc17ca7baa62c791d6753aa155b", size = 4881247, upload-time = "2025-06-09T07:26:32.335Z" },
+    { url = "https://files.pythonhosted.org/packages/17/ed/479f0908ccfdf1ccace798aac65480cb9514737fb37757daae0036ae6c7d/libsql_experimental-0.0.55-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:50312e354e739676885a9ea4000365538f3cec914d6b508a2206c3d33bea93a3", size = 4656349, upload-time = "2025-06-09T07:26:34.217Z" },
+    { url = "https://files.pythonhosted.org/packages/69/32/d84a47c7ab5332247be52065aaa6b22e4baae969b33af8daa99fb1a317bf/libsql_experimental-0.0.55-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:60d018dbad48f98ddee49d211618ab6309d4fa2a51beb8d9076de184d1cae9da", size = 5273739, upload-time = "2025-06-09T07:26:35.913Z" },
+    { url = "https://files.pythonhosted.org/packages/a0/9f/3589b9590ba948922bd200a02d754fa29e739da81a2953367e9283667a16/libsql_experimental-0.0.55-cp313-cp313-macosx_10_12_x86_64.whl", hash = "sha256:f3bfd7af2ca9d1ff8f8c7f7fce5f1a650bfe53c23b45658253480fe287283bae", size = 4881245, upload-time = "2025-06-09T07:26:37.382Z" },
+    { url = "https://files.pythonhosted.org/packages/37/cf/4aead944cb90f82ab1b61edc78dbe893420e8c4ceee19e1fdae775b1273d/libsql_experimental-0.0.55-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:b3476a78edb8f59aa6c571d6def1840fff8d263eb4bbc4b26b2afd7400cb9ba2", size = 4656348, upload-time = "2025-06-09T07:26:39.04Z" },
+    { url = "https://files.pythonhosted.org/packages/70/73/134dc2db0c3805f62953c85778bf93ac2f4a5ad81d49e592be990b012711/libsql_experimental-0.0.55-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:7a5dd325f87425546e0a7f0d460d4b6e1852bc4d4194a7b5ad127614ef8b3b10", size = 5273740, upload-time = "2025-06-09T07:26:40.597Z" },
+    { url = "https://files.pythonhosted.org/packages/a3/72/d958df309c1cf3baa816eb323dd49dbb0cb91b1cf0e29beea13aa1ade637/libsql_experimental-0.0.55-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:f12fdddea8987572e44eda7eef8f2ed7377c42ea43386bccaae43d001116bbc1", size = 5268646, upload-time = "2025-06-09T07:26:47.407Z" },
 ]
 
 [[package]]
@@ -2154,6 +2174,20 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/33/75/f28622ba6dde79cd545055ea7bd4062dc934e0621f7b3be2891f8563f8de/sqlalchemy-2.0.46-cp314-cp314t-musllinux_1_2_aarch64.whl", hash = "sha256:ff33c6e6ad006bbc0f34f5faf941cfc62c45841c64c0a058ac38c799f15b5ede", size = 3470008, upload-time = "2026-01-21T18:33:11.725Z" },
     { url = "https://files.pythonhosted.org/packages/a9/42/4afecbbc38d5e99b18acef446453c76eec6fbd03db0a457a12a056836e22/sqlalchemy-2.0.46-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:82ec52100ec1e6ec671563bbd02d7c7c8d0b9e71a0723c72f22ecf52d1755330", size = 3476137, upload-time = "2026-01-21T18:45:15.001Z" },
     { url = "https://files.pythonhosted.org/packages/fc/a1/9c4efa03300926601c19c18582531b45aededfb961ab3c3585f1e24f120b/sqlalchemy-2.0.46-py3-none-any.whl", hash = "sha256:f9c11766e7e7c0a2767dda5acb006a118640c9fc0a4104214b96269bfb78399e", size = 1937882, upload-time = "2026-01-21T18:22:10.456Z" },
+]
+
+[[package]]
+name = "sqlalchemy-libsql"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "greenlet" },
+    { name = "libsql-experimental" },
+    { name = "sqlalchemy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/9c/3e/a628dad23a5310e00db674a5ddf92300acb4199a06ea82385cc48f6e9289/sqlalchemy_libsql-0.2.0.tar.gz", hash = "sha256:f6349c89ea10b941a9cd87ebb65330c660aff996c12d3da7e1696572c360edd1", size = 6405, upload-time = "2025-05-30T17:59:14.812Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a2/b9/7a3b645766a9f0f2ba27580d1ec6eb1ade754b30f0c88fcc6bee4cc2cb20/sqlalchemy_libsql-0.2.0-py3-none-any.whl", hash = "sha256:852a731c64f318581942c81a5e18c9752a553af25608abbff04cd54ae1f3d451", size = 5929, upload-time = "2025-05-30T17:59:13.913Z" },
 ]
 
 [[package]]

@@ -22,6 +22,7 @@ class Settings(BaseSettings):
 
     # Database
     database_url: str = "sqlite:///./insightxpert.db"
+    turso_auth_token: str = ""
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_data"
@@ -47,6 +48,8 @@ class Settings(BaseSettings):
     @property
     def db_type(self) -> str:
         url = self.database_url.lower()
+        if "libsql" in url:
+            return "libsql"
         if url.startswith("sqlite"):
             return "sqlite"
         if "postgresql" in url or "postgres" in url:
