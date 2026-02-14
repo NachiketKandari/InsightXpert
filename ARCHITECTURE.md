@@ -22,14 +22,16 @@ Non-technical leadership at Indian fintech companies need to ask questions like:
 
 ## 2. Current State (as of Feb 14)
 
-The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational.
+The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational. Three design patterns (LLM Factory, Tool ABC + Registry, VectorStore Protocol) formalize the extension points.
 
 ### Implemented
 - **Analyst agent** (`agents/analyst.py`) — Full tool-calling loop: RAG retrieval -> LLM -> tool execution (run_sql, get_schema, search_similar) -> streaming response
-- **Tool framework** (`agents/tools.py`) — 3 tools defined as JSON schemas with async execution routing
+- **Tool ABC + ToolRegistry** (`agents/tool_base.py`, `agents/tools.py`) — `Tool` abstract base class with `ToolRegistry` for dispatch. 3 concrete tools (`RunSqlTool`, `GetSchemaTool`, `SearchSimilarTool`). New tools added by subclassing + `registry.register()`
+- **LLM Factory** (`llm/factory.py`) — Registry-based `create_llm(provider, settings)` replaces duplicated if/else blocks. Lazy imports avoid pulling in provider dependencies at module level
 - **LLM providers** (`llm/gemini.py`, `llm/ollama.py`) — Both Gemini and Ollama working with tool calling, streaming, and message conversion
-- **Runtime LLM switching** — `/api/config/switch` endpoint hot-swaps the LLM provider and model without restart
-- **RAG store** (`rag/store.py`) — ChromaDB with 4 collections (qa_pairs, ddl, docs, findings), semantic search, auto-deduplication via SHA256 IDs
+- **Runtime LLM switching** — `/api/config/switch` endpoint uses `create_llm()` to hot-swap the LLM provider and model without restart
+- **VectorStoreBackend Protocol** (`rag/base.py`) — `@runtime_checkable` protocol decouples RAG consumers from ChromaDB. `InMemoryVectorStore` (`rag/memory.py`) provides a zero-dependency test backend
+- **RAG store** (`rag/store.py`) — `ChromaVectorStore` (aliased as `VectorStore`) with 4 collections (qa_pairs, ddl, docs, findings), semantic search, auto-deduplication via SHA256 IDs
 - **Database layer** (`db/connector.py`, `db/schema.py`) — SQLAlchemy wrapper with row limits, timeouts, schema introspection
 - **Training bootstrap** (`training/trainer.py`) — Auto-loads DDL, documentation, 12 example Q&A pairs into RAG on startup
 - **Conversation memory** — Dual-store: in-memory LRU for LLM context + SQLite-backed persistent store for conversation history
@@ -213,26 +215,42 @@ The analyst is the primary agent. It receives a natural language question and pr
 
 ### 5.2 Tool Framework
 
-**File:** `agents/tools.py`
+**Files:** `agents/tool_base.py` (ABC + registry), `agents/tools.py` (concrete tools)
 
-Three tools exposed to the LLM as JSON Schema function definitions:
+The tool framework uses an abstract base class and registry pattern:
 
-| Tool | Purpose | Arguments | Returns |
-|------|---------|-----------|---------|
-| `run_sql` | Execute SELECT query on SQLite | `sql: string` | `{rows: [...], row_count: N}` |
-| `get_schema` | Get CREATE TABLE DDL | `tables?: string[]` | DDL string or table info JSON |
-| `search_similar` | Search ChromaDB knowledge base | `query: string, collection: "qa_pairs"\|"ddl"\|"docs"` | Array of `{document, metadata, distance}` |
+```python
+# agents/tool_base.py
+class ToolContext:        # Holds db, rag, row_limit — passed to every tool
+class Tool(ABC):          # Abstract: name, description, get_args_schema(), execute(), get_definition()
+class ToolRegistry:       # register(tool), get_schemas(), execute(name, args, context)
+```
 
-The `execute_tool()` function routes by tool name, handles errors with tracebacks, and enforces row limits on SQL results.
+Three concrete tools (each a `Tool` subclass in `agents/tools.py`):
+
+| Tool Class | LLM Name | Purpose | Arguments | Returns |
+|-----------|----------|---------|-----------|---------|
+| `RunSqlTool` | `run_sql` | Execute SELECT query on SQLite | `sql: string` | `{rows: [...], row_count: N}` |
+| `GetSchemaTool` | `get_schema` | Get CREATE TABLE DDL | `tables?: string[]` | DDL string or table info JSON |
+| `SearchSimilarTool` | `search_similar` | Search ChromaDB knowledge base | `query: string, collection: "qa_pairs"\|"ddl"\|"docs"` | Array of `{document, metadata, distance}` |
+
+The `default_registry()` function creates a pre-loaded `ToolRegistry`. The analyst loop accepts an optional `tool_registry` parameter, defaulting to `default_registry()` if not provided. Adding a new tool requires subclassing `Tool` and calling `registry.register()`.
+
+Backward-compatible `TOOL_DEFINITIONS` list and `execute_tool()` function are still exported for existing callers.
 
 ### 5.3 LLM Provider Abstraction
 
-**Files:** `llm/base.py`, `llm/gemini.py`, `llm/ollama.py`
+**Files:** `llm/base.py` (protocol), `llm/factory.py` (factory), `llm/gemini.py`, `llm/ollama.py`
 
 ```python
+# llm/base.py — Protocol
 class LLMProvider(Protocol):
     async def chat(messages, tools) -> LLMResponse       # Non-streaming
     async def chat_stream(messages, tools) -> AsyncGenerator[LLMChunk]  # Streaming
+
+# llm/factory.py — Registry-based factory
+_REGISTRY: dict[str, Callable[[Settings], LLMProvider]]  # "gemini" -> _create_gemini, etc.
+def create_llm(provider: str, settings: Settings) -> LLMProvider  # Raises ValueError on miss
 
 @dataclass
 class LLMResponse:
@@ -246,11 +264,13 @@ class ToolCall:
     arguments: dict
 ```
 
+**Factory pattern** — `create_llm("gemini", settings)` looks up a registry of factory functions. Each factory uses lazy imports to avoid pulling in provider dependencies at module level. Adding a new provider requires only writing the provider class and registering a factory function. Both `main.py` and `api/routes.py` use `create_llm()` instead of inline if/else blocks.
+
 **Gemini provider** — Uses `google-genai` async client. Converts internal message format to Gemini's `Content`/`Part` types. Maps tool definitions to `FunctionDeclaration`. Handles function_call responses and multipart content.
 
 **Ollama provider** — Uses `ollama` async client. Same protocol, different wire format. Fallback for local development without API keys.
 
-**Runtime switching** — Provider can be changed at runtime via `POST /api/config/switch`. The endpoint instantiates a new provider and replaces `app.state.llm`. No restart needed. Available models are served from `GET /api/config` (Gemini models are hardcoded, Ollama models are dynamically queried from the local server).
+**Runtime switching** — Provider can be changed at runtime via `POST /api/config/switch`. The endpoint updates settings, then calls `create_llm(provider, settings)` and replaces `app.state.llm`. No restart needed. Unknown providers return HTTP 400. Available models are served from `GET /api/config` (Gemini models are hardcoded, Ollama models are dynamically queried from the local server).
 
 ### 5.4 Planned Multi-Agent Pipeline
 
@@ -560,9 +580,11 @@ The `Trainer` class (`training/trainer.py`) loads all training data into ChromaD
 
 ### 9.1 Vector Store
 
-**File:** `rag/store.py`
+**Files:** `rag/base.py` (protocol), `rag/store.py` (ChromaDB), `rag/memory.py` (in-memory for testing)
 
-ChromaDB embedded persistent client with 4 collections:
+The vector store uses a `VectorStoreBackend` protocol (`@runtime_checkable`) defining all 8 methods (`add_qa_pair`, `add_ddl`, `add_documentation`, `add_finding`, `search_qa`, `search_ddl`, `search_docs`, `search_findings`). All consumers (e.g., `Trainer`, `ToolContext`) type-hint against the protocol, not the concrete implementation.
+
+**`ChromaVectorStore`** (`rag/store.py`, aliased as `VectorStore` for backward compat) — ChromaDB embedded persistent client with 4 collections:
 
 | Collection | Content | Search Method | Default N |
 |-----------|---------|---------------|-----------|
@@ -574,6 +596,8 @@ ChromaDB embedded persistent client with 4 collections:
 **Auto-deduplication:** Document IDs are SHA256 hashes of content (first 16 chars). Upserts prevent duplicates.
 
 **Auto-learning:** When the analyst successfully generates SQL, the question->SQL pair is automatically saved to the `qa_pairs` collection, improving future retrieval.
+
+**`InMemoryVectorStore`** (`rag/memory.py`) — Dict-based storage with `difflib.SequenceMatcher` for similarity ranking. Satisfies `VectorStoreBackend` structurally. Zero external dependencies — designed for unit tests and development without ChromaDB.
 
 ### 9.2 Conversation Memory (Dual-Store)
 
@@ -876,15 +900,18 @@ InsightXpert/
 |   |   |   +-- seed.py                   # [DONE] Bootstrap admin user
 |   |   |
 |   |   +-- agents/
-|   |   |   +-- analyst.py                # [DONE] Full agent loop (RAG + LLM + tools)
-|   |   |   +-- tools.py                  # [DONE] 3 tools: run_sql, get_schema, search_similar
+|   |   |   +-- analyst.py                # [DONE] Full agent loop (RAG + LLM + ToolRegistry)
+|   |   |   +-- tool_base.py             # [DONE] Tool ABC, ToolContext, ToolRegistry
+|   |   |   +-- tools.py                  # [DONE] RunSqlTool, GetSchemaTool, SearchSimilarTool + default_registry()
 |   |   |   +-- orchestrator.py           # [STUB] (6 lines, no routing logic)
 |   |   |   +-- statistician.py           # [PLANNED] Pure Python stats/comparisons
 |   |   |   +-- narrator.py               # [PLANNED] LLM-powered narrator
 |   |   |   +-- anomaly_detector.py       # [PLANNED] Background scan
 |   |   |
 |   |   +-- llm/
+|   |   |   +-- __init__.py               # [DONE] Exports LLMProvider, LLMResponse, LLMChunk, ToolCall, create_llm
 |   |   |   +-- base.py                   # [DONE] Protocol: LLMProvider, LLMResponse, ToolCall
+|   |   |   +-- factory.py                # [DONE] Registry-based factory: create_llm(provider, settings)
 |   |   |   +-- gemini.py                 # [DONE] Google Gemini (chat + stream + tools)
 |   |   |   +-- ollama.py                 # [DONE] Ollama local models (chat + stream + tools)
 |   |   |
@@ -893,7 +920,10 @@ InsightXpert/
 |   |   |   +-- schema.py                 # [DONE] DDL introspection
 |   |   |
 |   |   +-- rag/
-|   |   |   +-- store.py                  # [DONE] ChromaDB: 4 collections (qa, ddl, docs, findings)
+|   |   |   +-- __init__.py               # [DONE] Exports VectorStoreBackend, ChromaVectorStore, VectorStore, InMemoryVectorStore
+|   |   |   +-- base.py                   # [DONE] VectorStoreBackend protocol (@runtime_checkable)
+|   |   |   +-- store.py                  # [DONE] ChromaVectorStore: 4 collections (qa, ddl, docs, findings)
+|   |   |   +-- memory.py                 # [DONE] InMemoryVectorStore (difflib-based, for testing)
 |   |   |
 |   |   +-- memory/
 |   |   |   +-- conversation_store.py     # [DONE] In-memory LRU + TTL conversation history
@@ -1034,14 +1064,17 @@ Dev: pytest >=8.0, pytest-asyncio >=0.24, httpx >=0.27
 | Component | Status | File(s) |
 |-----------|--------|---------|
 | Analyst Agent | [DONE] | `agents/analyst.py` |
-| Tool Framework | [DONE] | `agents/tools.py` |
+| Tool ABC + ToolRegistry | [DONE] | `agents/tool_base.py`, `agents/tools.py` |
 | Gemini LLM Provider | [DONE] | `llm/gemini.py` |
 | Ollama LLM Provider | [DONE] | `llm/ollama.py` |
 | LLM Protocol | [DONE] | `llm/base.py` |
-| Runtime LLM Switching | [DONE] | `api/routes.py` (config endpoints) |
+| LLM Factory | [DONE] | `llm/factory.py` |
+| Runtime LLM Switching | [DONE] | `api/routes.py` (config endpoints via `create_llm`) |
 | Database Layer | [DONE] | `db/connector.py`, `db/schema.py` |
 | SQL Executor (read-only) | [DONE] | `api/routes.py` (sql/execute endpoint) |
-| RAG Store | [DONE] | `rag/store.py` |
+| RAG Store (ChromaDB) | [DONE] | `rag/store.py` (ChromaVectorStore) |
+| RAG Protocol | [DONE] | `rag/base.py` (VectorStoreBackend) |
+| RAG In-Memory (testing) | [DONE] | `rag/memory.py` (InMemoryVectorStore) |
 | Training Bootstrap | [DONE] | `training/trainer.py` |
 | In-Memory Conversation Store | [DONE] | `memory/conversation_store.py` |
 | Persistent Conversation Store | [DONE] | `auth/conversation_store.py` |

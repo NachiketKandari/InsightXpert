@@ -106,11 +106,13 @@ InsightXpert/
 │   │   │
 │   │   ├── agents/
 │   │   │   ├── analyst.py       # Core agent loop (RAG + LLM + tools)
-│   │   │   ├── tools.py         # run_sql, get_schema, search_similar
+│   │   │   ├── tool_base.py     # Tool ABC, ToolContext, ToolRegistry
+│   │   │   ├── tools.py         # RunSqlTool, GetSchemaTool, SearchSimilarTool
 │   │   │   └── orchestrator.py  # Multi-agent routing (stub)
 │   │   │
 │   │   ├── llm/
 │   │   │   ├── base.py          # LLMProvider protocol
+│   │   │   ├── factory.py       # Registry-based provider factory (create_llm)
 │   │   │   ├── gemini.py        # Google Gemini provider
 │   │   │   └── ollama.py        # Ollama local provider
 │   │   │
@@ -119,7 +121,9 @@ InsightXpert/
 │   │   │   └── schema.py        # DDL introspection
 │   │   │
 │   │   ├── rag/
-│   │   │   └── store.py         # ChromaDB: 4 collections (qa, ddl, docs, findings)
+│   │   │   ├── base.py          # VectorStoreBackend protocol
+│   │   │   ├── store.py         # ChromaVectorStore: 4 collections (qa, ddl, docs, findings)
+│   │   │   └── memory.py        # InMemoryVectorStore (for testing)
 │   │   │
 │   │   ├── memory/
 │   │   │   └── conversation_store.py  # In-memory LRU + TTL conversation history
@@ -173,6 +177,11 @@ npm run dev                      # Start dev server → http://localhost:3000
 ## Key Design Decisions
 
 **From-scratch agent engine** — Vanna was replaced with a custom ~600-line engine for full control over multi-agent orchestration, explainability layers, and SSE streaming.
+
+**Design patterns for extensibility:**
+- **LLM Factory** (`llm/factory.py`) — Registry-based provider creation via `create_llm(provider, settings)`. Adding a new LLM backend requires only registering a factory function; no if/else chains to touch.
+- **Tool ABC + ToolRegistry** (`agents/tool_base.py`) — Each tool is a class with `name`, `description`, `get_args_schema()`, and `execute()`. The `ToolRegistry` manages dispatch, schema generation, and error handling. New tools are added by subclassing `Tool` and calling `registry.register()`.
+- **VectorStoreBackend Protocol** (`rag/base.py`) — Runtime-checkable protocol decouples all RAG consumers from ChromaDB. `InMemoryVectorStore` provides a zero-dependency backend for testing.
 
 **Explainability-first approach** — Every response includes:
 1. A plain-language summary using business vocabulary
