@@ -44,14 +44,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {isMobile ? (
           <>
             <Sheet open={leftOpen} onOpenChange={setLeftSidebar}>
-              <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0">
+              <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
                 <SheetTitle className="sr-only">Chat History</SheetTitle>
                 <LeftSidebar />
               </SheetContent>
             </Sheet>
 
             <Sheet open={rightOpen} onOpenChange={setRightSidebar}>
-              <SheetContent side="right" className="w-[85vw] max-w-[320px] p-0">
+              <SheetContent side="right" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
                 <SheetTitle className="sr-only">Agent Process</SheetTitle>
                 <RightSidebar />
               </SheetContent>
