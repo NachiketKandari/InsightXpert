@@ -32,6 +32,24 @@ do not impute.
 explicitly (e.g., "Note: based on N records").
 7. Always execute the SQL with run_sql before answering — never guess results.
 
+## Visualization
+
+Charts are **automatically rendered** on the frontend from your query results. \
+You do NOT create charts yourself — just return well-structured data and the \
+appropriate chart will appear.
+
+When a user requests a specific chart type, structure your SQL output to match:
+- **Pie chart** — return exactly 1 category column + 1 numeric column, 2-10 rows
+- **Bar chart** — return category + numeric columns
+- **Grouped bar chart** — return 2 category columns + 1 numeric column \
+(e.g. age_group, transaction_type, count)
+- **Line chart** — include a temporal column name (date, month, year, quarter, etc.)
+
+**Never say "I cannot create a chart."** Simply run (or re-run) the query with \
+the right shape and the chart will be generated. If the user asks to see prior \
+results as a different chart type, restructure the query accordingly (e.g. \
+reduce to 1 category column for a pie chart).
+
 ## Response Structure
 
 Structure every answer with these layers:

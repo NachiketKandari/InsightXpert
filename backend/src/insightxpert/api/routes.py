@@ -19,6 +19,7 @@ from insightxpert.api.models import (
     ProviderModels,
     RenameRequest,
     SchemaResponse,
+    SearchResultItem,
     SqlExecuteRequest,
     SqlExecuteResponse,
     SwitchModelRequest,
@@ -90,6 +91,7 @@ async def chat_sse(
 
     final_answer: list[str] = []
     all_chunks: list[str] = []
+    executed_sql: list[str] = []
 
     async def event_generator():
         actual_cid = ""
@@ -105,6 +107,8 @@ async def chat_sse(
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
             all_chunks.append(chunk_json)
+            if chunk.type == "sql" and chunk.sql:
+                executed_sql.append(chunk.sql)
             if chunk.type == "answer" and chunk.content:
                 final_answer.append(chunk.content)
             yield {"data": chunk_json}
@@ -113,7 +117,11 @@ async def chat_sse(
         # Save assistant answer to in-memory conversation memory
         store_cid = cid or actual_cid
         if store_cid and final_answer:
-            conv_store.add_assistant_message(store_cid, final_answer[-1])
+            history_content = final_answer[-1]
+            if executed_sql:
+                sql_ctx = "; ".join(executed_sql)
+                history_content = f"[SQL: {sql_ctx}]\n\n{history_content}"
+            conv_store.add_assistant_message(store_cid, history_content)
 
         # Persist assistant message to SQLite
         if final_answer:
@@ -139,6 +147,7 @@ async def chat_poll(
 
     chunks: list[dict] = []
     final_answer = ""
+    poll_executed_sql: list[str] = []
     async for chunk in analyst_loop(
         question=chat_req.message,
         llm=llm,
@@ -149,12 +158,18 @@ async def chat_poll(
         history=history,
     ):
         chunks.append(chunk.model_dump())
+        if chunk.type == "sql" and chunk.sql:
+            poll_executed_sql.append(chunk.sql)
         if chunk.type == "answer" and chunk.content:
             final_answer = chunk.content
 
     store_cid = cid or (chunks[0]["conversation_id"] if chunks else "")
     if store_cid and final_answer:
-        conv_store.add_assistant_message(store_cid, final_answer)
+        history_content = final_answer
+        if poll_executed_sql:
+            sql_ctx = "; ".join(poll_executed_sql)
+            history_content = f"[SQL: {sql_ctx}]\n\n{history_content}"
+        conv_store.add_assistant_message(store_cid, history_content)
 
     # Persist assistant message to SQLite
     if final_answer:
@@ -361,6 +376,20 @@ async def list_conversations(
     persistent_store = request.app.state.persistent_conv_store
     convos = persistent_store.get_conversations(user.id)
     return [ConversationSummary(**c) for c in convos]
+
+
+@router.get("/conversations/search", response_model=list[SearchResultItem])
+async def search_conversations(
+    request: Request,
+    q: str = "",
+    user: User = Depends(get_current_user),
+):
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    persistent_store = request.app.state.persistent_conv_store
+    results = persistent_store.search_conversations(user.id, q)
+    return [SearchResultItem(**r) for r in results]
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
