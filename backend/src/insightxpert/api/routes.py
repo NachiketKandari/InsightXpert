@@ -16,7 +16,11 @@ from insightxpert.api.models import (
     ConversationSummary,
     FeedbackRequest,
     MessageResponse,
+    OllamaModelInfo,
+    OllamaModelsResponse,
+    OllamaPullRequest,
     ProviderModels,
+    RagDeleteResponse,
     RenameRequest,
     SchemaResponse,
     SearchResultItem,
@@ -208,6 +212,19 @@ async def train(
 
     logger.info("Trained %s: id=%s", req.type, doc_id)
     return TrainResponse(status="ok", id=doc_id)
+
+
+@router.delete("/rag", response_model=RagDeleteResponse)
+async def delete_rag(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Delete all RAG embeddings from all collections (qa_pairs, ddl, docs, findings)."""
+    logger.info("DELETE /rag requested by user=%s", user.email)
+    _, _, rag, _, _ = _get_deps(request)
+    counts = rag.delete_all()
+    logger.info("RAG embeddings deleted: %s", counts)
+    return RagDeleteResponse(status="ok", deleted=counts)
 
 
 @router.get("/schema", response_model=SchemaResponse)
@@ -446,6 +463,103 @@ async def rename_conversation(
     if not renamed:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok"}
+
+
+# --- Ollama model management --------------------------------------------
+
+
+def _get_ollama_client(request: Request):
+    """Return an async Ollama client or raise 503 if Ollama is unreachable."""
+    try:
+        import ollama as ollama_sdk
+    except ImportError:
+        raise HTTPException(status_code=503, detail="ollama Python package is not installed")
+    settings = request.app.state.settings
+    return ollama_sdk.AsyncClient(host=settings.ollama_base_url)
+
+
+@router.post("/ollama/pull")
+async def ollama_pull(
+    body: OllamaPullRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Pull (download) an Ollama model. Streams progress via SSE."""
+    client = _get_ollama_client(request)
+    model_name = body.model
+    logger.info("POST /ollama/pull model=%s user=%s", model_name, user.email)
+
+    async def event_generator():
+        try:
+            stream = await client.pull(model=model_name, stream=True)
+            async for progress in stream:
+                status = progress.get("status", "") if isinstance(progress, dict) else getattr(progress, "status", "")
+                completed = progress.get("completed") if isinstance(progress, dict) else getattr(progress, "completed", None)
+                total = progress.get("total") if isinstance(progress, dict) else getattr(progress, "total", None)
+                digest = progress.get("digest") if isinstance(progress, dict) else getattr(progress, "digest", None)
+
+                event = {"status": status}
+                if completed is not None and total is not None and total > 0:
+                    event["completed"] = completed
+                    event["total"] = total
+                    event["percent"] = round(completed / total * 100, 1)
+                if digest:
+                    event["digest"] = digest
+
+                yield {"data": json.dumps(event)}
+
+            yield {"data": json.dumps({"status": "success", "model": model_name})}
+        except Exception as e:
+            logger.error("Ollama pull failed for %s: %s", model_name, e)
+            yield {"data": json.dumps({"status": "error", "detail": str(e)})}
+
+        yield {"data": "[DONE]"}
+
+    return EventSourceResponse(event_generator())
+
+
+@router.get("/ollama/models", response_model=OllamaModelsResponse)
+async def ollama_list_models(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """List all locally available Ollama models."""
+    client = _get_ollama_client(request)
+    try:
+        response = await client.list()
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Cannot reach Ollama: {e}")
+
+    models = []
+    for m in response.models:
+        size_bytes = m.size if isinstance(m.size, (int, float)) else getattr(m.size, "real", None)
+        details = m.details
+        models.append(OllamaModelInfo(
+            model=(m.model or "").replace(":latest", ""),
+            size_mb=round(size_bytes / 1_048_576, 1) if size_bytes else None,
+            parameter_size=details.parameter_size if details else None,
+            quantization=details.quantization_level if details else None,
+            family=details.family if details else None,
+        ))
+
+    return OllamaModelsResponse(models=models)
+
+
+@router.delete("/ollama/models/{model_name:path}")
+async def ollama_delete_model(
+    model_name: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Delete a locally downloaded Ollama model."""
+    client = _get_ollama_client(request)
+    logger.info("DELETE /ollama/models/%s user=%s", model_name, user.email)
+    try:
+        result = await client.delete(model_name)
+        status = result.get("status", "success") if isinstance(result, dict) else getattr(result, "status", "success")
+        return {"status": status, "model": model_name}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to delete model '{model_name}': {e}")
 
 
 # --- Feedback -----------------------------------------------------------

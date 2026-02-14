@@ -33,6 +33,11 @@ class TrainResponse(BaseModel):
     id: str = ""
 
 
+class RagDeleteResponse(BaseModel):
+    status: str = "ok"
+    deleted: dict[str, int] = {}
+
+
 class SchemaResponse(BaseModel):
     ddl: str
     tables: list[str]
@@ -130,3 +135,22 @@ class FeedbackRequest(BaseModel):
     message_id: str
     rating: Literal["up", "down"]
     comment: str = ""
+
+
+# --- Ollama models -------------------------------------------------------
+
+
+class OllamaPullRequest(BaseModel):
+    model: str = Field(description="Model name to pull, e.g. 'ministral:3b' or 'llama3.2:1b'")
+
+
+class OllamaModelInfo(BaseModel):
+    model: str
+    size_mb: float | None = None
+    parameter_size: str | None = None
+    quantization: str | None = None
+    family: str | None = None
+
+
+class OllamaModelsResponse(BaseModel):
+    models: list[OllamaModelInfo]
