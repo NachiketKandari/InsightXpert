@@ -8,3 +8,7 @@ __all__ = [
     "VectorStore",
     "InMemoryVectorStore",
 ]
+
+# Verify implementations satisfy the protocol at import time
+assert issubclass(ChromaVectorStore, VectorStoreBackend), "ChromaVectorStore must implement VectorStoreBackend"
+assert issubclass(InMemoryVectorStore, VectorStoreBackend), "InMemoryVectorStore must implement VectorStoreBackend"

@@ -20,6 +20,10 @@ class GeminiProvider:
         self._client = genai.Client(api_key=api_key)
         logger.debug("GeminiProvider initialized (model=%s)", model)
 
+    @property
+    def model(self) -> str:
+        return self._model
+
     def _convert_tools(self, tools: list[dict] | None) -> list[types.Tool] | None:
         if not tools:
             return None

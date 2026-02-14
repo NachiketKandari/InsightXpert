@@ -10,6 +10,7 @@ _PROMPTS_DIR = Path(__file__).parent
 
 _env = Environment(
     loader=FileSystemLoader(_PROMPTS_DIR),
+    autoescape=False,  # Plain-text prompts, not HTML
     keep_trailing_newline=False,
     trim_blocks=True,
     lstrip_blocks=True,

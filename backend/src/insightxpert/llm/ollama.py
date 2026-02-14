@@ -20,6 +20,10 @@ class OllamaProvider:
         self._client = ollama_sdk.AsyncClient(host=base_url, timeout=timeout)
         logger.debug("OllamaProvider initialized (model=%s, url=%s, timeout=%.0fs)", model, base_url, timeout)
 
+    @property
+    def model(self) -> str:
+        return self._model
+
     def _convert_tools(self, tools: list[dict] | None) -> list[dict] | None:
         if not tools:
             return None

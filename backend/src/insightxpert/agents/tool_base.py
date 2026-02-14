@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
-import traceback
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING
 
 from insightxpert.db.connector import DatabaseConnector
+
+if TYPE_CHECKING:
+    from insightxpert.rag.base import VectorStoreBackend
 
 logger = logging.getLogger("insightxpert.tools")
 
@@ -15,7 +17,7 @@ logger = logging.getLogger("insightxpert.tools")
 @dataclass
 class ToolContext:
     db: DatabaseConnector
-    rag: Any  # VectorStoreBackend — kept generic to avoid circular imports
+    rag: VectorStoreBackend
     row_limit: int = 1000
 
 
@@ -64,4 +66,4 @@ class ToolRegistry:
             return await tool.execute(context, args)
         except Exception as e:
             logger.error("Tool %s failed: %s", name, e, exc_info=True)
-            return json.dumps({"error": str(e), "traceback": traceback.format_exc()})
+            return json.dumps({"error": str(e)})

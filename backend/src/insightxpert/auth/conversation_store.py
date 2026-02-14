@@ -4,7 +4,7 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import desc
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import ConversationRecord, MessageRecord
@@ -18,28 +18,45 @@ class PersistentConversationStore:
 
     def get_conversations(self, user_id: str) -> list[dict]:
         with Session(self.engine) as session:
-            convos = (
-                session.query(ConversationRecord)
+            # Subquery: latest message created_at per conversation
+            latest_msg = (
+                select(
+                    MessageRecord.conversation_id,
+                    func.max(MessageRecord.created_at).label("max_created"),
+                )
+                .group_by(MessageRecord.conversation_id)
+                .subquery()
+            )
+
+            rows = (
+                session.query(
+                    ConversationRecord,
+                    MessageRecord.content.label("last_content"),
+                )
+                .outerjoin(
+                    latest_msg,
+                    ConversationRecord.id == latest_msg.c.conversation_id,
+                )
+                .outerjoin(
+                    MessageRecord,
+                    (MessageRecord.conversation_id == latest_msg.c.conversation_id)
+                    & (MessageRecord.created_at == latest_msg.c.max_created),
+                )
                 .filter(ConversationRecord.user_id == user_id)
                 .order_by(desc(ConversationRecord.updated_at))
                 .all()
             )
-            result = []
-            for c in convos:
-                last_msg = (
-                    session.query(MessageRecord)
-                    .filter(MessageRecord.conversation_id == c.id)
-                    .order_by(desc(MessageRecord.created_at))
-                    .first()
-                )
-                result.append({
+
+            return [
+                {
                     "id": c.id,
                     "title": c.title,
                     "created_at": c.created_at.isoformat(),
                     "updated_at": c.updated_at.isoformat(),
-                    "last_message": last_msg.content[:200] if last_msg else None,
-                })
-            return result
+                    "last_message": last_content[:200] if last_content else None,
+                }
+                for c, last_content in rows
+            ]
 
     def get_conversation(self, conversation_id: str, user_id: str) -> dict | None:
         with Session(self.engine) as session:

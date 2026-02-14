@@ -46,25 +46,20 @@ def _get_deps(request: Request):
     )
 
 
-@router.post("/chat")
-async def chat_sse(
-    chat_req: ChatRequest,
-    request: Request,
-    user: User = Depends(get_current_user),
-):
-    logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
+def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
+    """Shared setup for both SSE and poll chat endpoints.
+
+    Returns (llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history).
+    """
     llm, db, rag, settings, conv_store = _get_deps(request)
     persistent_store = request.app.state.persistent_conv_store
 
-    # Load conversation history for this session
     cid = chat_req.conversation_id or ""
     history = conv_store.get_history(cid)
 
-    # Save user message to in-memory store
     if cid:
         conv_store.add_user_message(cid, chat_req.message)
 
-    # Ensure persistent conversation exists and save user message
     title = chat_req.message[:100]
     if cid:
         persistent_cid = cid
@@ -80,6 +75,18 @@ async def chat_sse(
         persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
     except Exception as e:
         logger.warning("Failed to persist user message: %s", e)
+
+    return llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history
+
+
+@router.post("/chat")
+async def chat_sse(
+    chat_req: ChatRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
+    llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
 
     final_answer: list[str] = []
     all_chunks: list[str] = []
@@ -128,31 +135,7 @@ async def chat_poll(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store = _get_deps(request)
-    persistent_store = request.app.state.persistent_conv_store
-
-    cid = chat_req.conversation_id or ""
-    history = conv_store.get_history(cid)
-
-    if cid:
-        conv_store.add_user_message(cid, chat_req.message)
-
-    # Ensure persistent conversation exists and save user message
-    title = chat_req.message[:100]
-    if cid:
-        persistent_cid = cid
-        try:
-            persistent_store.get_or_create_conversation(cid, user.id, title)
-        except Exception as e:
-            logger.warning("Failed to ensure persistent conversation: %s", e)
-    else:
-        convo = persistent_store.create_conversation(user.id, title)
-        persistent_cid = convo["id"]
-
-    try:
-        persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
-    except Exception as e:
-        logger.warning("Failed to persist user message: %s", e)
+    llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
 
     chunks: list[dict] = []
     final_answer = ""
@@ -251,7 +234,7 @@ async def get_config(
     llm = request.app.state.llm
 
     current_provider = settings.llm_provider.value
-    current_model = llm._model
+    current_model = llm.model
 
     ollama_models = list(OLLAMA_MODELS)
     try:
@@ -283,23 +266,9 @@ async def switch_model(
     user: User = Depends(get_current_user),
 ):
     settings = request.app.state.settings
-
-    # Update settings so the factory reads the correct model
     from insightxpert.config import LLMProvider as LLMProviderEnum
 
-    if req.provider == "gemini":
-        settings.llm_provider = LLMProviderEnum.GEMINI
-        settings.gemini_model = req.model
-    elif req.provider == "ollama":
-        settings.llm_provider = LLMProviderEnum.OLLAMA
-        settings.ollama_model = req.model
-
-    try:
-        new_llm = create_llm(req.provider, settings)
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    # Validate Ollama model exists before accepting the switch
+    # Validate Ollama model exists before creating the provider
     if req.provider == "ollama":
         try:
             import ollama as ollama_sdk
@@ -311,6 +280,27 @@ async def switch_model(
                 detail=f"Cannot reach Ollama or model '{req.model}' not found. "
                        f"Ensure Ollama is running and the model is pulled. Error: {e}",
             )
+
+    # Save original settings so we can roll back on failure
+    prev_provider = settings.llm_provider
+    prev_gemini_model = settings.gemini_model
+    prev_ollama_model = settings.ollama_model
+
+    if req.provider == "gemini":
+        settings.llm_provider = LLMProviderEnum.GEMINI
+        settings.gemini_model = req.model
+    elif req.provider == "ollama":
+        settings.llm_provider = LLMProviderEnum.OLLAMA
+        settings.ollama_model = req.model
+
+    try:
+        new_llm = create_llm(req.provider, settings)
+    except ValueError as e:
+        # Roll back settings on failure
+        settings.llm_provider = prev_provider
+        settings.gemini_model = prev_gemini_model
+        settings.ollama_model = prev_ollama_model
+        raise HTTPException(status_code=400, detail=str(e))
 
     request.app.state.llm = new_llm
     logger.info("Switched LLM: provider=%s model=%s", req.provider, req.model)
@@ -341,7 +331,7 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
 
     start = time.time()
     try:
-        rows = db.execute(sql_text, row_limit=settings.sql_row_limit, timeout=settings.sql_timeout_seconds)
+        rows = db.execute(sql_text, row_limit=settings.sql_row_limit, timeout=settings.sql_timeout_seconds, read_only=True)
         ms = (time.time() - start) * 1000
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
