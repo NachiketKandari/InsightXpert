@@ -31,7 +31,7 @@ export function MessageBubble({
       className={`group/message flex flex-col ${isUser ? "items-end" : "items-start"}`}
     >
       {isUser ? (
-        <div className="max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-4 py-2.5 text-sm text-primary-foreground">
+        <div className="max-w-[90%] sm:max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-primary-foreground">
           {message.content}
         </div>
       ) : (

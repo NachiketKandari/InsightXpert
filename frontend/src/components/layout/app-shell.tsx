@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PanelLeft, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -24,6 +25,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
   const isMobile = useIsMobile();
+  const prevMobileRef = useRef(isMobile);
+
+  // Close sidebars when switching to mobile view
+  useEffect(() => {
+    if (isMobile && !prevMobileRef.current) {
+      setLeftSidebar(false);
+      setRightSidebar(false);
+    }
+    prevMobileRef.current = isMobile;
+  }, [isMobile, setLeftSidebar, setRightSidebar]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
@@ -33,14 +44,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {isMobile ? (
           <>
             <Sheet open={leftOpen} onOpenChange={setLeftSidebar}>
-              <SheetContent side="left" className="w-[280px] p-0">
+              <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0">
                 <SheetTitle className="sr-only">Chat History</SheetTitle>
                 <LeftSidebar />
               </SheetContent>
             </Sheet>
 
             <Sheet open={rightOpen} onOpenChange={setRightSidebar}>
-              <SheetContent side="right" className="w-[300px] p-0">
+              <SheetContent side="right" className="w-[85vw] max-w-[320px] p-0">
                 <SheetTitle className="sr-only">Agent Process</SheetTitle>
                 <RightSidebar />
               </SheetContent>
