@@ -101,28 +101,40 @@ InsightXpert/
 │   │   ├── config.py            # Pydantic Settings (LLM, DB, limits)
 │   │   │
 │   │   ├── api/
-│   │   │   ├── routes.py        # /chat (SSE), /chat/poll, /train, /schema, /health
-│   │   │   └── models.py        # ChatRequest, ChatChunk, TrainRequest, etc.
+│   │   │   ├── routes.py        # /chat (SSE), /chat/poll, /train, /schema, /health, /feedback
+│   │   │   └── models.py        # ChatRequest, ChatChunk, FeedbackRequest, etc.
 │   │   │
 │   │   ├── agents/
-│   │   │   ├── analyst.py       # Core agent loop (RAG + LLM + tools)
-│   │   │   ├── tools.py         # run_sql, get_schema, search_similar
+│   │   │   ├── analyst.py       # Core agent loop (RAG + LLM + tools, error recovery)
+│   │   │   ├── tool_base.py     # Tool ABC, ToolContext, ToolRegistry
+│   │   │   ├── tools.py         # RunSqlTool, GetSchemaTool, SearchSimilarTool
 │   │   │   └── orchestrator.py  # Multi-agent routing (stub)
+│   │   │
+│   │   ├── prompts/
+│   │   │   ├── __init__.py      # Jinja2 template loader (render function)
+│   │   │   └── analyst_system.j2 # Analyst system prompt template
 │   │   │
 │   │   ├── llm/
 │   │   │   ├── base.py          # LLMProvider protocol
+│   │   │   ├── factory.py       # Registry-based provider factory (create_llm)
 │   │   │   ├── gemini.py        # Google Gemini provider
-│   │   │   └── ollama.py        # Ollama local provider
+│   │   │   └── ollama.py        # Ollama local provider (120s timeout)
 │   │   │
 │   │   ├── db/
 │   │   │   ├── connector.py     # SQLAlchemy wrapper (execute, row limits)
 │   │   │   └── schema.py        # DDL introspection
 │   │   │
 │   │   ├── rag/
-│   │   │   └── store.py         # ChromaDB: 4 collections (qa, ddl, docs, findings)
+│   │   │   ├── base.py          # VectorStoreBackend protocol
+│   │   │   ├── store.py         # ChromaVectorStore: 4 collections (qa, ddl, docs, findings)
+│   │   │   └── memory.py        # InMemoryVectorStore (for testing)
 │   │   │
 │   │   ├── memory/
 │   │   │   └── conversation_store.py  # In-memory LRU + TTL conversation history
+│   │   │
+│   │   ├── auth/
+│   │   │   ├── models.py        # User, ConversationRecord, MessageRecord, FeedbackRecord
+│   │   │   └── conversation_store.py  # Persistent CRUD + get_or_create_conversation
 │   │   │
 │   │   ├── observability/       # Tracer + store (stubs for Day 2+)
 │   │   │
@@ -139,11 +151,11 @@ InsightXpert/
     └── src/
         ├── app/                 # Next.js App Router (layout, page)
         ├── components/
-        │   ├── chat/            # ChatPanel, MessageBubble, MessageInput, MessageList, WelcomeScreen
+        │   ├── chat/            # ChatPanel, MessageBubble, MessageActions, MessageInput, MessageList, WelcomeScreen
         │   ├── chunks/          # ChunkRenderer, StatusChunk, SqlChunk, ToolResultChunk, AnswerChunk, ErrorChunk
-        │   ├── layout/          # AppShell, Header, LeftSidebar, RightSidebar
+        │   ├── layout/          # AppShell, Header, UserMenu, LeftSidebar, RightSidebar
         │   ├── sidebar/         # ConversationList, ProcessSteps, StepItem
-        │   └── ui/              # Shadcn primitives (button, card, input, etc.)
+        │   └── ui/              # Shadcn primitives (button, card, avatar, input, etc.)
         ├── hooks/               # useSSEChat, useAutoScroll, useMediaQuery
         ├── lib/                 # SSE client, chunk parser, chart detector, constants
         ├── stores/              # Zustand chat store (conversations, agent steps)
@@ -174,6 +186,12 @@ npm run dev                      # Start dev server → http://localhost:3000
 
 **From-scratch agent engine** — Vanna was replaced with a custom ~600-line engine for full control over multi-agent orchestration, explainability layers, and SSE streaming.
 
+**Design patterns for extensibility:**
+- **LLM Factory** (`llm/factory.py`) — Registry-based provider creation via `create_llm(provider, settings)`. Adding a new LLM backend requires only registering a factory function; no if/else chains to touch.
+- **Tool ABC + ToolRegistry** (`agents/tool_base.py`) — Each tool is a class with `name`, `description`, `get_args_schema()`, and `execute()`. The `ToolRegistry` manages dispatch, schema generation, and error handling (sanitized errors only — no tracebacks leaked to LLM/user). New tools are added by subclassing `Tool` and calling `registry.register()`.
+- **VectorStoreBackend Protocol** (`rag/base.py`) — Runtime-checkable protocol decouples all RAG consumers from ChromaDB. `InMemoryVectorStore` provides a zero-dependency backend for testing. Protocol conformance verified at import time via `issubclass` assertions.
+- **Jinja2 Prompt Templates** (`prompts/analyst_system.j2`) — System prompt extracted into a Jinja2 template with conditional sections for RAG context (similar QA, DDL, docs, findings). Template rendering via `prompts.render()`.
+
 **Explainability-first approach** — Every response includes:
 1. A plain-language summary using business vocabulary
 2. Supporting statistics and evidence
@@ -181,10 +199,20 @@ npm run dev                      # Start dev server → http://localhost:3000
 4. Confidence caveats for small sample sizes
 5. Follow-up suggestions for deeper analysis
 
+**Error resilience:**
+- LLM call failures (network errors, model not found, timeouts) are caught and surfaced as chat error messages instead of crashing the stream
+- Ollama provider has a 120s timeout; model existence is validated on provider switch (HTTP 503 with clear message)
+- Conversation persistence uses `get_or_create_conversation` to bridge frontend-generated IDs with backend storage
+
+**Message interactions:**
+- Copy prompt/response, thumbs up/down feedback, retry last message
+- Feedback persisted via `POST /api/feedback` with rating and optional comment
+- Old conversations lazy-load messages on click from `GET /api/conversations/{id}`
+
 **Guardrails:**
 - No causal claims — correlation only
 - `fraud_flag` = flagged for review, not confirmed fraud
-- SELECT-only SQL enforcement, row limits, timeouts
+- Dual SQL write protection: regex blocklist + SQLite `PRAGMA query_only` at engine level; row limits, timeouts
 - No user-level profiling (no `user_id` in dataset)
 - Insights are directional (synthetic data)
 

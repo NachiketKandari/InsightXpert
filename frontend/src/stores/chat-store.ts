@@ -26,6 +26,7 @@ interface ChatState {
   initFromStorage: () => Promise<void>;
   newConversation: () => string;
   setActiveConversation: (id: string) => void;
+  loadConversationMessages: (id: string) => Promise<void>;
   deleteConversation: (id: string) => void;
   renameConversation: (id: string, title: string) => void;
 
@@ -96,6 +97,35 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setActiveConversation: (id) => {
     set({ activeConversationId: id, agentSteps: [] });
+    // Lazy-load messages if the conversation has none
+    const conv = get().conversations.find((c) => c.id === id);
+    if (conv && conv.messages.length === 0) {
+      get().loadConversationMessages(id);
+    }
+  },
+
+  loadConversationMessages: async (id) => {
+    try {
+      const res = await apiFetch(`/api/conversations/${id}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const messages: Message[] = (data.messages || []).map(
+        (m: { id: string; role: "user" | "assistant"; content: string; chunks?: ChatChunk[]; created_at: string }) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          chunks: m.chunks || [],
+          timestamp: new Date(m.created_at).getTime(),
+        })
+      );
+      set((state) => ({
+        conversations: state.conversations.map((c) =>
+          c.id === id ? { ...c, messages } : c
+        ),
+      }));
+    } catch {
+      // silently fail
+    }
   },
 
   deleteConversation: (id) => {

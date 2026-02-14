@@ -29,8 +29,8 @@ export function WelcomeScreen({ onSendMessage }: WelcomeScreenProps) {
         transition={{ duration: 0.5 }}
         className="mb-2 text-center"
       >
-        <h1 className="bg-gradient-to-r from-cyan-400 to-cyan-600 bg-clip-text text-4xl font-bold tracking-tight text-transparent sm:text-5xl">
-          InsightXpert
+        <h1 className="text-4xl font-bold leading-tight tracking-tight pb-1 sm:text-5xl">
+          Insight<span className="text-cyan-accent">Xpert</span>
         </h1>
         <p className="mt-3 text-sm text-muted-foreground sm:text-base">
           AI-powered analytics for Indian digital payments

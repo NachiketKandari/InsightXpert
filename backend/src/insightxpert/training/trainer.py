@@ -6,13 +6,13 @@ import logging
 from pathlib import Path
 
 from insightxpert.db.connector import DatabaseConnector
-from insightxpert.rag.store import VectorStore
+from insightxpert.rag.base import VectorStoreBackend
 
 logger = logging.getLogger("insightxpert.training")
 
 
 class Trainer:
-    def __init__(self, rag: VectorStore) -> None:
+    def __init__(self, rag: VectorStoreBackend) -> None:
         self._rag = rag
 
     def train_from_ddl(self, db: DatabaseConnector) -> int:

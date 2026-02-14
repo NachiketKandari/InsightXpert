@@ -22,20 +22,22 @@ Non-technical leadership at Indian fintech companies need to ask questions like:
 
 ## 2. Current State (as of Feb 14)
 
-The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational.
+The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational. Three design patterns (LLM Factory, Tool ABC + Registry, VectorStore Protocol) formalize the extension points. Error handling wraps all LLM calls with proper error surfacing. Conversation persistence correctly bridges frontend-generated IDs with backend storage via `get_or_create_conversation`. Message action buttons (copy, thumbs up/down, retry) and a feedback endpoint are implemented. Security hardened: SQL executor enforces read-only at the SQLite engine level (`PRAGMA query_only`), tool errors return sanitized messages (no tracebacks), LLM provider switch validates before mutating settings and rolls back on failure, feedback rating constrained to `Literal["up", "down"]`. System prompt extracted into Jinja2 template. `LLMProvider` protocol includes a `model` property. VectorStore implementations verified against the protocol at import time. Conversation list query optimized (N+1 eliminated).
 
 ### Implemented
 - **Analyst agent** (`agents/analyst.py`) — Full tool-calling loop: RAG retrieval -> LLM -> tool execution (run_sql, get_schema, search_similar) -> streaming response
-- **Tool framework** (`agents/tools.py`) — 3 tools defined as JSON schemas with async execution routing
+- **Tool ABC + ToolRegistry** (`agents/tool_base.py`, `agents/tools.py`) — `Tool` abstract base class with `ToolRegistry` for dispatch. 3 concrete tools (`RunSqlTool`, `GetSchemaTool`, `SearchSimilarTool`). New tools added by subclassing + `registry.register()`. Error responses sanitized (no tracebacks leaked to LLM or user)
+- **LLM Factory** (`llm/factory.py`) — Registry-based `create_llm(provider, settings)` replaces duplicated if/else blocks. Lazy imports avoid pulling in provider dependencies at module level
 - **LLM providers** (`llm/gemini.py`, `llm/ollama.py`) — Both Gemini and Ollama working with tool calling, streaming, and message conversion
-- **Runtime LLM switching** — `/api/config/switch` endpoint hot-swaps the LLM provider and model without restart
-- **RAG store** (`rag/store.py`) — ChromaDB with 4 collections (qa_pairs, ddl, docs, findings), semantic search, auto-deduplication via SHA256 IDs
+- **Runtime LLM switching** — `/api/config/switch` endpoint uses `create_llm()` to hot-swap the LLM provider and model without restart
+- **VectorStoreBackend Protocol** (`rag/base.py`) — `@runtime_checkable` protocol decouples RAG consumers from ChromaDB. `InMemoryVectorStore` (`rag/memory.py`) provides a zero-dependency test backend
+- **RAG store** (`rag/store.py`) — `ChromaVectorStore` (aliased as `VectorStore`) with 4 collections (qa_pairs, ddl, docs, findings), semantic search, auto-deduplication via SHA256 IDs
 - **Database layer** (`db/connector.py`, `db/schema.py`) — SQLAlchemy wrapper with row limits, timeouts, schema introspection
 - **Training bootstrap** (`training/trainer.py`) — Auto-loads DDL, documentation, 12 example Q&A pairs into RAG on startup
 - **Conversation memory** — Dual-store: in-memory LRU for LLM context + SQLite-backed persistent store for conversation history
 - **Authentication** (`auth/`) — JWT (HS256) + bcrypt password hashing + HttpOnly cookie sessions. Default admin user auto-seeded on startup
-- **API** (`api/routes.py`) — 15 endpoints: chat (SSE), chat/poll, train, schema, health, config, config/switch, sql/execute, auth (login/logout/me), conversations CRUD
-- **SQL Executor** — `POST /api/sql/execute` with regex-based write blocker (blocks INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, etc.)
+- **API** (`api/routes.py`) — 16 endpoints: chat (SSE), chat/poll, train, schema, health, config, config/switch, sql/execute, auth (login/logout/me), conversations CRUD, feedback
+- **SQL Executor** — `POST /api/sql/execute` with dual read-only enforcement (regex blocklist + SQLite `PRAGMA query_only`)
 - **Data generator** (`generate_data.py`) — 250K transactions, 17 columns, 80MB SQLite DB, reproducible (seed=42)
 - **Tests** — 3 test files (agent, db, rag) with pytest-asyncio fixtures
 - **Config** (`config.py`) — Pydantic Settings with LLM provider toggle, DB URL, agent limits, auth settings
@@ -46,6 +48,15 @@ The from-scratch engine has replaced Vanna and is fully ported. The single-agent
 - **Frontend model selector** — Provider/model dropdown in header with runtime switching
 - **Frontend SQL executor** — Right-side sheet panel with read-only SQL editor, results table, execution stats
 - **Frontend chart rendering** — Auto-detects bar/pie/line charts from query results via heuristic detection
+- **LLM error handling** — All LLM calls wrapped in try/except; failures yield `error` ChatChunk with descriptive message instead of crashing the stream
+- **Ollama timeout + validation** — 120s timeout on AsyncClient; model existence validated via `client.show()` on provider switch (HTTP 503 on failure)
+- **Conversation persistence fix** — `get_or_create_conversation` bridges frontend-generated IDs with backend SQLite store; lazy-loads messages when clicking old conversations
+- **Message action buttons** — Copy prompt/response, thumbs up/down, retry (hover toolbar via `group/message` CSS); `MessageActions` component
+- **Feedback endpoint** — `POST /api/feedback` persists `FeedbackRecord` (user_id, conversation_id, message_id, rating, comment)
+- **UserMenu component** — Extracted from Header; avatar + dropdown with email + sign out
+- **Jinja2 prompt templates** — System prompt extracted into `prompts/analyst_system.j2` with conditional RAG sections; rendered via `prompts.render()`
+- **Security hardening** — Tool errors sanitized (no tracebacks), SQL executor uses engine-level `PRAGMA query_only`, LLM switch validates before mutating settings with rollback, feedback rating typed as `Literal["up", "down"]`
+- **Chat route deduplication** — Shared `_prepare_chat()` helper eliminates duplicated setup logic between SSE and poll endpoints
 
 ### Not Yet Implemented (stubs or planned)
 - **Orchestrator** (`agents/orchestrator.py`) — 6-line stub, no multi-agent routing
@@ -188,7 +199,11 @@ The analyst is the primary agent. It receives a natural language question and pr
 3. Inject conversation history (for multi-turn context)
 
 4. LLM Tool-Calling Loop (max 10 iterations)
-   +-- Send messages + tool definitions to LLM
+   +-- Send messages + tool definitions to LLM (wrapped in try/except)
+   +-- If LLM call fails (network, timeout, model not found):
+   |   +-- Log error with traceback
+   |   +-- Yield ChatChunk(type="error", content="LLM request failed: {exc}")
+   |   +-- Return (exit generator cleanly)
    +-- If LLM returns tool_calls:
    |   +-- Yield ChatChunk(type="tool_call") for each call
    |   +-- If run_sql: yield ChatChunk(type="sql") with the SQL
@@ -203,36 +218,53 @@ The analyst is the primary agent. It receives a natural language question and pr
 5. If max iterations exhausted -> yield ChatChunk(type="error")
 ```
 
-**System prompt structure:**
+**System prompt structure** (Jinja2 template: `prompts/analyst_system.j2`):
 - Identity as InsightXpert AI data analyst
 - Full DDL for the transactions table (17 columns)
 - Business documentation (column descriptions, domain rules)
 - 7 domain rules (SELECT only, NULL handling, fraud_flag semantics, ROUND(2), correlation != causation, small sample flags, execute before answering)
 - 5-layer response structure requirement
-- RAG context dynamically injected per query
+- RAG context dynamically injected per query via conditional Jinja2 blocks (`{% if similar_qa %}`, etc.)
 
 ### 5.2 Tool Framework
 
-**File:** `agents/tools.py`
+**Files:** `agents/tool_base.py` (ABC + registry), `agents/tools.py` (concrete tools)
 
-Three tools exposed to the LLM as JSON Schema function definitions:
+The tool framework uses an abstract base class and registry pattern:
 
-| Tool | Purpose | Arguments | Returns |
-|------|---------|-----------|---------|
-| `run_sql` | Execute SELECT query on SQLite | `sql: string` | `{rows: [...], row_count: N}` |
-| `get_schema` | Get CREATE TABLE DDL | `tables?: string[]` | DDL string or table info JSON |
-| `search_similar` | Search ChromaDB knowledge base | `query: string, collection: "qa_pairs"\|"ddl"\|"docs"` | Array of `{document, metadata, distance}` |
+```python
+# agents/tool_base.py
+class ToolContext:        # Holds db, rag (typed as VectorStoreBackend via TYPE_CHECKING), row_limit
+class Tool(ABC):          # Abstract: name, description, get_args_schema(), execute(), get_definition()
+class ToolRegistry:       # register(tool), get_schemas(), execute(name, args, context) — sanitized errors
+```
 
-The `execute_tool()` function routes by tool name, handles errors with tracebacks, and enforces row limits on SQL results.
+Three concrete tools (each a `Tool` subclass in `agents/tools.py`):
+
+| Tool Class | LLM Name | Purpose | Arguments | Returns |
+|-----------|----------|---------|-----------|---------|
+| `RunSqlTool` | `run_sql` | Execute SELECT query on SQLite | `sql: string` | `{rows: [...], row_count: N}` |
+| `GetSchemaTool` | `get_schema` | Get CREATE TABLE DDL | `tables?: string[]` | DDL string or table info JSON |
+| `SearchSimilarTool` | `search_similar` | Search ChromaDB knowledge base | `query: string, collection: "qa_pairs"\|"ddl"\|"docs"` | Array of `{document, metadata, distance}` |
+
+The `default_registry()` function creates a pre-loaded `ToolRegistry`. The analyst loop accepts an optional `tool_registry` parameter, defaulting to `default_registry()` if not provided. Adding a new tool requires subclassing `Tool` and calling `registry.register()`.
+
+Backward-compatible `TOOL_DEFINITIONS` list and `execute_tool()` function are still exported for existing callers.
 
 ### 5.3 LLM Provider Abstraction
 
-**Files:** `llm/base.py`, `llm/gemini.py`, `llm/ollama.py`
+**Files:** `llm/base.py` (protocol), `llm/factory.py` (factory), `llm/gemini.py`, `llm/ollama.py`
 
 ```python
+# llm/base.py — Protocol
 class LLMProvider(Protocol):
+    model: str                                            # Public read-only property
     async def chat(messages, tools) -> LLMResponse       # Non-streaming
     async def chat_stream(messages, tools) -> AsyncGenerator[LLMChunk]  # Streaming
+
+# llm/factory.py — Registry-based factory
+_REGISTRY: dict[str, Callable[[Settings], LLMProvider]]  # "gemini" -> _create_gemini, etc.
+def create_llm(provider: str, settings: Settings) -> LLMProvider  # Raises ValueError on miss
 
 @dataclass
 class LLMResponse:
@@ -246,11 +278,13 @@ class ToolCall:
     arguments: dict
 ```
 
+**Factory pattern** — `create_llm("gemini", settings)` looks up a registry of factory functions. Each factory uses lazy imports to avoid pulling in provider dependencies at module level. Adding a new provider requires only writing the provider class and registering a factory function. Both `main.py` and `api/routes.py` use `create_llm()` instead of inline if/else blocks.
+
 **Gemini provider** — Uses `google-genai` async client. Converts internal message format to Gemini's `Content`/`Part` types. Maps tool definitions to `FunctionDeclaration`. Handles function_call responses and multipart content.
 
-**Ollama provider** — Uses `ollama` async client. Same protocol, different wire format. Fallback for local development without API keys.
+**Ollama provider** — Uses `ollama` async client with 120s timeout. Same protocol, different wire format. Fallback for local development without API keys.
 
-**Runtime switching** — Provider can be changed at runtime via `POST /api/config/switch`. The endpoint instantiates a new provider and replaces `app.state.llm`. No restart needed. Available models are served from `GET /api/config` (Gemini models are hardcoded, Ollama models are dynamically queried from the local server).
+**Runtime switching** — Provider can be changed at runtime via `POST /api/config/switch`. For Ollama, the endpoint validates the model exists via `client.show(model)` before mutating any settings — returns HTTP 503 with a clear error if Ollama is unreachable or the model isn't pulled. Settings are saved before mutation and rolled back if `create_llm()` fails. On success, `app.state.llm` is replaced. No restart needed. Unknown providers return HTTP 400. Available models are served from `GET /api/config` (Gemini models are hardcoded, Ollama models are dynamically queried from the local server).
 
 ### 5.4 Planned Multi-Agent Pipeline
 
@@ -333,6 +367,7 @@ Protected Route Flow:
 - `User`: id (UUID), email (unique), hashed_password, is_active, created_at
 - `ConversationRecord`: id, user_id (FK), title, created_at, updated_at
 - `MessageRecord`: id, conversation_id (FK), role, content, chunks_json, created_at
+- `FeedbackRecord`: id, user_id (FK), conversation_id, message_id, rating ("up"/"down"), comment, created_at
 
 **Default Credentials:** `admin@insightxpert.ai` / `admin123` (auto-seeded on startup via `auth/seed.py`)
 
@@ -395,7 +430,7 @@ Three-column responsive layout:
 +-------------+----------------------------------+-----------------+
 ```
 
-- **Header:** Logo + Model selector (Provider / Model dropdowns with chevrons) + SQL Executor button + user email + logout button
+- **Header:** Logo + Model selector (Provider / Model dropdowns with chevrons) + SQL Executor button + UserMenu (avatar + dropdown with email + sign out)
 - **Left sidebar:** Conversation history list with create/delete/rename. Collapsible on desktop, Sheet on mobile
 - **Right sidebar:** Real-time agent process steps timeline. Shows each step's status (pending/running/done/error)
 - **Chat panel:** Message list with auto-scroll, chunk-by-chunk rendering, message input with suggested questions on welcome
@@ -412,8 +447,10 @@ Actions: login(email, password), logout(), checkAuth()
 ```
 State: conversations[], activeConversationId, isStreaming, agentSteps[], sidebarOpen flags
 Actions: newConversation(), addUserMessage(), appendChunk(), finishStreaming(),
-         deleteConversation(), renameConversation(), addAgentStep(), updateAgentStep()
-Persistence: Fetches from /api/conversations on init, CRUD via REST API
+         deleteConversation(), renameConversation(), addAgentStep(), updateAgentStep(),
+         loadConversationMessages(id), setActiveConversation(id) [with lazy-load]
+Persistence: Fetches from /api/conversations on init, CRUD via REST API,
+             lazy-loads messages via GET /api/conversations/{id} on click
 ```
 
 **`stores/settings-store.ts`**
@@ -505,7 +542,7 @@ Breadcrumb-style selector in the header: `[Provider v] / [Model v]`
 
 SQLAlchemy engine wrapper with safety features:
 - `connect(url)` — Initialize engine with connection pooling + pre-ping
-- `execute(sql, row_limit=1000, timeout=30)` — Execute SQL, return JSON-serializable rows, enforce row limit
+- `execute(sql, row_limit=1000, timeout=30, read_only=False)` — Execute SQL, return JSON-serializable rows, enforce row limit. When `read_only=True`, sets `PRAGMA query_only = ON` on the connection before executing — enforces read-only at the SQLite engine level regardless of SQL content
 - `get_tables()` — Introspect table names
 - `disconnect()` — Dispose engine
 
@@ -520,8 +557,9 @@ SQLAlchemy engine wrapper with safety features:
 
 **File:** `api/routes.py` — `POST /api/sql/execute`
 
-Server-side safety guard using compiled regex:
+Dual-layer read-only enforcement:
 
+1. **Regex blocklist** (fast reject) — Compiled regex catches common write operations before query execution:
 ```python
 _FORBIDDEN_SQL = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|
@@ -530,7 +568,9 @@ _FORBIDDEN_SQL = re.compile(
 )
 ```
 
-Returns 403 with a descriptive error if any write operation is detected. Otherwise executes the query with the configured `sql_row_limit` and `sql_timeout_seconds`, returning `{columns, rows, row_count, execution_time_ms}`.
+2. **Engine-level enforcement** — Calls `db.execute(sql, read_only=True)` which sets `PRAGMA query_only = ON` on the SQLite connection. This blocks writes at the database engine level regardless of SQL syntax tricks (comments, unicode, multi-statement).
+
+Returns 403 with a descriptive error if the regex catches a write operation. Otherwise executes the query with the configured `sql_row_limit` and `sql_timeout_seconds`, returning `{columns, rows, row_count, execution_time_ms}`.
 
 ### 8.4 Data Generator
 
@@ -560,9 +600,11 @@ The `Trainer` class (`training/trainer.py`) loads all training data into ChromaD
 
 ### 9.1 Vector Store
 
-**File:** `rag/store.py`
+**Files:** `rag/base.py` (protocol), `rag/store.py` (ChromaDB), `rag/memory.py` (in-memory for testing)
 
-ChromaDB embedded persistent client with 4 collections:
+The vector store uses a `VectorStoreBackend` protocol (`@runtime_checkable`) defining all 8 methods (`add_qa_pair`, `add_ddl`, `add_documentation`, `add_finding`, `search_qa`, `search_ddl`, `search_docs`, `search_findings`). All consumers (e.g., `Trainer`, `ToolContext`) type-hint against the protocol, not the concrete implementation. Both `ChromaVectorStore` and `InMemoryVectorStore` are verified against the protocol at import time via `issubclass` assertions in `rag/__init__.py`.
+
+**`ChromaVectorStore`** (`rag/store.py`, aliased as `VectorStore` for backward compat) — ChromaDB embedded persistent client with 4 collections:
 
 | Collection | Content | Search Method | Default N |
 |-----------|---------|---------------|-----------|
@@ -574,6 +616,8 @@ ChromaDB embedded persistent client with 4 collections:
 **Auto-deduplication:** Document IDs are SHA256 hashes of content (first 16 chars). Upserts prevent duplicates.
 
 **Auto-learning:** When the analyst successfully generates SQL, the question->SQL pair is automatically saved to the `qa_pairs` collection, improving future retrieval.
+
+**`InMemoryVectorStore`** (`rag/memory.py`) — Dict-based storage with `difflib.SequenceMatcher` for similarity ranking. Satisfies `VectorStoreBackend` structurally. Zero external dependencies — designed for unit tests and development without ChromaDB.
 
 ### 9.2 Conversation Memory (Dual-Store)
 
@@ -587,9 +631,11 @@ ChromaDB embedded persistent client with 4 collections:
 **Persistent Store** (`auth/conversation_store.py`):
 - Purpose: Long-term conversation history with full message replay
 - Storage: SQLite (`insightxpert_auth.db`) via SQLAlchemy ORM
-- Tables: `conversations`, `messages`
+- Tables: `conversations`, `messages`, `feedback`
 - Features: Full CRUD, message chunks JSON storage, user_id isolation
-- Frontend loads conversation list on init via `GET /api/conversations`
+- Conversation listing uses a single subquery join to fetch last messages (no N+1 queries)
+- `get_or_create_conversation(id, user_id, title)` — Bridges frontend-generated IDs with backend storage. Looks up by ID; if not found, creates with that exact ID. Solves the mismatch where frontend generates client-side IDs that the backend never persisted.
+- Frontend loads conversation list on init via `GET /api/conversations`; lazy-loads messages via `GET /api/conversations/{id}` when clicking old conversations
 
 **Data Flow:**
 ```
@@ -624,6 +670,7 @@ Assistant Answer
 | GET | `/api/conversations/{id}` | Yes | — | `ConversationDetail` | Get conversation + messages |
 | DELETE | `/api/conversations/{id}` | Yes | — | `{status: ok}` | Delete conversation |
 | PATCH | `/api/conversations/{id}` | Yes | `{title}` | `{status: ok}` | Rename conversation |
+| POST | `/api/feedback` | Yes | `{conversation_id, message_id, rating, comment?}` | `{status: ok}` | Submit feedback |
 | GET | `/api/health` | No | — | `{status: "ok", timestamp}` | Health check |
 
 **ChatChunk types:** `status`, `sql`, `tool_call`, `tool_result`, `answer`, `error`
@@ -863,37 +910,47 @@ InsightXpert/
 |   |   +-- config.py                     # [DONE] Pydantic Settings (LLM, DB, auth)
 |   |   |
 |   |   +-- api/
-|   |   |   +-- routes.py                 # [DONE] 15 endpoints (chat, auth, config, sql, conv CRUD)
-|   |   |   +-- models.py                 # [DONE] Pydantic models for all endpoints
+|   |   |   +-- routes.py                 # [DONE] 16 endpoints (chat, auth, config, sql, conv CRUD, feedback)
+|   |   |   +-- models.py                 # [DONE] Pydantic models for all endpoints (incl. FeedbackRequest)
 |   |   |   +-- obs_routes.py             # [PLANNED] /obs/traces, /obs/spans, /obs/stats
 |   |   |
 |   |   +-- auth/
 |   |   |   +-- routes.py                 # [DONE] Login, logout, me endpoints
-|   |   |   +-- models.py                 # [DONE] User, ConversationRecord, MessageRecord ORM
+|   |   |   +-- models.py                 # [DONE] User, ConversationRecord, MessageRecord, FeedbackRecord ORM
 |   |   |   +-- security.py               # [DONE] bcrypt hashing, JWT HS256 tokens
 |   |   |   +-- dependencies.py           # [DONE] get_current_user, get_db_session
-|   |   |   +-- conversation_store.py     # [DONE] Persistent conversation CRUD (SQLite)
+|   |   |   +-- conversation_store.py     # [DONE] Persistent conversation CRUD + get_or_create_conversation (SQLite)
 |   |   |   +-- seed.py                   # [DONE] Bootstrap admin user
 |   |   |
 |   |   +-- agents/
-|   |   |   +-- analyst.py                # [DONE] Full agent loop (RAG + LLM + tools)
-|   |   |   +-- tools.py                  # [DONE] 3 tools: run_sql, get_schema, search_similar
+|   |   |   +-- analyst.py                # [DONE] Full agent loop (RAG + LLM + ToolRegistry + error recovery)
+|   |   |   +-- tool_base.py             # [DONE] Tool ABC, ToolContext (typed via TYPE_CHECKING), ToolRegistry
+|   |   |   +-- tools.py                  # [DONE] RunSqlTool, GetSchemaTool, SearchSimilarTool + default_registry()
 |   |   |   +-- orchestrator.py           # [STUB] (6 lines, no routing logic)
 |   |   |   +-- statistician.py           # [PLANNED] Pure Python stats/comparisons
 |   |   |   +-- narrator.py               # [PLANNED] LLM-powered narrator
 |   |   |   +-- anomaly_detector.py       # [PLANNED] Background scan
 |   |   |
+|   |   +-- prompts/
+|   |   |   +-- __init__.py               # [DONE] Jinja2 template loader (render function, autoescape=False)
+|   |   |   +-- analyst_system.j2         # [DONE] Analyst system prompt template (DDL, docs, rules, RAG context)
+|   |   |
 |   |   +-- llm/
+|   |   |   +-- __init__.py               # [DONE] Exports LLMProvider, LLMResponse, LLMChunk, ToolCall, create_llm
 |   |   |   +-- base.py                   # [DONE] Protocol: LLMProvider, LLMResponse, ToolCall
+|   |   |   +-- factory.py                # [DONE] Registry-based factory: create_llm(provider, settings)
 |   |   |   +-- gemini.py                 # [DONE] Google Gemini (chat + stream + tools)
-|   |   |   +-- ollama.py                 # [DONE] Ollama local models (chat + stream + tools)
+|   |   |   +-- ollama.py                 # [DONE] Ollama local models (chat + stream + tools, 120s timeout)
 |   |   |
 |   |   +-- db/
-|   |   |   +-- connector.py              # [DONE] SQLAlchemy wrapper (connect, execute, row limits)
+|   |   |   +-- connector.py              # [DONE] SQLAlchemy wrapper (connect, execute, row limits, read_only mode)
 |   |   |   +-- schema.py                 # [DONE] DDL introspection
 |   |   |
 |   |   +-- rag/
-|   |   |   +-- store.py                  # [DONE] ChromaDB: 4 collections (qa, ddl, docs, findings)
+|   |   |   +-- __init__.py               # [DONE] Exports VectorStoreBackend, ChromaVectorStore, VectorStore, InMemoryVectorStore
+|   |   |   +-- base.py                   # [DONE] VectorStoreBackend protocol (@runtime_checkable)
+|   |   |   +-- store.py                  # [DONE] ChromaVectorStore: 4 collections (qa, ddl, docs, findings)
+|   |   |   +-- memory.py                 # [DONE] InMemoryVectorStore (difflib-based, for testing)
 |   |   |
 |   |   +-- memory/
 |   |   |   +-- conversation_store.py     # [DONE] In-memory LRU + TTL conversation history
@@ -934,9 +991,10 @@ InsightXpert/
         |   |
         |   +-- chat/
         |   |   +-- chat-panel.tsx        # [DONE] Main chat interface orchestrator
-        |   |   +-- message-bubble.tsx    # [DONE] User/assistant message rendering
+        |   |   +-- message-actions.tsx   # [DONE] Copy, thumbs up/down, retry buttons (hover toolbar)
+        |   |   +-- message-bubble.tsx    # [DONE] User/assistant message rendering + action buttons
         |   |   +-- message-input.tsx     # [DONE] Textarea with send/stop buttons
-        |   |   +-- message-list.tsx      # [DONE] Scrollable message list + auto-scroll
+        |   |   +-- message-list.tsx      # [DONE] Scrollable message list + auto-scroll + feedback
         |   |   +-- welcome-screen.tsx    # [DONE] Landing with 6 suggested questions
         |   |
         |   +-- chunks/
@@ -952,7 +1010,8 @@ InsightXpert/
         |   |
         |   +-- layout/
         |   |   +-- app-shell.tsx         # [DONE] 3-column layout with Framer Motion
-        |   |   +-- header.tsx            # [DONE] Logo + model selector + SQL + auth
+        |   |   +-- header.tsx            # [DONE] Logo + model selector + SQL + UserMenu
+        |   |   +-- user-menu.tsx         # [DONE] Avatar dropdown with email + sign out
         |   |   +-- left-sidebar.tsx      # [DONE] Conversation history
         |   |   +-- right-sidebar.tsx     # [DONE] Agent process steps
         |   |   +-- model-selector.tsx    # [DONE] Provider/model dropdown
@@ -966,8 +1025,8 @@ InsightXpert/
         |   +-- sql/
         |   |   +-- sql-executor.tsx      # [DONE] SQL editor + execution panel
         |   |
-        |   +-- ui/                       # [DONE] 13 shadcn/Radix components
-        |       +-- badge, button, card, chart, collapsible,
+        |   +-- ui/                       # [DONE] 14 shadcn/Radix components
+        |       +-- avatar, badge, button, card, chart, collapsible,
         |       +-- dropdown-menu, input, scroll-area, separator,
         |       +-- sheet, skeleton, textarea, tooltip
         |
@@ -1033,28 +1092,33 @@ Dev: pytest >=8.0, pytest-asyncio >=0.24, httpx >=0.27
 
 | Component | Status | File(s) |
 |-----------|--------|---------|
-| Analyst Agent | [DONE] | `agents/analyst.py` |
-| Tool Framework | [DONE] | `agents/tools.py` |
+| Analyst Agent (with error recovery) | [DONE] | `agents/analyst.py` |
+| Tool ABC + ToolRegistry | [DONE] | `agents/tool_base.py`, `agents/tools.py` |
 | Gemini LLM Provider | [DONE] | `llm/gemini.py` |
 | Ollama LLM Provider | [DONE] | `llm/ollama.py` |
-| LLM Protocol | [DONE] | `llm/base.py` |
-| Runtime LLM Switching | [DONE] | `api/routes.py` (config endpoints) |
+| LLM Protocol (incl. `model` property) | [DONE] | `llm/base.py` |
+| LLM Factory | [DONE] | `llm/factory.py` |
+| Runtime LLM Switching | [DONE] | `api/routes.py` (config endpoints via `create_llm`) |
 | Database Layer | [DONE] | `db/connector.py`, `db/schema.py` |
-| SQL Executor (read-only) | [DONE] | `api/routes.py` (sql/execute endpoint) |
-| RAG Store | [DONE] | `rag/store.py` |
+| SQL Executor (dual read-only: regex + PRAGMA) | [DONE] | `api/routes.py`, `db/connector.py` |
+| Jinja2 Prompt Templates | [DONE] | `prompts/__init__.py`, `prompts/analyst_system.j2` |
+| RAG Store (ChromaDB) | [DONE] | `rag/store.py` (ChromaVectorStore) |
+| RAG Protocol | [DONE] | `rag/base.py` (VectorStoreBackend) |
+| RAG In-Memory (testing) | [DONE] | `rag/memory.py` (InMemoryVectorStore) |
 | Training Bootstrap | [DONE] | `training/trainer.py` |
 | In-Memory Conversation Store | [DONE] | `memory/conversation_store.py` |
-| Persistent Conversation Store | [DONE] | `auth/conversation_store.py` |
+| Persistent Conversation Store | [DONE] | `auth/conversation_store.py` (incl. `get_or_create_conversation`) |
 | Authentication (JWT + bcrypt) | [DONE] | `auth/` (routes, security, dependencies, models, seed) |
-| API Endpoints | [DONE] | `api/routes.py` (15 endpoints) |
+| Feedback Persistence | [DONE] | `auth/models.py` (`FeedbackRecord`), `api/routes.py` (`POST /api/feedback`) |
+| API Endpoints | [DONE] | `api/routes.py` (16 endpoints) |
 | API Models | [DONE] | `api/models.py` |
 | Config | [DONE] | `config.py` |
 | Data Generator | [DONE] | `generate_data.py` |
 | Tests | [DONE] | `tests/` (3 files) |
 | Frontend Auth (login, guard) | [DONE] | `auth-guard.tsx`, `auth-store.ts`, `login/page.tsx` |
-| Frontend Chat UI | [DONE] | `components/chat/` (5 files) |
+| Frontend Chat UI | [DONE] | `components/chat/` (6 files, incl. `MessageActions`) |
 | Frontend Chunks + Charts | [DONE] | `components/chunks/` (9 files) |
-| Frontend Layout | [DONE] | `components/layout/` (5 files) |
+| Frontend Layout | [DONE] | `components/layout/` (6 files, incl. `UserMenu`) |
 | Frontend Sidebars | [DONE] | `components/sidebar/` (4 files) |
 | Frontend Model Selector | [DONE] | `components/layout/model-selector.tsx`, `settings-store.ts` |
 | Frontend SQL Executor | [DONE] | `components/sql/sql-executor.tsx` |

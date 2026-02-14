@@ -14,10 +14,12 @@ from insightxpert.api.models import (
     ConfigResponse,
     ConversationDetail,
     ConversationSummary,
+    FeedbackRequest,
     MessageResponse,
     ProviderModels,
     RenameRequest,
     SchemaResponse,
+    SearchResultItem,
     SqlExecuteRequest,
     SqlExecuteResponse,
     SwitchModelRequest,
@@ -27,7 +29,7 @@ from insightxpert.api.models import (
 )
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
-from insightxpert.config import LLMProvider
+from insightxpert.llm.factory import create_llm
 from insightxpert.db.schema import get_schema_ddl
 
 logger = logging.getLogger("insightxpert.api")
@@ -45,6 +47,39 @@ def _get_deps(request: Request):
     )
 
 
+def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
+    """Shared setup for both SSE and poll chat endpoints.
+
+    Returns (llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history).
+    """
+    llm, db, rag, settings, conv_store = _get_deps(request)
+    persistent_store = request.app.state.persistent_conv_store
+
+    cid = chat_req.conversation_id or ""
+    history = conv_store.get_history(cid)
+
+    if cid:
+        conv_store.add_user_message(cid, chat_req.message)
+
+    title = chat_req.message[:100]
+    if cid:
+        persistent_cid = cid
+        try:
+            persistent_store.get_or_create_conversation(cid, user.id, title)
+        except Exception as e:
+            logger.warning("Failed to ensure persistent conversation: %s", e)
+    else:
+        convo = persistent_store.create_conversation(user.id, title)
+        persistent_cid = convo["id"]
+
+    try:
+        persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
+    except Exception as e:
+        logger.warning("Failed to persist user message: %s", e)
+
+    return llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history
+
+
 @router.post("/chat")
 async def chat_sse(
     chat_req: ChatRequest,
@@ -52,30 +87,11 @@ async def chat_sse(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store = _get_deps(request)
-    persistent_store = request.app.state.persistent_conv_store
-
-    # Load conversation history for this session
-    cid = chat_req.conversation_id or ""
-    history = conv_store.get_history(cid)
-
-    # Save user message to in-memory store
-    if cid:
-        conv_store.add_user_message(cid, chat_req.message)
-
-    # Ensure persistent conversation exists and save user message
-    persistent_cid = cid
-    if not persistent_cid:
-        title = chat_req.message[:100]
-        convo = persistent_store.create_conversation(user.id, title)
-        persistent_cid = convo["id"]
-    try:
-        persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
-    except Exception as e:
-        logger.warning("Failed to persist user message: %s", e)
+    llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
 
     final_answer: list[str] = []
     all_chunks: list[str] = []
+    executed_sql: list[str] = []
 
     async def event_generator():
         actual_cid = ""
@@ -85,12 +101,14 @@ async def chat_sse(
             db=db,
             rag=rag,
             config=settings,
-            conversation_id=chat_req.conversation_id or persistent_cid,
+            conversation_id=cid or persistent_cid,
             history=history,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
             all_chunks.append(chunk_json)
+            if chunk.type == "sql" and chunk.sql:
+                executed_sql.append(chunk.sql)
             if chunk.type == "answer" and chunk.content:
                 final_answer.append(chunk.content)
             yield {"data": chunk_json}
@@ -99,7 +117,11 @@ async def chat_sse(
         # Save assistant answer to in-memory conversation memory
         store_cid = cid or actual_cid
         if store_cid and final_answer:
-            conv_store.add_assistant_message(store_cid, final_answer[-1])
+            history_content = final_answer[-1]
+            if executed_sql:
+                sql_ctx = "; ".join(executed_sql)
+                history_content = f"[SQL: {sql_ctx}]\n\n{history_content}"
+            conv_store.add_assistant_message(store_cid, history_content)
 
         # Persist assistant message to SQLite
         if final_answer:
@@ -121,44 +143,33 @@ async def chat_poll(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store = _get_deps(request)
-    persistent_store = request.app.state.persistent_conv_store
-
-    cid = chat_req.conversation_id or ""
-    history = conv_store.get_history(cid)
-
-    if cid:
-        conv_store.add_user_message(cid, chat_req.message)
-
-    # Ensure persistent conversation exists and save user message
-    persistent_cid = cid
-    if not persistent_cid:
-        title = chat_req.message[:100]
-        convo = persistent_store.create_conversation(user.id, title)
-        persistent_cid = convo["id"]
-    try:
-        persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
-    except Exception as e:
-        logger.warning("Failed to persist user message: %s", e)
+    llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
 
     chunks: list[dict] = []
     final_answer = ""
+    poll_executed_sql: list[str] = []
     async for chunk in analyst_loop(
         question=chat_req.message,
         llm=llm,
         db=db,
         rag=rag,
         config=settings,
-        conversation_id=chat_req.conversation_id or persistent_cid,
+        conversation_id=cid or persistent_cid,
         history=history,
     ):
         chunks.append(chunk.model_dump())
+        if chunk.type == "sql" and chunk.sql:
+            poll_executed_sql.append(chunk.sql)
         if chunk.type == "answer" and chunk.content:
             final_answer = chunk.content
 
     store_cid = cid or (chunks[0]["conversation_id"] if chunks else "")
     if store_cid and final_answer:
-        conv_store.add_assistant_message(store_cid, final_answer)
+        history_content = final_answer
+        if poll_executed_sql:
+            sql_ctx = "; ".join(poll_executed_sql)
+            history_content = f"[SQL: {sql_ctx}]\n\n{history_content}"
+        conv_store.add_assistant_message(store_cid, history_content)
 
     # Persist assistant message to SQLite
     if final_answer:
@@ -238,7 +249,7 @@ async def get_config(
     llm = request.app.state.llm
 
     current_provider = settings.llm_provider.value
-    current_model = llm._model
+    current_model = llm.model
 
     ollama_models = list(OLLAMA_MODELS)
     try:
@@ -270,19 +281,41 @@ async def switch_model(
     user: User = Depends(get_current_user),
 ):
     settings = request.app.state.settings
+    from insightxpert.config import LLMProvider as LLMProviderEnum
+
+    # Validate Ollama model exists before creating the provider
+    if req.provider == "ollama":
+        try:
+            import ollama as ollama_sdk
+            client = ollama_sdk.Client(host=settings.ollama_base_url)
+            client.show(req.model)
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Cannot reach Ollama or model '{req.model}' not found. "
+                       f"Ensure Ollama is running and the model is pulled. Error: {e}",
+            )
+
+    # Save original settings so we can roll back on failure
+    prev_provider = settings.llm_provider
+    prev_gemini_model = settings.gemini_model
+    prev_ollama_model = settings.ollama_model
 
     if req.provider == "gemini":
-        from insightxpert.llm.gemini import GeminiProvider
-        new_llm = GeminiProvider(api_key=settings.gemini_api_key, model=req.model)
-        settings.llm_provider = LLMProvider.GEMINI
+        settings.llm_provider = LLMProviderEnum.GEMINI
         settings.gemini_model = req.model
     elif req.provider == "ollama":
-        from insightxpert.llm.ollama import OllamaProvider
-        new_llm = OllamaProvider(model=req.model, base_url=settings.ollama_base_url)
-        settings.llm_provider = LLMProvider.OLLAMA
+        settings.llm_provider = LLMProviderEnum.OLLAMA
         settings.ollama_model = req.model
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown provider: {req.provider}")
+
+    try:
+        new_llm = create_llm(req.provider, settings)
+    except ValueError as e:
+        # Roll back settings on failure
+        settings.llm_provider = prev_provider
+        settings.gemini_model = prev_gemini_model
+        settings.ollama_model = prev_ollama_model
+        raise HTTPException(status_code=400, detail=str(e))
 
     request.app.state.llm = new_llm
     logger.info("Switched LLM: provider=%s model=%s", req.provider, req.model)
@@ -313,7 +346,7 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
 
     start = time.time()
     try:
-        rows = db.execute(sql_text, row_limit=settings.sql_row_limit, timeout=settings.sql_timeout_seconds)
+        rows = db.execute(sql_text, row_limit=settings.sql_row_limit, timeout=settings.sql_timeout_seconds, read_only=True)
         ms = (time.time() - start) * 1000
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -343,6 +376,20 @@ async def list_conversations(
     persistent_store = request.app.state.persistent_conv_store
     convos = persistent_store.get_conversations(user.id)
     return [ConversationSummary(**c) for c in convos]
+
+
+@router.get("/conversations/search", response_model=list[SearchResultItem])
+async def search_conversations(
+    request: Request,
+    q: str = "",
+    user: User = Depends(get_current_user),
+):
+    q = q.strip()
+    if len(q) < 2:
+        return []
+    persistent_store = request.app.state.persistent_conv_store
+    results = persistent_store.search_conversations(user.id, q)
+    return [SearchResultItem(**r) for r in results]
 
 
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
@@ -399,4 +446,34 @@ async def rename_conversation(
     renamed = persistent_store.rename_conversation(conversation_id, user.id, body.title)
     if not renamed:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "ok"}
+
+
+# --- Feedback -----------------------------------------------------------
+
+
+@router.post("/feedback")
+async def submit_feedback(
+    body: FeedbackRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    from sqlalchemy.orm import Session
+    from insightxpert.auth.models import FeedbackRecord
+
+    engine = request.app.state.persistent_conv_store.engine
+    try:
+        with Session(engine) as session:
+            record = FeedbackRecord(
+                user_id=user.id,
+                conversation_id=body.conversation_id,
+                message_id=body.message_id,
+                rating=body.rating,
+                comment=body.comment or None,
+            )
+            session.add(record)
+            session.commit()
+    except Exception as e:
+        logger.warning("Failed to save feedback: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save feedback")
     return {"status": "ok"}

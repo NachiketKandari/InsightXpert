@@ -8,7 +8,7 @@ import chromadb
 logger = logging.getLogger("insightxpert.rag")
 
 
-class VectorStore:
+class ChromaVectorStore:
     def __init__(self, persist_dir: str = "./chroma_data") -> None:
         self._client = chromadb.PersistentClient(path=persist_dir)
         self._qa = self._client.get_or_create_collection("qa_pairs")
@@ -87,3 +87,7 @@ class VectorStore:
         ):
             items.append({"document": doc, "metadata": meta, "distance": dist})
         return items
+
+
+# Backward-compat alias
+VectorStore = ChromaVectorStore

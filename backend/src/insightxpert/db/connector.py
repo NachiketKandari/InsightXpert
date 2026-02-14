@@ -30,10 +30,12 @@ class DatabaseConnector:
             logger.debug("Engine disposed")
 
     def execute(
-        self, sql: str, *, row_limit: int = 1000, timeout: int = 30
+        self, sql: str, *, row_limit: int = 1000, timeout: int = 30, read_only: bool = False
     ) -> list[dict]:
         start = time.time()
         with self.engine.connect() as conn:
+            if read_only:
+                conn.execute(text("PRAGMA query_only = ON"))
             result = conn.execute(text(sql))
             if result.returns_rows:
                 columns = list(result.keys())

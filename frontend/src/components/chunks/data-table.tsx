@@ -1,14 +1,23 @@
 "use client";
 
+import { useState } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
+
 interface DataTableProps {
   columns: string[];
   rows: Record<string, unknown>[];
   maxRows?: number;
 }
 
+const EXPANDED_CAP = 100;
+
 export function DataTable({ columns, rows, maxRows = 10 }: DataTableProps) {
-  const displayRows = rows.slice(0, maxRows);
-  const isTruncated = rows.length > maxRows;
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = rows.length > maxRows;
+  const displayRows = expanded
+    ? rows.slice(0, EXPANDED_CAP)
+    : rows.slice(0, maxRows);
+  const cappedTotal = Math.min(rows.length, EXPANDED_CAP);
 
   return (
     <div className="space-y-2">
@@ -49,10 +58,23 @@ export function DataTable({ columns, rows, maxRows = 10 }: DataTableProps) {
           </tbody>
         </table>
       </div>
-      {isTruncated && (
-        <p className="text-xs text-muted-foreground">
-          Showing {maxRows} of {rows.length} rows
-        </p>
+      {canExpand && (
+        <button
+          onClick={() => setExpanded((prev) => !prev)}
+          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          {expanded ? (
+            <>
+              <ChevronUp className="size-3" />
+              Show less
+            </>
+          ) : (
+            <>
+              <ChevronDown className="size-3" />
+              Show all {cappedTotal} rows
+            </>
+          )}
+        </button>
       )}
     </div>
   );

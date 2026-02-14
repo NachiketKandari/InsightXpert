@@ -5,7 +5,6 @@ import { ChevronRight, Table2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 import { parseToolResult } from "@/lib/chunk-parser";
 import { DataTable } from "./data-table";
-import { ChartBlock } from "./chart-block";
 import { Badge } from "@/components/ui/badge";
 import {
   Collapsible,
@@ -56,9 +55,8 @@ export function ToolResultChunk({ chunk }: ToolResultChunkProps) {
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <div className="px-3 pb-3 space-y-4 border-t border-border/50 pt-3">
+          <div className="px-3 pb-3 border-t border-border/50 pt-3">
             <DataTable columns={parsed.columns} rows={parsed.rows} />
-            <ChartBlock columns={parsed.columns} rows={parsed.rows} />
           </div>
         </CollapsibleContent>
       </div>

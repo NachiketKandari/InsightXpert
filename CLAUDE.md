@@ -1,3 +1,7 @@
+# Rules
+
+- Never include "Generated with Claude Code" or similar attribution lines in PR descriptions, commit messages, or any generated content.
+
 # InsightXpert
 
 AI data analyst for the Techfest IIT Bombay Leadership Analytics Challenge.

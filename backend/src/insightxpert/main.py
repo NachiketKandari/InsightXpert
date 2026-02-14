@@ -14,7 +14,8 @@ from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.models import Base as AuthBase
 from insightxpert.auth.routes import router as auth_router
 from insightxpert.auth.seed import seed_admin
-from insightxpert.config import LLMProvider, Settings
+from insightxpert.config import Settings
+from insightxpert.llm.factory import create_llm
 from insightxpert.db.connector import DatabaseConnector
 from insightxpert.memory.conversation_store import ConversationStore
 from insightxpert.rag.store import VectorStore
@@ -63,14 +64,8 @@ async def lifespan(app: FastAPI):
         logger.error("RAG bootstrap failed: %s", e, exc_info=True)
 
     # LLM provider
-    if settings.llm_provider == LLMProvider.GEMINI:
-        from insightxpert.llm.gemini import GeminiProvider
-        llm = GeminiProvider(api_key=settings.gemini_api_key, model=settings.gemini_model)
-        logger.info("LLM provider: Gemini (%s)", settings.gemini_model)
-    else:
-        from insightxpert.llm.ollama import OllamaProvider
-        llm = OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)
-        logger.info("LLM provider: Ollama (%s @ %s)", settings.ollama_model, settings.ollama_base_url)
+    llm = create_llm(settings.llm_provider.value, settings)
+    logger.info("LLM provider: %s", settings.llm_provider.value)
 
     # Auth database (separate SQLite file)
     auth_engine = create_engine("sqlite:///./insightxpert_auth.db")

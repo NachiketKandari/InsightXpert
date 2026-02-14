@@ -26,6 +26,9 @@ class LLMChunk:
 
 @runtime_checkable
 class LLMProvider(Protocol):
+    @property
+    def model(self) -> str: ...
+
     async def chat(
         self, messages: list[dict], tools: list[dict] | None = None
     ) -> LLMResponse: ...

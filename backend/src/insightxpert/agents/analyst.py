@@ -10,98 +10,17 @@ from insightxpert.api.models import ChatChunk
 from insightxpert.config import Settings
 from insightxpert.db.connector import DatabaseConnector
 from insightxpert.llm.base import LLMProvider
+from insightxpert.prompts import render as render_prompt
 from insightxpert.rag.store import VectorStore
 from insightxpert.training.documentation import DOCUMENTATION
 from insightxpert.training.schema import DDL
 
-from .tools import TOOL_DEFINITIONS, execute_tool
+from .tool_base import ToolContext, ToolRegistry
+from .tools import default_registry
 
 logger = logging.getLogger("insightxpert.analyst")
 
 MAX_ITERATIONS = 10
-
-SYSTEM_PROMPT_TEMPLATE = """\
-You are **InsightXpert**, an AI data analyst built for the Techfest IIT Bombay \
-Leadership Analytics Challenge. You translate natural-language questions about \
-Indian digital payment transactions into accurate SQL, execute the queries, and \
-deliver clear, evidence-backed answers for non-technical leadership audiences.
-
-## Database Schema
-
-{ddl}
-
-## Business Context
-
-{documentation}
-
-## Tools Available
-
-You have three tools:
-- **run_sql** — execute a SELECT query against the SQLite database
-- **get_schema** — inspect table DDL (use if unsure about columns)
-- **search_similar** — search the knowledge base for similar past queries, DDL, or docs
-
-## Rules
-
-1. **SELECT only** — never write INSERT, UPDATE, DELETE, DROP, or any DDL.
-2. **NULL semantics** — `merchant_category` is NULL for P2P transactions; \
-`receiver_age_group` is NULL for non-P2P. Exclude NULLs from aggregations, \
-do not impute.
-3. **fraud_flag** means "flagged for review", NOT confirmed fraud. Always say \
-"flagged for review" in your response.
-4. **ROUND()** all decimal results to 2 decimal places.
-5. **Correlation != causation** — surface patterns, never assert causal claims.
-6. **Small samples** — if a result is based on fewer than 500 rows, flag it \
-explicitly (e.g., "Note: based on N records").
-7. Always execute the SQL with run_sql before answering — never guess results.
-
-## Response Structure
-
-Structure every answer with these layers:
-1. **Direct Answer** (1-2 sentences in plain business language)
-2. **Supporting Evidence** (key numbers, comparisons, rankings from the data)
-3. **Data Provenance** (row count, scope, time range of the underlying data)
-4. **Caveats** (small samples, NULL exclusions, synthetic data disclaimers — when relevant)
-5. **Follow-up Suggestions** (1-2 natural next questions the user might ask)
-
-{rag_context}"""
-
-
-def _build_system_prompt(
-    similar_qa: list[dict],
-    relevant_ddl: list[dict],
-    relevant_docs: list[dict],
-    relevant_findings: list[dict],
-) -> str:
-    rag_parts: list[str] = []
-
-    if relevant_ddl:
-        rag_parts.append("## Introspected Schema (from DB)")
-        for item in relevant_ddl:
-            rag_parts.append(item["document"])
-
-    if similar_qa:
-        rag_parts.append("## Similar Past Queries (for reference)")
-        for item in similar_qa:
-            rag_parts.append(item["document"])
-
-    if relevant_docs:
-        rag_parts.append("## Additional Documentation")
-        for item in relevant_docs:
-            rag_parts.append(item["document"])
-
-    if relevant_findings:
-        rag_parts.append("## Anomaly Findings (background analysis)")
-        for item in relevant_findings:
-            rag_parts.append(item["document"])
-
-    rag_context = "\n".join(rag_parts) if rag_parts else ""
-
-    return SYSTEM_PROMPT_TEMPLATE.format(
-        ddl=DDL,
-        documentation=DOCUMENTATION,
-        rag_context=rag_context,
-    )
 
 
 def _extract_sql_from_messages(messages: list[dict]) -> str | None:
@@ -127,9 +46,15 @@ async def analyst_loop(
     config: Settings,
     conversation_id: str | None = None,
     history: list[dict] | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     cid = conversation_id or str(uuid.uuid4())[:12]
     loop_start = time.time()
+
+    # Build tool registry and context
+    if tool_registry is None:
+        tool_registry = default_registry()
+    tool_context = ToolContext(db=db, rag=rag, row_limit=config.sql_row_limit)
 
     logger.info("=" * 60)
     logger.info("NEW QUESTION [%s]: %s", cid, question)
@@ -157,8 +82,14 @@ async def analyst_loop(
         for i, qa in enumerate(similar_qa):
             logger.debug("  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100])
 
-    system_prompt = _build_system_prompt(
-        similar_qa, relevant_ddl, relevant_docs, relevant_findings,
+    system_prompt = render_prompt(
+        "analyst_system.j2",
+        ddl=DDL,
+        documentation=DOCUMENTATION,
+        similar_qa=similar_qa,
+        relevant_ddl=relevant_ddl,
+        relevant_docs=relevant_docs,
+        relevant_findings=relevant_findings,
     )
 
     messages: list[dict] = [
@@ -178,7 +109,17 @@ async def analyst_loop(
         logger.info("--- Iteration %d/%d ---", iteration + 1, max_iter)
 
         llm_start = time.time()
-        response = await llm.chat(messages, tools=TOOL_DEFINITIONS)
+        try:
+            response = await llm.chat(messages, tools=tool_registry.get_schemas())
+        except Exception as exc:
+            logger.error("LLM call failed: %s", exc, exc_info=True)
+            yield ChatChunk(
+                type="error",
+                content=f"LLM request failed: {exc}",
+                conversation_id=cid,
+                timestamp=time.time(),
+            )
+            return
         llm_ms = (time.time() - llm_start) * 1000
 
         if response.tool_calls:
@@ -214,9 +155,8 @@ async def analyst_loop(
                     )
 
                 tool_start = time.time()
-                result = await execute_tool(
-                    tc.name, tc.arguments, db, rag,
-                    row_limit=config.sql_row_limit,
+                result = await tool_registry.execute(
+                    tc.name, tc.arguments, tool_context,
                 )
                 tool_ms = (time.time() - tool_start) * 1000
                 logger.info("Tool %s completed (%.0fms): %s", tc.name, tool_ms, result[:200])

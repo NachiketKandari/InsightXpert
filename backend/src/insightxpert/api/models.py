@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -108,3 +109,10 @@ class ConversationDetail(BaseModel):
 
 class RenameRequest(BaseModel):
     title: str
+
+
+class FeedbackRequest(BaseModel):
+    conversation_id: str
+    message_id: str
+    rating: Literal["up", "down"]
+    comment: str = ""

@@ -2,18 +2,24 @@ from __future__ import annotations
 
 import json
 import logging
-import traceback
 
+from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
 from insightxpert.db.connector import DatabaseConnector
-from insightxpert.rag.store import VectorStore
 
 logger = logging.getLogger("insightxpert.tools")
 
-TOOL_DEFINITIONS: list[dict] = [
-    {
-        "name": "run_sql",
-        "description": "Execute a SQL query against the connected database and return the results. Use SELECT queries to retrieve data.",
-        "parameters": {
+
+class RunSqlTool(Tool):
+    @property
+    def name(self) -> str:
+        return "run_sql"
+
+    @property
+    def description(self) -> str:
+        return "Execute a SQL query against the connected database and return the results. Use SELECT queries to retrieve data."
+
+    def get_args_schema(self) -> dict:
+        return {
             "type": "object",
             "properties": {
                 "sql": {
@@ -22,12 +28,25 @@ TOOL_DEFINITIONS: list[dict] = [
                 }
             },
             "required": ["sql"],
-        },
-    },
-    {
-        "name": "get_schema",
-        "description": "Get the CREATE TABLE DDL statements for database tables. Call with no arguments to get all tables, or specify table names.",
-        "parameters": {
+        }
+
+    async def execute(self, context: ToolContext, args: dict) -> str:
+        rows = context.db.execute(args["sql"], row_limit=context.row_limit)
+        logger.debug("run_sql returned %d rows", len(rows))
+        return json.dumps({"rows": rows, "row_count": len(rows)}, default=str)
+
+
+class GetSchemaTool(Tool):
+    @property
+    def name(self) -> str:
+        return "get_schema"
+
+    @property
+    def description(self) -> str:
+        return "Get the CREATE TABLE DDL statements for database tables. Call with no arguments to get all tables, or specify table names."
+
+    def get_args_schema(self) -> dict:
+        return {
             "type": "object",
             "properties": {
                 "tables": {
@@ -36,12 +55,36 @@ TOOL_DEFINITIONS: list[dict] = [
                     "description": "Optional list of specific table names. If empty, returns all tables.",
                 }
             },
-        },
-    },
-    {
-        "name": "search_similar",
-        "description": "Search the knowledge base for similar past queries, relevant DDL, or documentation that might help answer the question.",
-        "parameters": {
+        }
+
+    async def execute(self, context: ToolContext, args: dict) -> str:
+        from insightxpert.db.schema import get_schema_ddl, get_table_info
+
+        tables = args.get("tables", [])
+        if tables:
+            results = []
+            for t in tables:
+                info = get_table_info(context.db.engine, t)
+                results.append(info)
+            logger.debug("get_schema returned info for tables: %s", tables)
+            return json.dumps(results, default=str)
+        else:
+            ddl = get_schema_ddl(context.db.engine)
+            logger.debug("get_schema returned full DDL (%d chars)", len(ddl))
+            return ddl
+
+
+class SearchSimilarTool(Tool):
+    @property
+    def name(self) -> str:
+        return "search_similar"
+
+    @property
+    def description(self) -> str:
+        return "Search the knowledge base for similar past queries, relevant DDL, or documentation that might help answer the question."
+
+    def get_args_schema(self) -> dict:
+        return {
             "type": "object",
             "properties": {
                 "query": {
@@ -55,56 +98,43 @@ TOOL_DEFINITIONS: list[dict] = [
                 },
             },
             "required": ["query", "collection"],
-        },
-    },
-]
+        }
+
+    async def execute(self, context: ToolContext, args: dict) -> str:
+        query = args["query"]
+        collection = args["collection"]
+        if collection == "qa_pairs":
+            items = context.rag.search_qa(query)
+        elif collection == "ddl":
+            items = context.rag.search_ddl(query)
+        elif collection == "docs":
+            items = context.rag.search_docs(query)
+        else:
+            logger.warning("Unknown collection: %s", collection)
+            return json.dumps({"error": f"Unknown collection: {collection}"})
+        logger.debug("search_similar(%s, %s) returned %d items", collection, query[:50], len(items))
+        return json.dumps(items, default=str)
+
+
+def default_registry() -> ToolRegistry:
+    """Create and return a ToolRegistry pre-loaded with all built-in tools."""
+    registry = ToolRegistry()
+    registry.register(RunSqlTool())
+    registry.register(GetSchemaTool())
+    registry.register(SearchSimilarTool())
+    return registry
+
+
+# Backward-compat exports
+_COMPAT_TOOLS = [RunSqlTool(), GetSchemaTool(), SearchSimilarTool()]
+TOOL_DEFINITIONS: list[dict] = [t.get_definition() for t in _COMPAT_TOOLS]
 
 
 async def execute_tool(
-    tool_name: str, arguments: dict, db: DatabaseConnector, rag: VectorStore,
+    tool_name: str, arguments: dict, db: DatabaseConnector, rag: object,
     *, row_limit: int = 1000,
 ) -> str:
-    logger.debug("execute_tool(%s, %s)", tool_name, json.dumps(arguments, default=str)[:300])
-    try:
-        if tool_name == "run_sql":
-            rows = db.execute(arguments["sql"], row_limit=row_limit)
-            logger.debug("run_sql returned %d rows", len(rows))
-            return json.dumps({"rows": rows, "row_count": len(rows)}, default=str)
-
-        elif tool_name == "get_schema":
-            from insightxpert.db.schema import get_schema_ddl, get_table_info
-            tables = arguments.get("tables", [])
-            if tables:
-                results = []
-                for t in tables:
-                    info = get_table_info(db.engine, t)
-                    results.append(info)
-                logger.debug("get_schema returned info for tables: %s", tables)
-                return json.dumps(results, default=str)
-            else:
-                ddl = get_schema_ddl(db.engine)
-                logger.debug("get_schema returned full DDL (%d chars)", len(ddl))
-                return ddl
-
-        elif tool_name == "search_similar":
-            query = arguments["query"]
-            collection = arguments["collection"]
-            if collection == "qa_pairs":
-                items = rag.search_qa(query)
-            elif collection == "ddl":
-                items = rag.search_ddl(query)
-            elif collection == "docs":
-                items = rag.search_docs(query)
-            else:
-                logger.warning("Unknown collection: %s", collection)
-                return json.dumps({"error": f"Unknown collection: {collection}"})
-            logger.debug("search_similar(%s, %s) returned %d items", collection, query[:50], len(items))
-            return json.dumps(items, default=str)
-
-        else:
-            logger.warning("Unknown tool: %s", tool_name)
-            return json.dumps({"error": f"Unknown tool: {tool_name}"})
-
-    except Exception as e:
-        logger.error("Tool %s failed: %s", tool_name, e, exc_info=True)
-        return json.dumps({"error": str(e), "traceback": traceback.format_exc()})
+    """Backward-compatible wrapper. Prefer ToolRegistry.execute() for new code."""
+    registry = default_registry()
+    context = ToolContext(db=db, rag=rag, row_limit=row_limit)
+    return await registry.execute(tool_name, arguments, context)

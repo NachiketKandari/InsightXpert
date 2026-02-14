@@ -52,3 +52,15 @@ class MessageRecord(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunks_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class FeedbackRecord(Base):
+    __tablename__ = "feedback"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    conversation_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    message_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    rating: Mapped[str] = mapped_column(String(10), nullable=False)
+    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
