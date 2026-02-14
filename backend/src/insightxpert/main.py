@@ -67,11 +67,11 @@ async def lifespan(app: FastAPI):
     llm = create_llm(settings.llm_provider.value, settings)
     logger.info("LLM provider: %s", settings.llm_provider.value)
 
-    # Auth database (separate SQLite file)
-    auth_engine = create_engine("sqlite:///./insightxpert_auth.db")
+    # Auth tables (same database as transactions)
+    auth_engine = create_engine(settings.database_url)
     AuthBase.metadata.create_all(auth_engine)
     seed_admin(auth_engine)
-    logger.info("Auth database initialized")
+    logger.info("Auth tables initialized in %s", settings.database_url)
 
     # Persistent conversation store (SQLite-backed)
     persistent_conv_store = PersistentConversationStore(auth_engine)
