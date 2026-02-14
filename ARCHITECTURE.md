@@ -22,11 +22,11 @@ Non-technical leadership at Indian fintech companies need to ask questions like:
 
 ## 2. Current State (as of Feb 14)
 
-The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational. Three design patterns (LLM Factory, Tool ABC + Registry, VectorStore Protocol) formalize the extension points. Error handling wraps all LLM calls with proper error surfacing. Conversation persistence correctly bridges frontend-generated IDs with backend storage via `get_or_create_conversation`. Message action buttons (copy, thumbs up/down, retry) and a feedback endpoint are implemented.
+The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational. Three design patterns (LLM Factory, Tool ABC + Registry, VectorStore Protocol) formalize the extension points. Error handling wraps all LLM calls with proper error surfacing. Conversation persistence correctly bridges frontend-generated IDs with backend storage via `get_or_create_conversation`. Message action buttons (copy, thumbs up/down, retry) and a feedback endpoint are implemented. Security hardened: SQL executor enforces read-only at the SQLite engine level (`PRAGMA query_only`), tool errors return sanitized messages (no tracebacks), LLM provider switch validates before mutating settings and rolls back on failure, feedback rating constrained to `Literal["up", "down"]`. System prompt extracted into Jinja2 template. `LLMProvider` protocol includes a `model` property. VectorStore implementations verified against the protocol at import time. Conversation list query optimized (N+1 eliminated).
 
 ### Implemented
 - **Analyst agent** (`agents/analyst.py`) — Full tool-calling loop: RAG retrieval -> LLM -> tool execution (run_sql, get_schema, search_similar) -> streaming response
-- **Tool ABC + ToolRegistry** (`agents/tool_base.py`, `agents/tools.py`) — `Tool` abstract base class with `ToolRegistry` for dispatch. 3 concrete tools (`RunSqlTool`, `GetSchemaTool`, `SearchSimilarTool`). New tools added by subclassing + `registry.register()`
+- **Tool ABC + ToolRegistry** (`agents/tool_base.py`, `agents/tools.py`) — `Tool` abstract base class with `ToolRegistry` for dispatch. 3 concrete tools (`RunSqlTool`, `GetSchemaTool`, `SearchSimilarTool`). New tools added by subclassing + `registry.register()`. Error responses sanitized (no tracebacks leaked to LLM or user)
 - **LLM Factory** (`llm/factory.py`) — Registry-based `create_llm(provider, settings)` replaces duplicated if/else blocks. Lazy imports avoid pulling in provider dependencies at module level
 - **LLM providers** (`llm/gemini.py`, `llm/ollama.py`) — Both Gemini and Ollama working with tool calling, streaming, and message conversion
 - **Runtime LLM switching** — `/api/config/switch` endpoint uses `create_llm()` to hot-swap the LLM provider and model without restart
@@ -255,6 +255,7 @@ Backward-compatible `TOOL_DEFINITIONS` list and `execute_tool()` function are st
 ```python
 # llm/base.py — Protocol
 class LLMProvider(Protocol):
+    model: str                                            # Public read-only property
     async def chat(messages, tools) -> LLMResponse       # Non-streaming
     async def chat_stream(messages, tools) -> AsyncGenerator[LLMChunk]  # Streaming
 
@@ -280,7 +281,7 @@ class ToolCall:
 
 **Ollama provider** — Uses `ollama` async client with 120s timeout. Same protocol, different wire format. Fallback for local development without API keys.
 
-**Runtime switching** — Provider can be changed at runtime via `POST /api/config/switch`. The endpoint updates settings, then calls `create_llm(provider, settings)` and replaces `app.state.llm`. No restart needed. Unknown providers return HTTP 400. For Ollama, the endpoint validates the model exists via `client.show(model)` before accepting the switch — returns HTTP 503 with a clear error if Ollama is unreachable or the model isn't pulled. Available models are served from `GET /api/config` (Gemini models are hardcoded, Ollama models are dynamically queried from the local server).
+**Runtime switching** — Provider can be changed at runtime via `POST /api/config/switch`. For Ollama, the endpoint validates the model exists via `client.show(model)` before mutating any settings — returns HTTP 503 with a clear error if Ollama is unreachable or the model isn't pulled. Settings are saved before mutation and rolled back if `create_llm()` fails. On success, `app.state.llm` is replaced. No restart needed. Unknown providers return HTTP 400. Available models are served from `GET /api/config` (Gemini models are hardcoded, Ollama models are dynamically queried from the local server).
 
 ### 5.4 Planned Multi-Agent Pipeline
 
@@ -538,7 +539,7 @@ Breadcrumb-style selector in the header: `[Provider v] / [Model v]`
 
 SQLAlchemy engine wrapper with safety features:
 - `connect(url)` — Initialize engine with connection pooling + pre-ping
-- `execute(sql, row_limit=1000, timeout=30)` — Execute SQL, return JSON-serializable rows, enforce row limit
+- `execute(sql, row_limit=1000, timeout=30, read_only=False)` — Execute SQL, return JSON-serializable rows, enforce row limit. When `read_only=True`, sets `PRAGMA query_only = ON` on the connection before executing — enforces read-only at the SQLite engine level regardless of SQL content
 - `get_tables()` — Introspect table names
 - `disconnect()` — Dispose engine
 

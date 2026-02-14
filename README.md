@@ -110,6 +110,10 @@ InsightXpert/
 │   │   │   ├── tools.py         # RunSqlTool, GetSchemaTool, SearchSimilarTool
 │   │   │   └── orchestrator.py  # Multi-agent routing (stub)
 │   │   │
+│   │   ├── prompts/
+│   │   │   ├── __init__.py      # Jinja2 template loader (render function)
+│   │   │   └── analyst_system.j2 # Analyst system prompt template
+│   │   │
 │   │   ├── llm/
 │   │   │   ├── base.py          # LLMProvider protocol
 │   │   │   ├── factory.py       # Registry-based provider factory (create_llm)
@@ -184,8 +188,9 @@ npm run dev                      # Start dev server → http://localhost:3000
 
 **Design patterns for extensibility:**
 - **LLM Factory** (`llm/factory.py`) — Registry-based provider creation via `create_llm(provider, settings)`. Adding a new LLM backend requires only registering a factory function; no if/else chains to touch.
-- **Tool ABC + ToolRegistry** (`agents/tool_base.py`) — Each tool is a class with `name`, `description`, `get_args_schema()`, and `execute()`. The `ToolRegistry` manages dispatch, schema generation, and error handling. New tools are added by subclassing `Tool` and calling `registry.register()`.
-- **VectorStoreBackend Protocol** (`rag/base.py`) — Runtime-checkable protocol decouples all RAG consumers from ChromaDB. `InMemoryVectorStore` provides a zero-dependency backend for testing.
+- **Tool ABC + ToolRegistry** (`agents/tool_base.py`) — Each tool is a class with `name`, `description`, `get_args_schema()`, and `execute()`. The `ToolRegistry` manages dispatch, schema generation, and error handling (sanitized errors only — no tracebacks leaked to LLM/user). New tools are added by subclassing `Tool` and calling `registry.register()`.
+- **VectorStoreBackend Protocol** (`rag/base.py`) — Runtime-checkable protocol decouples all RAG consumers from ChromaDB. `InMemoryVectorStore` provides a zero-dependency backend for testing. Protocol conformance verified at import time via `issubclass` assertions.
+- **Jinja2 Prompt Templates** (`prompts/analyst_system.j2`) — System prompt extracted into a Jinja2 template with conditional sections for RAG context (similar QA, DDL, docs, findings). Template rendering via `prompts.render()`.
 
 **Explainability-first approach** — Every response includes:
 1. A plain-language summary using business vocabulary
@@ -207,7 +212,7 @@ npm run dev                      # Start dev server → http://localhost:3000
 **Guardrails:**
 - No causal claims — correlation only
 - `fraud_flag` = flagged for review, not confirmed fraud
-- SELECT-only SQL enforcement, row limits, timeouts
+- Dual SQL write protection: regex blocklist + SQLite `PRAGMA query_only` at engine level; row limits, timeouts
 - No user-level profiling (no `user_id` in dataset)
 - Insights are directional (synthetic data)
 
