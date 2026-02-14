@@ -251,21 +251,20 @@ async def get_config(
     current_provider = settings.llm_provider.value
     current_model = llm.model
 
-    ollama_models = list(OLLAMA_MODELS)
+    providers = [
+        ProviderModels(provider="gemini", models=GEMINI_MODELS),
+    ]
+
+    # Only advertise Ollama if it's actually reachable
     try:
         import ollama as ollama_sdk
         client = ollama_sdk.Client(host=settings.ollama_base_url)
         response = client.list()
-        local_models = [m.model.replace(":latest", "") for m in response.models]
-        if local_models:
-            ollama_models = local_models
+        ollama_models = [m.model.replace(":latest", "") for m in response.models]
+        if ollama_models:
+            providers.append(ProviderModels(provider="ollama", models=ollama_models))
     except Exception:
         pass
-
-    providers = [
-        ProviderModels(provider="gemini", models=GEMINI_MODELS),
-        ProviderModels(provider="ollama", models=ollama_models),
-    ]
 
     return ConfigResponse(
         current_provider=current_provider,

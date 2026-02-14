@@ -3,6 +3,7 @@
 import { useEffect } from "react";
 import { ChevronsUpDown } from "lucide-react";
 import { useSettingsStore } from "@/stores/settings-store";
+import { useIsMobile } from "@/hooks/use-media-query";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -42,6 +43,8 @@ export function ModelSelector() {
     switchModel(provider, firstModel);
   };
 
+  const isMobile = useIsMobile();
+
   const handleModelChange = (model: string) => {
     if (model === currentModel) return;
     switchModel(currentProvider, model);
@@ -49,16 +52,22 @@ export function ModelSelector() {
 
   const providerLabel = PROVIDER_LABELS[currentProvider] ?? currentProvider;
 
+  // On mobile, show a combined compact selector
+  const truncatedModel = isMobile && currentModel.length > 12
+    ? currentModel.slice(0, 12) + "..."
+    : currentModel;
+
   return (
     <div className="flex items-center gap-1 text-sm">
-      {/* Provider selector */}
+      {/* Provider selector - hidden on mobile to save space */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors outline-none disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md px-2 md:px-2.5 py-1.5 text-xs md:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors outline-none disabled:opacity-50"
             disabled={loading}
           >
-            <span>{providerLabel}</span>
+            <span className="hidden md:inline">{providerLabel}</span>
+            <span className="md:hidden">{providerLabel.slice(0, 3)}</span>
             <ChevronsUpDown className="size-3.5 opacity-50" />
           </button>
         </DropdownMenuTrigger>
@@ -86,11 +95,11 @@ export function ModelSelector() {
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
           <button
-            className="flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors outline-none disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md px-2 md:px-2.5 py-1.5 text-xs md:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors outline-none disabled:opacity-50 max-w-[120px] md:max-w-none"
             disabled={loading}
           >
-            <span>{currentModel}</span>
-            <ChevronsUpDown className="size-3.5 opacity-50" />
+            <span className="truncate">{truncatedModel}</span>
+            <ChevronsUpDown className="size-3.5 opacity-50 shrink-0" />
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="start" className="min-w-[200px]">

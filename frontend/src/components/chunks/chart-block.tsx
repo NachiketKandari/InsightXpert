@@ -23,6 +23,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { detectChartType, getChartConfig, pivotData } from "@/lib/chart-detector";
+import { useIsMobile } from "@/hooks/use-media-query";
 
 const CHART_COLORS = [
   "var(--color-chart-1)",
@@ -41,6 +42,7 @@ interface ChartBlockProps {
 }
 
 export function ChartBlock({ columns, rows }: ChartBlockProps) {
+  const isMobile = useIsMobile();
   const chartType = detectChartType(columns, rows);
   if (chartType === "none") return null;
 
@@ -72,7 +74,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
     });
 
     chartContent = (
-      <ChartContainer config={groupedConfig} className="h-72 w-full">
+      <ChartContainer config={groupedConfig} className={`${isMobile ? "h-56" : "h-72"} w-full`}>
         <BarChart data={pivoted}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis
@@ -101,7 +103,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
     );
   } else if (chartType === "bar") {
     chartContent = (
-      <ChartContainer config={chartConfig} className="h-64 w-full">
+      <ChartContainer config={chartConfig} className={`${isMobile ? "h-48" : "h-64"} w-full`}>
         <BarChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis
@@ -127,7 +129,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
     const total = data.reduce((sum, row) => sum + Number(row[valueKey]), 0);
 
     chartContent = (
-      <ChartContainer config={chartConfig} className="h-72 w-full">
+      <ChartContainer config={chartConfig} className={`${isMobile ? "h-60" : "h-72"} w-full`}>
         <PieChart>
           <ChartTooltip content={<ChartTooltipContent />} />
           <Pie
@@ -136,12 +138,12 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
             nameKey={categoryKey}
             cx="50%"
             cy="45%"
-            outerRadius={85}
-            label={({ name, value }) => {
+            outerRadius={isMobile ? 65 : 85}
+            label={isMobile ? false : ({ name, value }) => {
               const pct = ((Number(value) / total) * 100).toFixed(1);
               return `${name} (${pct}%)`;
             }}
-            labelLine={{ strokeWidth: 1 }}
+            labelLine={isMobile ? false : { strokeWidth: 1 }}
           >
             {data.map((_, i) => (
               <Cell
@@ -161,7 +163,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
   } else {
     // line
     chartContent = (
-      <ChartContainer config={chartConfig} className="h-64 w-full">
+      <ChartContainer config={chartConfig} className={`${isMobile ? "h-48" : "h-64"} w-full`}>
         <LineChart data={data}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
           <XAxis

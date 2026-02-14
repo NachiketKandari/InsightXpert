@@ -22,7 +22,7 @@ const item = {
 
 export function WelcomeScreen({ onSendMessage }: WelcomeScreenProps) {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center px-4 py-12">
+    <div className="flex flex-1 flex-col items-center justify-center px-3 sm:px-4 py-8 sm:py-12">
       <motion.div
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
@@ -41,7 +41,7 @@ export function WelcomeScreen({ onSendMessage }: WelcomeScreenProps) {
         variants={container}
         initial="hidden"
         animate="show"
-        className="mt-10 grid w-full max-w-2xl grid-cols-2 gap-3 sm:grid-cols-3"
+        className="mt-6 sm:mt-10 grid w-full max-w-2xl grid-cols-1 min-[400px]:grid-cols-2 gap-2 sm:gap-3 sm:grid-cols-3"
       >
         {SUGGESTED_QUESTIONS.map((question) => (
           <motion.button

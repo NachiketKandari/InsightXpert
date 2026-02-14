@@ -45,13 +45,18 @@ interface ChatState {
   setRightSidebar: (open: boolean) => void;
 }
 
+const getInitialSidebarState = () => {
+  if (typeof window === "undefined") return true;
+  return window.innerWidth >= 768;
+};
+
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   isStreaming: false,
   agentSteps: [],
-  leftSidebarOpen: true,
-  rightSidebarOpen: true,
+  leftSidebarOpen: getInitialSidebarState(),
+  rightSidebarOpen: getInitialSidebarState(),
 
   activeConversation: () => {
     const { conversations, activeConversationId } = get();

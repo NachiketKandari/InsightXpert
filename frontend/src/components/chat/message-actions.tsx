@@ -54,7 +54,9 @@ export function MessageActions({
     <div className="flex flex-col gap-1.5">
       <div
         className={cn(
-          "flex items-center gap-0.5 opacity-0 transition-opacity group-hover/message:opacity-100",
+          "flex items-center gap-0.5 transition-opacity",
+          "opacity-0 group-hover/message:opacity-100",
+          "max-sm:opacity-100",
           role === "user" ? "justify-end" : "justify-start"
         )}
       >

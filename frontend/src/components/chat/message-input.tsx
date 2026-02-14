@@ -34,7 +34,7 @@ export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps)
   );
 
   return (
-    <div className="border-t border-border/50 px-4 pb-4 pt-3">
+    <div className="border-t border-border/50 px-3 sm:px-4 pt-3" style={{ paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}>
       <div className="glass mx-auto flex max-w-3xl items-end gap-2 rounded-2xl px-3 py-2">
         <Textarea
           ref={textareaRef}

@@ -11,7 +11,7 @@ export function RightSidebar() {
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
 
   return (
-    <div className="flex flex-col h-full w-[300px] max-w-[300px] glass overflow-x-hidden">
+    <div className="flex flex-col h-full w-full md:w-[300px] md:max-w-[300px] glass overflow-x-hidden">
       <div className="px-4 py-3 flex items-center justify-between">
         <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
           Agent Process
