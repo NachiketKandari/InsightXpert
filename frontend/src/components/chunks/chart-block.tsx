@@ -13,6 +13,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
+import { BarChart3 } from "lucide-react";
 import {
   ChartContainer,
   ChartTooltip,
@@ -20,6 +21,7 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { detectChartType, getChartConfig, pivotData } from "@/lib/chart-detector";
 
 const CHART_COLORS = [
@@ -56,6 +58,8 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
     },
   };
 
+  let chartContent: React.ReactNode;
+
   if (chartType === "grouped-bar" && groupKey) {
     const { pivoted, groupValues } = pivotData(rows, categoryKey, groupKey, valueKey);
 
@@ -67,135 +71,129 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
       };
     });
 
-    return (
-      <Card className="glass">
-        <CardContent className="pt-4 pb-2">
-          <ChartContainer config={groupedConfig} className="h-72 w-full">
-            <BarChart data={pivoted}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey={categoryKey}
-                tick={{ fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
-              />
-              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Legend
-                iconType="circle"
-                iconSize={8}
-                wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
-              />
-              {groupValues.map((gv, i) => (
-                <Bar
-                  key={gv}
-                  dataKey={gv}
-                  fill={CHART_COLORS[i % CHART_COLORS.length]}
-                  radius={[4, 4, 0, 0]}
-                />
-              ))}
-            </BarChart>
-          </ChartContainer>
-        </CardContent>
-      </Card>
+    chartContent = (
+      <ChartContainer config={groupedConfig} className="h-72 w-full">
+        <BarChart data={pivoted}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey={categoryKey}
+            tick={{ fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          <Legend
+            iconType="circle"
+            iconSize={8}
+            wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+          />
+          {groupValues.map((gv, i) => (
+            <Bar
+              key={gv}
+              dataKey={gv}
+              fill={CHART_COLORS[i % CHART_COLORS.length]}
+              radius={[4, 4, 0, 0]}
+            />
+          ))}
+        </BarChart>
+      </ChartContainer>
     );
-  }
-
-  if (chartType === "bar") {
-    return (
-      <Card className="glass">
-        <CardContent className="pt-4 pb-2">
-          <ChartContainer config={chartConfig} className="h-64 w-full">
-            <BarChart data={data}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} />
-              <XAxis
-                dataKey={categoryKey}
-                tick={{ fontSize: 11 }}
-                tickLine={false}
-                axisLine={false}
+  } else if (chartType === "bar") {
+    chartContent = (
+      <ChartContainer config={chartConfig} className="h-64 w-full">
+        <BarChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey={categoryKey}
+            tick={{ fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          <Bar dataKey={valueKey} radius={[4, 4, 0, 0]}>
+            {data.map((_, i) => (
+              <Cell
+                key={i}
+                fill={CHART_COLORS[i % CHART_COLORS.length]}
               />
-              <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Bar dataKey={valueKey} radius={[4, 4, 0, 0]}>
-                {data.map((_, i) => (
-                  <Cell
-                    key={i}
-                    fill={CHART_COLORS[i % CHART_COLORS.length]}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ChartContainer>
-        </CardContent>
-      </Card>
+            ))}
+          </Bar>
+        </BarChart>
+      </ChartContainer>
     );
-  }
-
-  if (chartType === "pie") {
+  } else if (chartType === "pie") {
     const total = data.reduce((sum, row) => sum + Number(row[valueKey]), 0);
 
-    return (
-      <Card className="glass">
-        <CardContent className="pt-4 pb-2">
-          <ChartContainer config={chartConfig} className="h-72 w-full">
-            <PieChart>
-              <ChartTooltip content={<ChartTooltipContent />} />
-              <Pie
-                data={data}
-                dataKey={valueKey}
-                nameKey={categoryKey}
-                cx="50%"
-                cy="45%"
-                outerRadius={85}
-                label={({ name, value }) => {
-                  const pct = ((Number(value) / total) * 100).toFixed(1);
-                  return `${name} (${pct}%)`;
-                }}
-                labelLine={{ strokeWidth: 1 }}
-              >
-                {data.map((_, i) => (
-                  <Cell
-                    key={i}
-                    fill={CHART_COLORS[i % CHART_COLORS.length]}
-                  />
-                ))}
-              </Pie>
-              <Legend
-                iconType="circle"
-                iconSize={8}
-                wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
+    chartContent = (
+      <ChartContainer config={chartConfig} className="h-72 w-full">
+        <PieChart>
+          <ChartTooltip content={<ChartTooltipContent />} />
+          <Pie
+            data={data}
+            dataKey={valueKey}
+            nameKey={categoryKey}
+            cx="50%"
+            cy="45%"
+            outerRadius={85}
+            label={({ name, value }) => {
+              const pct = ((Number(value) / total) * 100).toFixed(1);
+              return `${name} (${pct}%)`;
+            }}
+            labelLine={{ strokeWidth: 1 }}
+          >
+            {data.map((_, i) => (
+              <Cell
+                key={i}
+                fill={CHART_COLORS[i % CHART_COLORS.length]}
               />
-            </PieChart>
-          </ChartContainer>
-        </CardContent>
-      </Card>
+            ))}
+          </Pie>
+          <Legend
+            iconType="circle"
+            iconSize={8}
+            wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
+          />
+        </PieChart>
+      </ChartContainer>
+    );
+  } else {
+    // line
+    chartContent = (
+      <ChartContainer config={chartConfig} className="h-64 w-full">
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <XAxis
+            dataKey={categoryKey}
+            tick={{ fontSize: 11 }}
+            tickLine={false}
+            axisLine={false}
+          />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <ChartTooltip content={<ChartTooltipContent />} />
+          <Line
+            type="monotone"
+            dataKey={valueKey}
+            stroke="var(--color-chart-1)"
+            strokeWidth={2}
+            dot={false}
+          />
+        </LineChart>
+      </ChartContainer>
     );
   }
 
-  // line
   return (
     <Card className="glass">
-      <CardContent className="pt-4 pb-2">
-        <ChartContainer config={chartConfig} className="h-64 w-full">
-          <LineChart data={data}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} />
-            <XAxis
-              dataKey={categoryKey}
-              tick={{ fontSize: 11 }}
-              tickLine={false}
-              axisLine={false}
-            />
-            <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
-            <ChartTooltip content={<ChartTooltipContent />} />
-            <Line
-              type="monotone"
-              dataKey={valueKey}
-              stroke="var(--color-chart-1)"
-              strokeWidth={2}
-              dot={false}
-            />
-          </LineChart>
-        </ChartContainer>
+      <div className="flex items-center gap-2 px-4 pt-3">
+        <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
+        <Badge variant="secondary" className="text-xs">
+          Visualization
+        </Badge>
+      </div>
+      <CardContent className="pt-3 pb-2">
+        {chartContent}
       </CardContent>
     </Card>
   );
