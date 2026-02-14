@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "InsightXpert API",
-    "description": "API collection for InsightXpert — AI data analyst for Indian digital payment transactions.\n\nBase URL: http://localhost:8000",
+    "description": "API collection for InsightXpert — AI data analyst for Indian digital payment transactions.\n\nBase URL: http://localhost:8000\n\n**Authentication:** Most endpoints require a valid session cookie. Call `Auth > Login` first — Postman will automatically store the `__session` cookie and send it with subsequent requests.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -9,9 +9,96 @@
       "key": "base_url",
       "value": "http://localhost:8000",
       "type": "string"
+    },
+    {
+      "key": "conversation_id",
+      "value": "",
+      "type": "string",
+      "description": "Set this to a conversation ID from the List Conversations response"
     }
   ],
   "item": [
+    {
+      "name": "Auth",
+      "description": "Authentication endpoints. Login first to get a session cookie, which is required by most other endpoints.",
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"admin@insightxpert.com\",\n  \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/login",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "login"]
+            },
+            "description": "Authenticate with email and password. Returns user info and sets an httpOnly `__session` cookie.\n\nPostman will automatically store the cookie and send it with subsequent requests."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"abc-123\",\n  \"email\": \"admin@insightxpert.com\"\n}"
+            },
+            {
+              "name": "401 Unauthorized",
+              "status": "Unauthorized",
+              "code": 401,
+              "body": "{\n  \"detail\": \"Invalid email or password\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Logout",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/logout",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "logout"]
+            },
+            "description": "Clear the session cookie and log out."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Current User",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/auth/me",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "me"]
+            },
+            "description": "Returns the currently authenticated user. Requires a valid session cookie."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"abc-123\",\n  \"email\": \"admin@insightxpert.com\"\n}"
+            }
+          ]
+        }
+      ]
+    },
     {
       "name": "Health",
       "item": [
@@ -25,7 +112,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "health"]
             },
-            "description": "Returns server status and timestamp. Use this to verify the server is running."
+            "description": "Returns server status and timestamp. Use this to verify the server is running. No authentication required."
           },
           "response": [
             {
@@ -228,6 +315,142 @@
       ]
     },
     {
+      "name": "Conversations",
+      "description": "CRUD operations for persistent conversation history.",
+      "item": [
+        {
+          "name": "List Conversations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conversations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations"]
+            },
+            "description": "List all conversations for the authenticated user, ordered by most recently updated."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"conv-abc-123\",\n    \"title\": \"What is the average transaction amount?\",\n    \"created_at\": \"2026-02-15T10:30:00Z\",\n    \"updated_at\": \"2026-02-15T10:31:00Z\",\n    \"last_message\": \"The average transaction amount is INR 1,847.23.\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Search Conversations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conversations/search?q=fraud",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "search"],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "fraud",
+                  "description": "Search query (minimum 2 characters). Searches conversation titles and message content."
+                }
+              ]
+            },
+            "description": "Search across conversation titles and message content. Returns matching conversations with message snippets."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"conv-abc-123\",\n    \"title\": \"Fraud flag analysis\",\n    \"updated_at\": \"2026-02-15T10:31:00Z\",\n    \"title_match\": true,\n    \"matching_messages\": [\n      {\n        \"role\": \"assistant\",\n        \"snippet\": \"...flagged for fraud review across all transaction types...\",\n        \"created_at\": \"2026-02-15T10:31:00Z\"\n      }\n    ]\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Get Conversation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conversations/{{conversation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "{{conversation_id}}"]
+            },
+            "description": "Get a single conversation with all its messages and chunk data.\n\nReplace `{{conversation_id}}` with an actual conversation ID from the List endpoint."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"conv-abc-123\",\n  \"title\": \"Average transaction amount\",\n  \"messages\": [\n    {\n      \"id\": \"msg-001\",\n      \"role\": \"user\",\n      \"content\": \"What is the average transaction amount?\",\n      \"chunks\": null,\n      \"created_at\": \"2026-02-15T10:30:00Z\"\n    },\n    {\n      \"id\": \"msg-002\",\n      \"role\": \"assistant\",\n      \"content\": \"The average transaction amount is INR 1,847.23.\",\n      \"chunks\": [{\"type\": \"answer\", \"content\": \"The average transaction amount is INR 1,847.23.\"}],\n      \"created_at\": \"2026-02-15T10:30:05Z\"\n    }\n  ],\n  \"created_at\": \"2026-02-15T10:30:00Z\",\n  \"updated_at\": \"2026-02-15T10:30:05Z\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Conversation not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Rename Conversation",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Bill Payment Analysis\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/conversations/{{conversation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "{{conversation_id}}"]
+            },
+            "description": "Rename a conversation. Replace `{{conversation_id}}` with the conversation ID."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Conversation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/conversations/{{conversation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "{{conversation_id}}"]
+            },
+            "description": "Permanently delete a conversation and all its messages. Replace `{{conversation_id}}` with the conversation ID."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Conversation not found\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Schema",
       "item": [
         {
@@ -248,6 +471,138 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"ddl\": \"CREATE TABLE transactions (\\n  transaction_id TEXT,\\n  timestamp TEXT,\\n  ...\\n);\",\n  \"tables\": [\"transactions\"]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "SQL",
+      "description": "Execute raw SQL queries against the database (read-only).",
+      "item": [
+        {
+          "name": "Execute SQL Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sql\": \"SELECT transaction_type, COUNT(*) AS cnt FROM transactions GROUP BY transaction_type ORDER BY cnt DESC LIMIT 5\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/sql/execute",
+              "host": ["{{base_url}}"],
+              "path": ["api", "sql", "execute"]
+            },
+            "description": "Execute a read-only SQL query against the database.\n\nOnly SELECT, WITH, and EXPLAIN queries are allowed. INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked (403).\n\nResults are capped at 1000 rows with a 30-second timeout (configurable via server settings)."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"columns\": [\"transaction_type\", \"cnt\"],\n  \"rows\": [\n    {\"transaction_type\": \"P2P Transfer\", \"cnt\": 52341},\n    {\"transaction_type\": \"Bill Payment\", \"cnt\": 48923},\n    {\"transaction_type\": \"Food Delivery\", \"cnt\": 35210},\n    {\"transaction_type\": \"Online Shopping\", \"cnt\": 28456},\n    {\"transaction_type\": \"Recharge\", \"cnt\": 15070}\n  ],\n  \"row_count\": 5,\n  \"execution_time_ms\": 12.34\n}"
+            },
+            {
+              "name": "403 Forbidden — Write blocked",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"detail\": \"Only read-only queries (SELECT, WITH, EXPLAIN) are allowed. INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked.\"\n}"
+            },
+            {
+              "name": "400 Bad Request — Invalid SQL",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"detail\": \"near \\\"SELEC\\\": syntax error\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Config",
+      "description": "View and switch the LLM provider/model at runtime.",
+      "item": [
+        {
+          "name": "Get Current Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "config"]
+            },
+            "description": "Returns the current LLM provider, model, and all available providers with their models.\n\nOllama models are only listed if the Ollama server is reachable."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"current_provider\": \"gemini\",\n  \"current_model\": \"gemini-2.5-flash\",\n  \"providers\": [\n    {\n      \"provider\": \"gemini\",\n      \"models\": [\"gemini-2.5-flash\", \"gemini-2.5-pro\", \"gemini-2.5-flash-lite\", \"gemini-2.0-flash\", \"gemini-2.0-flash-lite\"]\n    },\n    {\n      \"provider\": \"ollama\",\n      \"models\": [\"llama3.1\", \"ministral:3b\"]\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Switch Model — Gemini",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"gemini\",\n  \"model\": \"gemini-2.5-flash\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/config/switch",
+              "host": ["{{base_url}}"],
+              "path": ["api", "config", "switch"]
+            },
+            "description": "Switch the active LLM provider and model at runtime. Takes effect immediately for all subsequent chat requests.\n\nChange `model` to any available Gemini model: gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite, gemini-2.0-flash, gemini-2.0-flash-lite."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"provider\": \"gemini\",\n  \"model\": \"gemini-2.5-flash\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Switch Model — Ollama",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"provider\": \"ollama\",\n  \"model\": \"ministral:3b\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/config/switch",
+              "host": ["{{base_url}}"],
+              "path": ["api", "config", "switch"]
+            },
+            "description": "Switch to a local Ollama model. The model must already be downloaded (use the Ollama > Pull endpoint first).\n\nReturns 503 if Ollama is not running or the model is not found."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"provider\": \"ollama\",\n  \"model\": \"ministral:3b\"\n}"
+            },
+            {
+              "name": "503 Ollama unreachable",
+              "status": "Service Unavailable",
+              "code": 503,
+              "body": "{\n  \"detail\": \"Cannot reach Ollama or model 'ministral:3b' not found. Ensure Ollama is running and the model is pulled.\"\n}"
             }
           ]
         }
@@ -355,6 +710,39 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"status\": \"ok\",\n  \"deleted\": {\n    \"qa_pairs\": 15,\n    \"ddl\": 2,\n    \"docs\": 1,\n    \"findings\": 3\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Feedback",
+      "description": "Submit thumbs-up/down feedback on assistant messages.",
+      "item": [
+        {
+          "name": "Submit Feedback",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"conversation_id\": \"conv-abc-123\",\n  \"message_id\": \"msg-002\",\n  \"rating\": \"up\",\n  \"comment\": \"Accurate SQL and clear explanation\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/feedback",
+              "host": ["{{base_url}}"],
+              "path": ["api", "feedback"]
+            },
+            "description": "Submit feedback on an assistant message.\n\n- `rating`: `\"up\"` or `\"down\"`\n- `comment`: optional free-text feedback\n- `conversation_id` and `message_id` identify the specific message"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
             }
           ]
         }
