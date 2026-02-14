@@ -78,8 +78,7 @@ export function ModelSelector() {
             className="flex items-center gap-1.5 rounded-md px-2 md:px-2.5 py-1.5 text-xs md:text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors outline-none disabled:opacity-50"
             disabled={loading}
           >
-            <span className="hidden md:inline">{providerLabel}</span>
-            <span className="md:hidden">{providerLabel.slice(0, 3)}</span>
+            <span>{providerLabel}</span>
             <ChevronsUpDown className="size-3.5 opacity-50" />
           </button>
         </DropdownMenuTrigger>
