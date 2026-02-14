@@ -97,9 +97,4 @@ jobs:
           NEXT_OUTPUT: export
 
       - name: Deploy to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ env.WIF_SERVICE_ACCOUNT }}
-          channelId: live
-          projectId: ${{ env.GCP_PROJECT_ID }}
+        run: npx firebase-tools deploy --only hosting --project ${{ env.GCP_PROJECT_ID }}

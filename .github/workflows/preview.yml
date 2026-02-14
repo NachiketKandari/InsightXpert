@@ -91,8 +91,6 @@ jobs:
         working-directory: frontend
 
       - name: Deploy preview to Firebase Hosting
-        uses: FirebaseExtended/action-hosting-deploy@v0
-        with:
-          repoToken: ${{ secrets.GITHUB_TOKEN }}
-          firebaseServiceAccount: ${{ env.WIF_SERVICE_ACCOUNT }}
-          projectId: ${{ env.GCP_PROJECT_ID }}
+        run: |
+          CHANNEL="pr-${{ github.event.pull_request.number }}"
+          npx firebase-tools hosting:channel:deploy "$CHANNEL" --project ${{ env.GCP_PROJECT_ID }} --expires 7d
