@@ -15,7 +15,7 @@ export function ChatPanel() {
     <div className="flex h-full flex-col">
       {hasMessages ? (
         <>
-          <MessageList />
+          <MessageList onRetry={sendMessage} />
           <MessageInput
             onSend={sendMessage}
             onStop={stopStreaming}

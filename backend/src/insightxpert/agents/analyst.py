@@ -185,7 +185,17 @@ async def analyst_loop(
         logger.info("--- Iteration %d/%d ---", iteration + 1, max_iter)
 
         llm_start = time.time()
-        response = await llm.chat(messages, tools=tool_registry.get_schemas())
+        try:
+            response = await llm.chat(messages, tools=tool_registry.get_schemas())
+        except Exception as exc:
+            logger.error("LLM call failed: %s", exc, exc_info=True)
+            yield ChatChunk(
+                type="error",
+                content=f"LLM request failed: {exc}",
+                conversation_id=cid,
+                timestamp=time.time(),
+            )
+            return
         llm_ms = (time.time() - llm_start) * 1000
 
         if response.tool_calls:

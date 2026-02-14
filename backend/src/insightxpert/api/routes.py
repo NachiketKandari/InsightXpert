@@ -14,6 +14,7 @@ from insightxpert.api.models import (
     ConfigResponse,
     ConversationDetail,
     ConversationSummary,
+    FeedbackRequest,
     MessageResponse,
     ProviderModels,
     RenameRequest,
@@ -64,11 +65,17 @@ async def chat_sse(
         conv_store.add_user_message(cid, chat_req.message)
 
     # Ensure persistent conversation exists and save user message
-    persistent_cid = cid
-    if not persistent_cid:
-        title = chat_req.message[:100]
+    title = chat_req.message[:100]
+    if cid:
+        persistent_cid = cid
+        try:
+            persistent_store.get_or_create_conversation(cid, user.id, title)
+        except Exception as e:
+            logger.warning("Failed to ensure persistent conversation: %s", e)
+    else:
         convo = persistent_store.create_conversation(user.id, title)
         persistent_cid = convo["id"]
+
     try:
         persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
     except Exception as e:
@@ -85,7 +92,7 @@ async def chat_sse(
             db=db,
             rag=rag,
             config=settings,
-            conversation_id=chat_req.conversation_id or persistent_cid,
+            conversation_id=cid or persistent_cid,
             history=history,
         ):
             actual_cid = chunk.conversation_id
@@ -131,11 +138,17 @@ async def chat_poll(
         conv_store.add_user_message(cid, chat_req.message)
 
     # Ensure persistent conversation exists and save user message
-    persistent_cid = cid
-    if not persistent_cid:
-        title = chat_req.message[:100]
+    title = chat_req.message[:100]
+    if cid:
+        persistent_cid = cid
+        try:
+            persistent_store.get_or_create_conversation(cid, user.id, title)
+        except Exception as e:
+            logger.warning("Failed to ensure persistent conversation: %s", e)
+    else:
         convo = persistent_store.create_conversation(user.id, title)
         persistent_cid = convo["id"]
+
     try:
         persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
     except Exception as e:
@@ -149,7 +162,7 @@ async def chat_poll(
         db=db,
         rag=rag,
         config=settings,
-        conversation_id=chat_req.conversation_id or persistent_cid,
+        conversation_id=cid or persistent_cid,
         history=history,
     ):
         chunks.append(chunk.model_dump())
@@ -286,6 +299,19 @@ async def switch_model(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+    # Validate Ollama model exists before accepting the switch
+    if req.provider == "ollama":
+        try:
+            import ollama as ollama_sdk
+            client = ollama_sdk.Client(host=settings.ollama_base_url)
+            client.show(req.model)
+        except Exception as e:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Cannot reach Ollama or model '{req.model}' not found. "
+                       f"Ensure Ollama is running and the model is pulled. Error: {e}",
+            )
+
     request.app.state.llm = new_llm
     logger.info("Switched LLM: provider=%s model=%s", req.provider, req.model)
 
@@ -401,4 +427,34 @@ async def rename_conversation(
     renamed = persistent_store.rename_conversation(conversation_id, user.id, body.title)
     if not renamed:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "ok"}
+
+
+# --- Feedback -----------------------------------------------------------
+
+
+@router.post("/feedback")
+async def submit_feedback(
+    body: FeedbackRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    from sqlalchemy.orm import Session
+    from insightxpert.auth.models import FeedbackRecord
+
+    engine = request.app.state.persistent_conv_store.engine
+    try:
+        with Session(engine) as session:
+            record = FeedbackRecord(
+                user_id=user.id,
+                conversation_id=body.conversation_id,
+                message_id=body.message_id,
+                rating=body.rating,
+                comment=body.comment or None,
+            )
+            session.add(record)
+            session.commit()
+    except Exception as e:
+        logger.warning("Failed to save feedback: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to save feedback")
     return {"status": "ok"}

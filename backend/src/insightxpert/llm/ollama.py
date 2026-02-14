@@ -14,10 +14,11 @@ logger = logging.getLogger("insightxpert.llm.ollama")
 
 
 class OllamaProvider:
-    def __init__(self, model: str = "llama3.1", base_url: str = "http://localhost:11434") -> None:
+    def __init__(self, model: str = "llama3.1", base_url: str = "http://localhost:11434", timeout: float = 120.0) -> None:
         self._model = model
-        self._client = ollama_sdk.AsyncClient(host=base_url)
-        logger.debug("OllamaProvider initialized (model=%s, url=%s)", model, base_url)
+        self._base_url = base_url
+        self._client = ollama_sdk.AsyncClient(host=base_url, timeout=timeout)
+        logger.debug("OllamaProvider initialized (model=%s, url=%s, timeout=%.0fs)", model, base_url, timeout)
 
     def _convert_tools(self, tools: list[dict] | None) -> list[dict] | None:
         if not tools:

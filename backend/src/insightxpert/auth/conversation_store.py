@@ -70,6 +70,36 @@ class PersistentConversationStore:
                 ],
             }
 
+    def get_or_create_conversation(self, conversation_id: str, user_id: str, title: str) -> dict:
+        with Session(self.engine) as session:
+            convo = session.get(ConversationRecord, conversation_id)
+            if convo is not None:
+                if convo.user_id == user_id:
+                    return {
+                        "id": convo.id,
+                        "title": convo.title,
+                        "created_at": convo.created_at.isoformat(),
+                        "updated_at": convo.updated_at.isoformat(),
+                    }
+                raise ValueError("Conversation not owned by user")
+
+            now = datetime.now(timezone.utc)
+            convo = ConversationRecord(
+                id=conversation_id,
+                user_id=user_id,
+                title=title,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(convo)
+            session.commit()
+            return {
+                "id": convo.id,
+                "title": convo.title,
+                "created_at": convo.created_at.isoformat(),
+                "updated_at": convo.updated_at.isoformat(),
+            }
+
     def create_conversation(self, user_id: str, title: str) -> dict:
         now = datetime.now(timezone.utc)
         convo = ConversationRecord(

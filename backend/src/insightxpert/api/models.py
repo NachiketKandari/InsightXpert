@@ -108,3 +108,10 @@ class ConversationDetail(BaseModel):
 
 class RenameRequest(BaseModel):
     title: str
+
+
+class FeedbackRequest(BaseModel):
+    conversation_id: str
+    message_id: str
+    rating: str  # "up" or "down"
+    comment: str = ""
