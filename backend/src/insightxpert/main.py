@@ -7,8 +7,6 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from sqlalchemy import create_engine
-
 from insightxpert.api.routes import router
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.models import Base as AuthBase
@@ -48,7 +46,7 @@ async def lifespan(app: FastAPI):
 
     # Database
     db = DatabaseConnector()
-    db.connect(settings.database_url)
+    db.connect(settings.database_url, auth_token=settings.turso_auth_token)
     logger.info("Database connected: %s", settings.database_url)
 
     # RAG vector store
@@ -68,10 +66,10 @@ async def lifespan(app: FastAPI):
     logger.info("LLM provider: %s", settings.llm_provider.value)
 
     # Auth tables (same database as transactions)
-    auth_engine = create_engine(settings.database_url)
+    auth_engine = db.engine
     AuthBase.metadata.create_all(auth_engine)
     seed_admin(auth_engine)
-    logger.info("Auth tables initialized in %s", settings.database_url)
+    logger.info("Auth tables initialized")
 
     # Persistent conversation store (SQLite-backed)
     persistent_conv_store = PersistentConversationStore(auth_engine)
