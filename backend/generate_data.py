@@ -30,11 +30,51 @@ MERCHANT_CATEGORIES = [
 
 BANKS = ["SBI", "HDFC", "ICICI", "Axis", "PNB", "Kotak", "IndusInd", "Yes Bank"]
 
-STATES = [
-    "Maharashtra", "Karnataka", "Tamil Nadu", "Delhi", "Uttar Pradesh",
-    "Gujarat", "Rajasthan", "West Bengal", "Telangana", "Kerala",
-    "Madhya Pradesh", "Bihar", "Andhra Pradesh", "Punjab", "Haryana",
-]
+# Weights reflect population size × digital-payment adoption (UPI penetration,
+# urbanisation, smartphone density).  Large, digitally-active states get the
+# highest share; small / remote UTs get a realistic but non-zero tail.
+STATE_WEIGHTS = {
+    # -- 28 States --
+    "Maharashtra":        12.0,   # large pop + Mumbai/Pune fintech hub
+    "Uttar Pradesh":      10.0,   # largest pop, moderate digital adoption
+    "Karnataka":           8.0,   # Bengaluru tech hub, high UPI usage
+    "Tamil Nadu":          7.0,   # Chennai + high urbanisation
+    "Gujarat":             6.0,   # industrialised, high merchant payments
+    "Rajasthan":           4.5,   # large pop, growing digital
+    "West Bengal":         4.0,   # Kolkata metro, moderate adoption
+    "Madhya Pradesh":      3.5,   # large pop, lower digital penetration
+    "Andhra Pradesh":      3.5,   # Vizag/Vijayawada corridors
+    "Kerala":              3.5,   # high literacy & banking penetration
+    "Telangana":           5.0,   # Hyderabad tech hub, punches above pop
+    "Bihar":               2.5,   # very large pop but low digital infra
+    "Punjab":              2.5,   # affluent, moderate pop
+    "Haryana":             2.5,   # Gurugram/NCR spillover
+    "Odisha":              1.8,   # growing digital, moderate pop
+    "Jharkhand":           1.5,   # industrial pockets, lower adoption
+    "Chhattisgarh":        1.2,   # smaller, lower digital
+    "Assam":               1.2,   # largest NE state
+    "Uttarakhand":         0.9,   # small pop, moderate digital
+    "Himachal Pradesh":    0.6,   # small pop, decent banking
+    "Goa":                 0.5,   # tiny pop but very high per-capita digital
+    "Tripura":             0.25,
+    "Meghalaya":           0.20,
+    "Manipur":             0.18,
+    "Nagaland":            0.12,
+    "Arunachal Pradesh":   0.10,
+    "Mizoram":             0.10,
+    "Sikkim":              0.08,
+    # -- 8 Union Territories --
+    "Delhi":               7.0,   # national capital, massive UPI volume
+    "Chandigarh":          0.5,   # affluent UT, high per-capita digital
+    "Jammu and Kashmir":   0.8,   # moderate pop
+    "Puducherry":          0.25,
+    "Dadra and Nagar Haveli and Daman and Diu": 0.10,
+    "Andaman and Nicobar Islands":              0.05,
+    "Ladakh":              0.04,
+    "Lakshadweep":         0.02,
+}
+STATES = list(STATE_WEIGHTS.keys())
+STATE_WEIGHT_VALUES = list(STATE_WEIGHTS.values())
 
 AGE_GROUPS = ["18-25", "26-35", "36-45", "46-55", "56+"]
 AGE_WEIGHTS = [0.25, 0.35, 0.20, 0.12, 0.08]
@@ -80,7 +120,7 @@ def generate_row() -> tuple:
 
     sender_bank = random.choice(BANKS)
     receiver_bank = random.choice(BANKS)
-    sender_state = random.choice(STATES)
+    sender_state = random.choices(STATES, STATE_WEIGHT_VALUES)[0]
     sender_age = random.choices(AGE_GROUPS, AGE_WEIGHTS)[0]
 
     # receiver_age_group is NULL for non-P2P
