@@ -37,7 +37,7 @@ The from-scratch engine has replaced Vanna and is fully ported. The single-agent
 - **Conversation memory** — Dual-store: in-memory LRU for LLM context + SQLite-backed persistent store for conversation history
 - **Authentication** (`auth/`) — JWT (HS256) + bcrypt password hashing + HttpOnly cookie sessions. Default admin user auto-seeded on startup
 - **API** (`api/routes.py`) — 16 endpoints: chat (SSE), chat/poll, train, schema, health, config, config/switch, sql/execute, auth (login/logout/me), conversations CRUD, feedback
-- **SQL Executor** — `POST /api/sql/execute` with regex-based write blocker (blocks INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, etc.)
+- **SQL Executor** — `POST /api/sql/execute` with dual read-only enforcement (regex blocklist + SQLite `PRAGMA query_only`)
 - **Data generator** (`generate_data.py`) — 250K transactions, 17 columns, 80MB SQLite DB, reproducible (seed=42)
 - **Tests** — 3 test files (agent, db, rag) with pytest-asyncio fixtures
 - **Config** (`config.py`) — Pydantic Settings with LLM provider toggle, DB URL, agent limits, auth settings
@@ -54,6 +54,9 @@ The from-scratch engine has replaced Vanna and is fully ported. The single-agent
 - **Message action buttons** — Copy prompt/response, thumbs up/down, retry (hover toolbar via `group/message` CSS); `MessageActions` component
 - **Feedback endpoint** — `POST /api/feedback` persists `FeedbackRecord` (user_id, conversation_id, message_id, rating, comment)
 - **UserMenu component** — Extracted from Header; avatar + dropdown with email + sign out
+- **Jinja2 prompt templates** — System prompt extracted into `prompts/analyst_system.j2` with conditional RAG sections; rendered via `prompts.render()`
+- **Security hardening** — Tool errors sanitized (no tracebacks), SQL executor uses engine-level `PRAGMA query_only`, LLM switch validates before mutating settings with rollback, feedback rating typed as `Literal["up", "down"]`
+- **Chat route deduplication** — Shared `_prepare_chat()` helper eliminates duplicated setup logic between SSE and poll endpoints
 
 ### Not Yet Implemented (stubs or planned)
 - **Orchestrator** (`agents/orchestrator.py`) — 6-line stub, no multi-agent routing
@@ -215,13 +218,13 @@ The analyst is the primary agent. It receives a natural language question and pr
 5. If max iterations exhausted -> yield ChatChunk(type="error")
 ```
 
-**System prompt structure:**
+**System prompt structure** (Jinja2 template: `prompts/analyst_system.j2`):
 - Identity as InsightXpert AI data analyst
 - Full DDL for the transactions table (17 columns)
 - Business documentation (column descriptions, domain rules)
 - 7 domain rules (SELECT only, NULL handling, fraud_flag semantics, ROUND(2), correlation != causation, small sample flags, execute before answering)
 - 5-layer response structure requirement
-- RAG context dynamically injected per query
+- RAG context dynamically injected per query via conditional Jinja2 blocks (`{% if similar_qa %}`, etc.)
 
 ### 5.2 Tool Framework
 
@@ -231,9 +234,9 @@ The tool framework uses an abstract base class and registry pattern:
 
 ```python
 # agents/tool_base.py
-class ToolContext:        # Holds db, rag, row_limit — passed to every tool
+class ToolContext:        # Holds db, rag (typed as VectorStoreBackend via TYPE_CHECKING), row_limit
 class Tool(ABC):          # Abstract: name, description, get_args_schema(), execute(), get_definition()
-class ToolRegistry:       # register(tool), get_schemas(), execute(name, args, context)
+class ToolRegistry:       # register(tool), get_schemas(), execute(name, args, context) — sanitized errors
 ```
 
 Three concrete tools (each a `Tool` subclass in `agents/tools.py`):
@@ -554,8 +557,9 @@ SQLAlchemy engine wrapper with safety features:
 
 **File:** `api/routes.py` — `POST /api/sql/execute`
 
-Server-side safety guard using compiled regex:
+Dual-layer read-only enforcement:
 
+1. **Regex blocklist** (fast reject) — Compiled regex catches common write operations before query execution:
 ```python
 _FORBIDDEN_SQL = re.compile(
     r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|
@@ -564,7 +568,9 @@ _FORBIDDEN_SQL = re.compile(
 )
 ```
 
-Returns 403 with a descriptive error if any write operation is detected. Otherwise executes the query with the configured `sql_row_limit` and `sql_timeout_seconds`, returning `{columns, rows, row_count, execution_time_ms}`.
+2. **Engine-level enforcement** — Calls `db.execute(sql, read_only=True)` which sets `PRAGMA query_only = ON` on the SQLite connection. This blocks writes at the database engine level regardless of SQL syntax tricks (comments, unicode, multi-statement).
+
+Returns 403 with a descriptive error if the regex catches a write operation. Otherwise executes the query with the configured `sql_row_limit` and `sql_timeout_seconds`, returning `{columns, rows, row_count, execution_time_ms}`.
 
 ### 8.4 Data Generator
 
@@ -596,7 +602,7 @@ The `Trainer` class (`training/trainer.py`) loads all training data into ChromaD
 
 **Files:** `rag/base.py` (protocol), `rag/store.py` (ChromaDB), `rag/memory.py` (in-memory for testing)
 
-The vector store uses a `VectorStoreBackend` protocol (`@runtime_checkable`) defining all 8 methods (`add_qa_pair`, `add_ddl`, `add_documentation`, `add_finding`, `search_qa`, `search_ddl`, `search_docs`, `search_findings`). All consumers (e.g., `Trainer`, `ToolContext`) type-hint against the protocol, not the concrete implementation.
+The vector store uses a `VectorStoreBackend` protocol (`@runtime_checkable`) defining all 8 methods (`add_qa_pair`, `add_ddl`, `add_documentation`, `add_finding`, `search_qa`, `search_ddl`, `search_docs`, `search_findings`). All consumers (e.g., `Trainer`, `ToolContext`) type-hint against the protocol, not the concrete implementation. Both `ChromaVectorStore` and `InMemoryVectorStore` are verified against the protocol at import time via `issubclass` assertions in `rag/__init__.py`.
 
 **`ChromaVectorStore`** (`rag/store.py`, aliased as `VectorStore` for backward compat) — ChromaDB embedded persistent client with 4 collections:
 
@@ -627,6 +633,7 @@ The vector store uses a `VectorStoreBackend` protocol (`@runtime_checkable`) def
 - Storage: SQLite (`insightxpert_auth.db`) via SQLAlchemy ORM
 - Tables: `conversations`, `messages`, `feedback`
 - Features: Full CRUD, message chunks JSON storage, user_id isolation
+- Conversation listing uses a single subquery join to fetch last messages (no N+1 queries)
 - `get_or_create_conversation(id, user_id, title)` — Bridges frontend-generated IDs with backend storage. Looks up by ID; if not found, creates with that exact ID. Solves the mismatch where frontend generates client-side IDs that the backend never persisted.
 - Frontend loads conversation list on init via `GET /api/conversations`; lazy-loads messages via `GET /api/conversations/{id}` when clicking old conversations
 
@@ -917,12 +924,16 @@ InsightXpert/
 |   |   |
 |   |   +-- agents/
 |   |   |   +-- analyst.py                # [DONE] Full agent loop (RAG + LLM + ToolRegistry + error recovery)
-|   |   |   +-- tool_base.py             # [DONE] Tool ABC, ToolContext, ToolRegistry
+|   |   |   +-- tool_base.py             # [DONE] Tool ABC, ToolContext (typed via TYPE_CHECKING), ToolRegistry
 |   |   |   +-- tools.py                  # [DONE] RunSqlTool, GetSchemaTool, SearchSimilarTool + default_registry()
 |   |   |   +-- orchestrator.py           # [STUB] (6 lines, no routing logic)
 |   |   |   +-- statistician.py           # [PLANNED] Pure Python stats/comparisons
 |   |   |   +-- narrator.py               # [PLANNED] LLM-powered narrator
 |   |   |   +-- anomaly_detector.py       # [PLANNED] Background scan
+|   |   |
+|   |   +-- prompts/
+|   |   |   +-- __init__.py               # [DONE] Jinja2 template loader (render function, autoescape=False)
+|   |   |   +-- analyst_system.j2         # [DONE] Analyst system prompt template (DDL, docs, rules, RAG context)
 |   |   |
 |   |   +-- llm/
 |   |   |   +-- __init__.py               # [DONE] Exports LLMProvider, LLMResponse, LLMChunk, ToolCall, create_llm
@@ -932,7 +943,7 @@ InsightXpert/
 |   |   |   +-- ollama.py                 # [DONE] Ollama local models (chat + stream + tools, 120s timeout)
 |   |   |
 |   |   +-- db/
-|   |   |   +-- connector.py              # [DONE] SQLAlchemy wrapper (connect, execute, row limits)
+|   |   |   +-- connector.py              # [DONE] SQLAlchemy wrapper (connect, execute, row limits, read_only mode)
 |   |   |   +-- schema.py                 # [DONE] DDL introspection
 |   |   |
 |   |   +-- rag/
@@ -1085,11 +1096,12 @@ Dev: pytest >=8.0, pytest-asyncio >=0.24, httpx >=0.27
 | Tool ABC + ToolRegistry | [DONE] | `agents/tool_base.py`, `agents/tools.py` |
 | Gemini LLM Provider | [DONE] | `llm/gemini.py` |
 | Ollama LLM Provider | [DONE] | `llm/ollama.py` |
-| LLM Protocol | [DONE] | `llm/base.py` |
+| LLM Protocol (incl. `model` property) | [DONE] | `llm/base.py` |
 | LLM Factory | [DONE] | `llm/factory.py` |
 | Runtime LLM Switching | [DONE] | `api/routes.py` (config endpoints via `create_llm`) |
 | Database Layer | [DONE] | `db/connector.py`, `db/schema.py` |
-| SQL Executor (read-only) | [DONE] | `api/routes.py` (sql/execute endpoint) |
+| SQL Executor (dual read-only: regex + PRAGMA) | [DONE] | `api/routes.py`, `db/connector.py` |
+| Jinja2 Prompt Templates | [DONE] | `prompts/__init__.py`, `prompts/analyst_system.j2` |
 | RAG Store (ChromaDB) | [DONE] | `rag/store.py` (ChromaVectorStore) |
 | RAG Protocol | [DONE] | `rag/base.py` (VectorStoreBackend) |
 | RAG In-Memory (testing) | [DONE] | `rag/memory.py` (InMemoryVectorStore) |
