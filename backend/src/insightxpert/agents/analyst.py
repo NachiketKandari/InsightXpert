@@ -14,7 +14,8 @@ from insightxpert.rag.store import VectorStore
 from insightxpert.training.documentation import DOCUMENTATION
 from insightxpert.training.schema import DDL
 
-from .tools import TOOL_DEFINITIONS, execute_tool
+from .tool_base import ToolContext, ToolRegistry
+from .tools import default_registry
 
 logger = logging.getLogger("insightxpert.analyst")
 
@@ -127,9 +128,15 @@ async def analyst_loop(
     config: Settings,
     conversation_id: str | None = None,
     history: list[dict] | None = None,
+    tool_registry: ToolRegistry | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     cid = conversation_id or str(uuid.uuid4())[:12]
     loop_start = time.time()
+
+    # Build tool registry and context
+    if tool_registry is None:
+        tool_registry = default_registry()
+    tool_context = ToolContext(db=db, rag=rag, row_limit=config.sql_row_limit)
 
     logger.info("=" * 60)
     logger.info("NEW QUESTION [%s]: %s", cid, question)
@@ -178,7 +185,7 @@ async def analyst_loop(
         logger.info("--- Iteration %d/%d ---", iteration + 1, max_iter)
 
         llm_start = time.time()
-        response = await llm.chat(messages, tools=TOOL_DEFINITIONS)
+        response = await llm.chat(messages, tools=tool_registry.get_schemas())
         llm_ms = (time.time() - llm_start) * 1000
 
         if response.tool_calls:
@@ -214,9 +221,8 @@ async def analyst_loop(
                     )
 
                 tool_start = time.time()
-                result = await execute_tool(
-                    tc.name, tc.arguments, db, rag,
-                    row_limit=config.sql_row_limit,
+                result = await tool_registry.execute(
+                    tc.name, tc.arguments, tool_context,
                 )
                 tool_ms = (time.time() - tool_start) * 1000
                 logger.info("Tool %s completed (%.0fms): %s", tc.name, tool_ms, result[:200])

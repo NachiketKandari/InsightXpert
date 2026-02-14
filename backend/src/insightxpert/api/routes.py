@@ -27,7 +27,7 @@ from insightxpert.api.models import (
 )
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
-from insightxpert.config import LLMProvider
+from insightxpert.llm.factory import create_llm
 from insightxpert.db.schema import get_schema_ddl
 
 logger = logging.getLogger("insightxpert.api")
@@ -271,18 +271,20 @@ async def switch_model(
 ):
     settings = request.app.state.settings
 
+    # Update settings so the factory reads the correct model
+    from insightxpert.config import LLMProvider as LLMProviderEnum
+
     if req.provider == "gemini":
-        from insightxpert.llm.gemini import GeminiProvider
-        new_llm = GeminiProvider(api_key=settings.gemini_api_key, model=req.model)
-        settings.llm_provider = LLMProvider.GEMINI
+        settings.llm_provider = LLMProviderEnum.GEMINI
         settings.gemini_model = req.model
     elif req.provider == "ollama":
-        from insightxpert.llm.ollama import OllamaProvider
-        new_llm = OllamaProvider(model=req.model, base_url=settings.ollama_base_url)
-        settings.llm_provider = LLMProvider.OLLAMA
+        settings.llm_provider = LLMProviderEnum.OLLAMA
         settings.ollama_model = req.model
-    else:
-        raise HTTPException(status_code=400, detail=f"Unknown provider: {req.provider}")
+
+    try:
+        new_llm = create_llm(req.provider, settings)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
     request.app.state.llm = new_llm
     logger.info("Switched LLM: provider=%s model=%s", req.provider, req.model)
