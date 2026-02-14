@@ -336,6 +336,169 @@
               "body": "{\n  \"status\": \"ok\",\n  \"id\": \"1234567890abcdef\"\n}"
             }
           ]
+        },
+        {
+          "name": "Delete All RAG Embeddings",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/rag",
+              "host": ["{{base_url}}"],
+              "path": ["api", "rag"]
+            },
+            "description": "Delete all RAG embeddings from all ChromaDB collections (qa_pairs, ddl, docs, findings).\n\nThis is a destructive operation — the RAG knowledge base will be empty after this call. The server will re-bootstrap training data on next restart.\n\nRequires authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"deleted\": {\n    \"qa_pairs\": 15,\n    \"ddl\": 2,\n    \"docs\": 1,\n    \"findings\": 3\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Ollama",
+      "description": "Manage Ollama models — pull (download), list, and delete local models.\n\nRequires Ollama to be running on the server (default: http://localhost:11434).",
+      "item": [
+        {
+          "name": "Pull Model — Ministral 3B",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "text/event-stream" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"ministral:3b\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ollama/pull",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ollama", "pull"]
+            },
+            "description": "Download the Ministral 3B model from the Ollama registry. Streams progress via SSE.\n\nSSE events include:\n- `{\"status\": \"pulling manifest\"}` — starting download\n- `{\"status\": \"downloading ...\", \"completed\": 1234, \"total\": 5678, \"percent\": 21.7}` — download progress\n- `{\"status\": \"success\", \"model\": \"ministral:3b\"}` — download complete\n- `[DONE]` — stream end\n\n**Note:** Use curl for best SSE experience:\n```\ncurl -N -X POST http://localhost:8000/api/ollama/pull \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"model\":\"ministral:3b\"}'\n```"
+          },
+          "response": [
+            {
+              "name": "200 SSE Stream",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                { "key": "Content-Type", "value": "text/event-stream" }
+              ],
+              "body": "data: {\"status\":\"pulling manifest\"}\n\ndata: {\"status\":\"downloading digestname\",\"completed\":524288000,\"total\":2000000000,\"percent\":26.2,\"digest\":\"sha256:abc123\"}\n\ndata: {\"status\":\"success\",\"model\":\"ministral:3b\"}\n\ndata: [DONE]"
+            }
+          ]
+        },
+        {
+          "name": "Pull Model — Llama 3.2 1B",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "text/event-stream" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"llama3.2:1b\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ollama/pull",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ollama", "pull"]
+            },
+            "description": "Download the Llama 3.2 1B model. Streams progress via SSE.\n\nLlama 3.2 comes in 1B and 3B variants (no 2B). Use `llama3.2:3b` for the larger version."
+          },
+          "response": []
+        },
+        {
+          "name": "Pull Model — Llama 3.2 3B",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "text/event-stream" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"llama3.2:3b\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ollama/pull",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ollama", "pull"]
+            },
+            "description": "Download the Llama 3.2 3B model. Streams progress via SSE."
+          },
+          "response": []
+        },
+        {
+          "name": "Pull Model — Custom",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "text/event-stream" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"model\": \"qwen2.5:3b\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/ollama/pull",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ollama", "pull"]
+            },
+            "description": "Pull any Ollama model by name. Replace the model value with any model from the Ollama registry (https://ollama.com/library)."
+          },
+          "response": []
+        },
+        {
+          "name": "List Downloaded Models",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ollama/models",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ollama", "models"]
+            },
+            "description": "List all Ollama models that are currently downloaded on the server."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"models\": [\n    {\n      \"model\": \"ministral:3b\",\n      \"size_mb\": 1900.5,\n      \"parameter_size\": \"3.2B\",\n      \"quantization\": \"Q4_K_M\",\n      \"family\": \"ministral\"\n    },\n    {\n      \"model\": \"llama3.2:1b\",\n      \"size_mb\": 670.2,\n      \"parameter_size\": \"1.2B\",\n      \"quantization\": \"Q4_K_M\",\n      \"family\": \"llama\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Model",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/ollama/models/ministral:3b",
+              "host": ["{{base_url}}"],
+              "path": ["api", "ollama", "models", "ministral:3b"]
+            },
+            "description": "Delete a locally downloaded Ollama model to free disk space.\n\nReplace `ministral:3b` in the URL with the model name to delete."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"success\",\n  \"model\": \"ministral:3b\"\n}"
+            }
+          ]
         }
       ]
     }

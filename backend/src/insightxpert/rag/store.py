@@ -75,6 +75,25 @@ class ChromaVectorStore:
         results = self._findings.query(query_texts=[question], n_results=min(n, self._findings.count()))
         return self._unpack(results)
 
+    def delete_all(self) -> dict[str, int]:
+        """Delete all embeddings from all collections. Returns count of deleted items per collection."""
+        counts = {
+            "qa_pairs": self._qa.count(),
+            "ddl": self._ddl.count(),
+            "docs": self._docs.count(),
+            "findings": self._findings.count(),
+        }
+        total = sum(counts.values())
+        for name in ("qa_pairs", "ddl", "docs", "findings"):
+            self._client.delete_collection(name)
+        # Re-create empty collections
+        self._qa = self._client.get_or_create_collection("qa_pairs")
+        self._ddl = self._client.get_or_create_collection("ddl")
+        self._docs = self._client.get_or_create_collection("docs")
+        self._findings = self._client.get_or_create_collection("findings")
+        logger.info("Deleted all embeddings: %d total (%s)", total, counts)
+        return counts
+
     @staticmethod
     def _unpack(results: dict) -> list[dict]:
         items: list[dict] = []

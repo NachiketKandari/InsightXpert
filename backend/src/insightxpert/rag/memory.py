@@ -68,3 +68,16 @@ class InMemoryVectorStore:
 
     def search_findings(self, question: str, n: int = 3) -> list[dict]:
         return self._search(self._findings, question, n)
+
+    def delete_all(self) -> dict[str, int]:
+        counts = {
+            "qa_pairs": len(self._qa),
+            "ddl": len(self._ddl),
+            "docs": len(self._docs),
+            "findings": len(self._findings),
+        }
+        self._qa.clear()
+        self._ddl.clear()
+        self._docs.clear()
+        self._findings.clear()
+        return counts
