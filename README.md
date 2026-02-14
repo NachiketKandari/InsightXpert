@@ -162,25 +162,68 @@ InsightXpert/
         └── types/               # TypeScript interfaces (ChatChunk, Message, AgentStep)
 ```
 
+## Prerequisites
+
+- Python 3.11+
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- Node.js 20+
+- A [Google Gemini API key](https://aistudio.google.com/apikey) (or [Ollama](https://ollama.com/) running locally)
+
 ## Setup
 
+### 1. Clone
+
 ```bash
-# Clone the repository
 git clone <repo-url>
 cd InsightXpert
-
-# --- Backend ---
-cd backend
-uv sync                          # Install Python dependencies
-python generate_data.py          # Generate 250K transactions → insightxpert.db
-export GEMINI_API_KEY="your-key" # Or add to .env.local
-python -m insightxpert.main      # Start API server → http://localhost:8000
-
-# --- Frontend ---
-cd ../frontend
-npm install                      # Install Node dependencies
-npm run dev                      # Start dev server → http://localhost:3000
 ```
+
+### 2. Backend
+
+```bash
+cd backend
+
+# Create venv and install dependencies (uses uv.lock for reproducible builds)
+uv sync
+
+# Copy env template and fill in your values
+cp .env.example .env.local
+```
+
+Edit `backend/.env.local` — at minimum set:
+
+```
+GEMINI_API_KEY=your-key-here
+SECRET_KEY=some-random-string
+```
+
+To use Ollama instead of Gemini, set `LLM_PROVIDER=ollama`.
+
+```bash
+# Generate the transaction dataset (first time only)
+python generate_data.py
+
+# Start the API server
+uv run python -m insightxpert.main
+# → http://localhost:8000
+```
+
+On first startup the backend auto-creates SQLite databases and bootstraps the RAG vector store.
+
+### 3. Frontend
+
+```bash
+cd frontend
+
+# Install dependencies (uses package-lock.json for reproducible builds)
+npm ci
+
+# Start the dev server
+npm run dev
+# → http://localhost:3000
+```
+
+The frontend connects to the backend at `http://localhost:8000` (configured in `frontend/.env.local`).
 
 ## Key Design Decisions
 
