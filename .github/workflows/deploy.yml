@@ -51,7 +51,7 @@ jobs:
             --memory 1Gi \
             --cpu 1 \
             --timeout 300 \
-            --cpu-boost \
+            --startup-cpu-boost \
             --set-env-vars "\
               LLM_PROVIDER=gemini,\
               GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},\

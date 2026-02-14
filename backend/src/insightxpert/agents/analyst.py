@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -82,6 +83,15 @@ async def analyst_loop(
         for i, qa in enumerate(similar_qa):
             logger.debug("  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100])
 
+    total_rag_hits = len(similar_qa) + len(relevant_ddl) + len(relevant_docs) + len(relevant_findings)
+    yield ChatChunk(
+        type="status",
+        content=f"Found {total_rag_hits} similar queries. Analyzing with AI...",
+        conversation_id=cid,
+        timestamp=time.time(),
+    )
+    await asyncio.sleep(0)
+
     system_prompt = render_prompt(
         "analyst_system.j2",
         ddl=DDL,
@@ -134,6 +144,8 @@ async def analyst_loop(
                 "tool_calls": response.tool_calls,
             })
 
+            llm_reasoning = response.content or None
+
             for tc in response.tool_calls:
                 yield ChatChunk(
                     type="tool_call",
@@ -141,9 +153,11 @@ async def analyst_loop(
                     sql=tc.arguments.get("sql") if tc.name == "run_sql" else None,
                     tool_name=tc.name,
                     args=tc.arguments,
+                    data={"llm_reasoning": llm_reasoning} if llm_reasoning else None,
                     conversation_id=cid,
                     timestamp=time.time(),
                 )
+                await asyncio.sleep(0)
 
                 if tc.name == "run_sql" and tc.arguments.get("sql"):
                     logger.info("SQL: %s", tc.arguments["sql"])
@@ -153,6 +167,23 @@ async def analyst_loop(
                         conversation_id=cid,
                         timestamp=time.time(),
                     )
+                    await asyncio.sleep(0)
+
+                    yield ChatChunk(
+                        type="status",
+                        content="Executing SQL query...",
+                        conversation_id=cid,
+                        timestamp=time.time(),
+                    )
+                    await asyncio.sleep(0)
+                else:
+                    yield ChatChunk(
+                        type="status",
+                        content=f"Running {tc.name}...",
+                        conversation_id=cid,
+                        timestamp=time.time(),
+                    )
+                    await asyncio.sleep(0)
 
                 tool_start = time.time()
                 result = await tool_registry.execute(
@@ -175,6 +206,7 @@ async def analyst_loop(
                     conversation_id=cid,
                     timestamp=time.time(),
                 )
+                await asyncio.sleep(0)
         else:
             total_ms = (time.time() - loop_start) * 1000
             answer_preview = (response.content or "")[:200]

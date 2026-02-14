@@ -6,6 +6,8 @@ export interface SSECallbacks {
   onError: (error: Error) => void;
 }
 
+const CHUNK_STAGGER_MS = 150;
+
 export function createSSEStream(
   message: string,
   conversationId: string | null,
@@ -14,6 +16,42 @@ export function createSSEStream(
   const controller = new AbortController();
 
   (async () => {
+    const chunkQueue: string[] = [];
+    let draining = false;
+    let streamDone = false;
+
+    function drainQueue() {
+      if (chunkQueue.length === 0) {
+        draining = false;
+        if (streamDone) {
+          callbacks.onDone();
+        }
+        return;
+      }
+
+      const data = chunkQueue.shift()!;
+      callbacks.onChunk(data);
+
+      if (chunkQueue.length > 0) {
+        setTimeout(drainQueue, CHUNK_STAGGER_MS);
+      } else {
+        draining = false;
+        if (streamDone) {
+          callbacks.onDone();
+        }
+      }
+    }
+
+    function enqueue(data: string) {
+      chunkQueue.push(data);
+      if (!draining) {
+        draining = true;
+        // Defer to next tick so all chunks from the same reader.read()
+        // batch are queued before we start delivering them one by one.
+        setTimeout(drainQueue, 0);
+      }
+    }
+
     try {
       const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: "POST",
@@ -54,16 +92,22 @@ export function createSSEStream(
               : trimmed.slice(5);
 
             if (data === "[DONE]") {
-              callbacks.onDone();
+              streamDone = true;
+              if (!draining) {
+                callbacks.onDone();
+              }
               return;
             }
 
-            callbacks.onChunk(data);
+            enqueue(data);
           }
         }
       }
 
-      callbacks.onDone();
+      streamDone = true;
+      if (!draining) {
+        callbacks.onDone();
+      }
     } catch (err) {
       if ((err as Error).name !== "AbortError") {
         callbacks.onError(err as Error);
