@@ -65,10 +65,12 @@ export function useSSEChat() {
           if (chunk.type === "status") {
             markLastRunningDone();
             const stepId = generateStepId();
+            const ragContext = chunk.data?.rag_context as string[] | undefined;
             const step: AgentStep = {
               id: stepId,
               label: chunk.content || "Processing...",
               status: "running",
+              ragContext: ragContext?.length ? ragContext : undefined,
               timestamp: chunk.timestamp,
             };
             addAgentStep(step);

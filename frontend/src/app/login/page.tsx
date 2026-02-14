@@ -49,7 +49,7 @@ export default function LoginPage() {
               <circle cx="376" cy="120" r="18" fill="#fff" opacity="0.9" />
               <circle cx="376" cy="120" r="10" fill="#06B6D4" />
             </svg>
-            <span>Insight<span className="text-cyan-accent">Xpert</span></span>
+            <span>Insight<span className="text-primary dark:text-cyan-accent">Xpert</span></span>
           </CardTitle>
           <CardDescription>Sign in to your account</CardDescription>
         </CardHeader>

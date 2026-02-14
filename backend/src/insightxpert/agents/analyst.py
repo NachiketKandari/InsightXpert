@@ -84,9 +84,23 @@ async def analyst_loop(
             logger.debug("  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100])
 
     total_rag_hits = len(similar_qa) + len(relevant_ddl) + len(relevant_docs) + len(relevant_findings)
+
+    # Collect titles for frontend dropdown display
+    rag_titles: list[str] = []
+    for qa in similar_qa:
+        q = qa.get("metadata", {}).get("question", "")
+        rag_titles.append(q or qa.get("document", "")[:80])
+    for ddl_item in relevant_ddl:
+        rag_titles.append(f"DDL: {ddl_item.get('metadata', {}).get('table_name', 'schema')}")
+    for doc_item in relevant_docs:
+        rag_titles.append(f"Doc: {doc_item.get('document', '')[:60]}")
+    for finding in relevant_findings:
+        rag_titles.append(f"Finding: {finding.get('document', '')[:60]}")
+
     yield ChatChunk(
         type="status",
         content=f"Found {total_rag_hits} similar queries. Analyzing with AI...",
+        data={"rag_context": rag_titles} if rag_titles else None,
         conversation_id=cid,
         timestamp=time.time(),
     )

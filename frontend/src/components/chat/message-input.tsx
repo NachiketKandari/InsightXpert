@@ -35,14 +35,14 @@ export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps)
 
   return (
     <div className="border-t border-border/50 px-3 sm:px-4 pt-3" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
-      <div className="glass mx-auto flex max-w-2xl items-end gap-2 rounded-2xl px-3 py-2">
+      <div className="glass mx-auto flex max-w-2xl items-center gap-2 rounded-2xl px-3 py-1.5">
         <Textarea
           ref={textareaRef}
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Ask about Indian digital payments..."
-          className="min-h-[40px] max-h-[140px] flex-1 resize-none border-0 bg-transparent p-1 text-sm shadow-none focus-visible:ring-0"
+          className="min-h-[36px] max-h-[140px] flex-1 resize-none border-0 bg-transparent px-1 py-1.5 text-sm shadow-none focus-visible:ring-0"
           rows={1}
         />
         {isStreaming ? (

@@ -1,10 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LogOut, EllipsisVertical, Activity, TerminalSquare } from "lucide-react";
+import { LogOut, EllipsisVertical, Activity, TerminalSquare, Sun, Moon } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useIsMobile } from "@/hooks/use-media-query";
+import { useTheme } from "@/hooks/use-theme";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -42,6 +43,7 @@ export function UserMenu({ onOpenSqlExecutor }: UserMenuProps) {
   const router = useRouter();
   const isMobile = useIsMobile();
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   if (!user) return null;
 
@@ -59,7 +61,7 @@ export function UserMenu({ onOpenSqlExecutor }: UserMenuProps) {
         <DropdownMenuTrigger asChild>
           <button className="inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-1.5 text-muted-foreground hover:bg-muted/50 transition-colors outline-none cursor-pointer">
             <Avatar size="sm">
-              <AvatarFallback className="bg-cyan-accent/15 text-cyan-accent text-[10px] font-semibold">
+              <AvatarFallback className="bg-primary/15 text-primary dark:bg-cyan-accent/15 dark:text-cyan-accent text-[10px] font-semibold">
                 {initials}
               </AvatarFallback>
             </Avatar>
@@ -91,6 +93,11 @@ export function UserMenu({ onOpenSqlExecutor }: UserMenuProps) {
               <DropdownMenuSeparator />
             </>
           )}
+          <DropdownMenuItem onClick={toggleTheme}>
+            {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            {theme === "dark" ? "Light Mode" : "Dark Mode"}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} variant="destructive">
             <LogOut className="size-4" />
             Sign out

@@ -5,6 +5,7 @@ import { Check, Copy, ChevronRight } from "lucide-react";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sql from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
 import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { github } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { Badge } from "@/components/ui/badge";
 import {
   Collapsible,
@@ -12,6 +13,7 @@ import {
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/hooks/use-theme";
 
 SyntaxHighlighter.registerLanguage("sql", sql);
 
@@ -22,6 +24,8 @@ interface SqlChunkProps {
 export function SqlChunk({ sql: sqlCode }: SqlChunkProps) {
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { theme } = useTheme();
+  const syntaxTheme = theme === "dark" ? vs2015 : github;
 
   const handleCopy = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -67,7 +71,7 @@ export function SqlChunk({ sql: sqlCode }: SqlChunkProps) {
           <div className="px-3 pb-3 border-t border-border/50">
             <SyntaxHighlighter
               language="sql"
-              style={vs2015}
+              style={syntaxTheme}
               customStyle={{
                 background: "transparent",
                 padding: "0.75rem 0",

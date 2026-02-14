@@ -46,5 +46,6 @@ export interface AgentStep {
   llmReasoning?: string;
   resultPreview?: string;
   resultData?: string;
+  ragContext?: string[];
   timestamp: number;
 }

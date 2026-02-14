@@ -52,7 +52,7 @@ export function Header() {
             <circle cx="376" cy="120" r="10" fill="#06B6D4" />
           </svg>
           <span className="text-lg font-semibold tracking-tight hidden md:inline">
-            Insight<span className="text-cyan-accent">Xpert</span>
+            Insight<span className="text-primary dark:text-cyan-accent">Xpert</span>
           </span>
         </div>
 
