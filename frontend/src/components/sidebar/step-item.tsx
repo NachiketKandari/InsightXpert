@@ -13,11 +13,13 @@ import {
   Database,
   TableProperties,
   FileText,
+  BookOpen,
 } from "lucide-react";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sqlLang from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
 import json from "react-syntax-highlighter/dist/esm/languages/hljs/json";
 import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { github } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import {
   Collapsible,
   CollapsibleContent,
@@ -25,6 +27,7 @@ import {
 } from "@/components/ui/collapsible";
 import type { AgentStep } from "@/types/chat";
 import { cn } from "@/lib/utils";
+import { useTheme } from "@/hooks/use-theme";
 
 SyntaxHighlighter.registerLanguage("sql", sqlLang);
 SyntaxHighlighter.registerLanguage("json", json);
@@ -112,6 +115,9 @@ function formatResultData(raw: string): string | null {
 
 export function StepItem({ step }: StepItemProps) {
   const [open, setOpen] = useState(false);
+  const { theme } = useTheme();
+  const syntaxTheme = theme === "dark" ? vs2015 : github;
+
   const hasDetail = !!(
     step.sql ||
     step.detail ||
@@ -119,7 +125,8 @@ export function StepItem({ step }: StepItemProps) {
     step.toolName ||
     step.llmReasoning ||
     step.toolArgs ||
-    step.resultData
+    step.resultData ||
+    step.ragContext
   );
 
   if (!hasDetail) {
@@ -157,10 +164,40 @@ export function StepItem({ step }: StepItemProps) {
       </CollapsibleTrigger>
       <CollapsibleContent>
         <div className="ml-6 mr-2 mb-2 space-y-2 overflow-hidden">
+          {/* RAG context — similar query titles */}
+          {step.ragContext && step.ragContext.length > 0 && (
+            <div className="rounded-md border border-amber-500/20 dark:border-amber-400/20 bg-amber-500/5 dark:bg-amber-400/5 overflow-hidden">
+              <div className="px-2 pt-1.5">
+                <SectionHeader
+                  icon={<BookOpen className="size-3 text-amber-600 dark:text-amber-400" />}
+                  label="Retrieved Context"
+                />
+              </div>
+              <ul className="px-2 pb-2 space-y-0.5">
+                {step.ragContext.map((title, i) => (
+                  <li
+                    key={i}
+                    className="text-[11px] leading-relaxed text-foreground/70 flex items-start gap-1.5"
+                  >
+                    <span className="text-amber-600/60 dark:text-amber-400/60 shrink-0 mt-px">
+                      &bull;
+                    </span>
+                    <span className="min-w-0 break-words">{title}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
           {/* Tool name badge */}
           {step.toolName && (
             <div className="flex items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-md bg-cyan-accent/10 border border-cyan-accent/20 px-1.5 py-0.5 text-[10px] font-mono text-cyan-accent">
+              <span className={cn(
+                "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-mono",
+                theme === "dark"
+                  ? "bg-cyan-accent/15 border-cyan-accent/30 text-cyan-accent"
+                  : "bg-teal-700/10 border-teal-700/25 text-teal-700"
+              )}>
                 <Database className="size-2.5" />
                 {step.toolName}
               </span>
@@ -171,7 +208,7 @@ export function StepItem({ step }: StepItemProps) {
           {step.llmReasoning && (
             <div className="rounded-md border border-violet-500/20 bg-violet-500/5 overflow-hidden">
               <SectionHeader
-                icon={<Brain className="size-3 text-violet-400" />}
+                icon={<Brain className="size-3 text-violet-600 dark:text-violet-400" />}
                 label="LLM Reasoning"
               />
               <p className="text-[11px] leading-relaxed text-foreground/70 px-2 pb-2 whitespace-pre-wrap">
@@ -182,10 +219,15 @@ export function StepItem({ step }: StepItemProps) {
 
           {/* SQL query with syntax highlighting */}
           {step.sql && (
-            <div className="rounded-md border border-cyan-accent/20 bg-cyan-accent/5 overflow-hidden">
+            <div className={cn(
+              "rounded-md border overflow-hidden",
+              theme === "dark"
+                ? "border-cyan-accent/30 bg-cyan-accent/8"
+                : "border-teal-700/25 bg-teal-700/8"
+            )}>
               <div className="px-2 pt-1.5">
                 <SectionHeader
-                  icon={<Database className="size-3 text-cyan-accent" />}
+                  icon={<Database className={cn("size-3", theme === "dark" ? "text-cyan-accent" : "text-teal-700")} />}
                   label="SQL Query"
                   copyText={step.sql}
                 />
@@ -193,7 +235,7 @@ export function StepItem({ step }: StepItemProps) {
               <div className="px-2 pb-1">
                 <SyntaxHighlighter
                   language="sql"
-                  style={vs2015}
+                  style={syntaxTheme}
                   customStyle={highlighterStyle}
                   wrapLongLines
                 >
@@ -205,7 +247,7 @@ export function StepItem({ step }: StepItemProps) {
 
           {/* Result preview */}
           {step.resultPreview && (
-            <div className="flex items-center gap-1.5 text-[11px] text-emerald-400/80">
+            <div className={cn("flex items-center gap-1.5 text-[11px]", theme === "dark" ? "text-emerald-400/80" : "text-emerald-600/80")}>
               <TableProperties className="size-3" />
               <span>{step.resultPreview}</span>
             </div>
@@ -213,10 +255,15 @@ export function StepItem({ step }: StepItemProps) {
 
           {/* Full result data */}
           {step.resultData && (
-            <div className="rounded-md border border-emerald-500/20 bg-emerald-500/5 overflow-hidden">
+            <div className={cn(
+              "rounded-md border overflow-hidden",
+              theme === "dark"
+                ? "border-emerald-400/30 bg-emerald-400/8"
+                : "border-emerald-700/25 bg-emerald-700/10"
+            )}>
               <div className="px-2 pt-1.5">
                 <SectionHeader
-                  icon={<TableProperties className="size-3 text-emerald-400" />}
+                  icon={<TableProperties className={cn("size-3", theme === "dark" ? "text-emerald-400" : "text-emerald-700")} />}
                   label="Result Data"
                   copyText={step.resultData}
                 />
@@ -224,7 +271,7 @@ export function StepItem({ step }: StepItemProps) {
               <div className="px-2 pb-1 max-h-48 overflow-auto">
                 <SyntaxHighlighter
                   language="json"
-                  style={vs2015}
+                  style={syntaxTheme}
                   customStyle={highlighterStyle}
                   wrapLongLines
                 >
