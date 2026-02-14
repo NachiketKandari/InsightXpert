@@ -39,7 +39,7 @@ async def login(
 
     is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
-        key="access_token",
+        key="__session",
         value=token,
         httponly=True,
         samesite="lax",
@@ -55,7 +55,7 @@ async def login(
 @router.post("/logout")
 async def logout(request: Request, response: Response):
     is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-    response.delete_cookie(key="access_token", path="/", secure=is_https, samesite="lax")
+    response.delete_cookie(key="__session", path="/", secure=is_https, samesite="lax")
     return {"status": "ok"}
 
 
