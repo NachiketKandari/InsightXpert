@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     sql_row_limit: int = 1000
     sql_timeout_seconds: int = 30
 
+    # CORS
+    cors_origins: str = "http://localhost:3000"
+
     # Auth
     secret_key: str = "CHANGE-ME-in-production-use-a-random-secret-key-here"
     access_token_expire_minutes: int = 1440
