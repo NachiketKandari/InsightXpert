@@ -58,7 +58,7 @@ jobs:
               GEMINI_MODEL=${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }},\
               DATABASE_URL=sqlite:///./insightxpert.db,\
               CHROMA_PERSIST_DIR=./chroma_data,\
-              CORS_ORIGINS=${{ vars.CORS_ORIGINS || 'https://insightx-487005.web.app' }},\
+              CORS_ORIGINS=${{ vars.CORS_ORIGINS || 'https://insightxpert-ai.web.app' }},\
               LOG_LEVEL=INFO,\
               SECRET_KEY=${{ secrets.SECRET_KEY }}"
 

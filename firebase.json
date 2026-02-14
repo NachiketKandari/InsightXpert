@@ -1,5 +1,6 @@
 {
   "hosting": {
+    "site": "insightxpert-ai",
     "public": "frontend/out",
     "ignore": ["firebase.json", "**/.*", "**/node_modules/**"],
     "rewrites": [
