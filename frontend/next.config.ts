@@ -3,6 +3,8 @@ import type { NextConfig } from "next";
 const isStaticExport = process.env.NEXT_OUTPUT === "export";
 
 const nextConfig: NextConfig = {
+  // Allow ngrok and similar tunnel origins in dev
+  allowedDevOrigins: ["*.ngrok-free.dev", "*.ngrok.io"],
   // Static export for Firebase Hosting (set NEXT_OUTPUT=export in CI)
   ...(isStaticExport
     ? { output: "export" }
