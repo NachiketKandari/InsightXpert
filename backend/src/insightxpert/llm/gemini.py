@@ -67,6 +67,11 @@ class GeminiProvider:
                         content_data = json.loads(content_data)
                     except json.JSONDecodeError:
                         content_data = {"result": content_data}
+                # Gemini FunctionResponse requires a dict, not a list
+                if isinstance(content_data, list):
+                    content_data = {"result": content_data}
+                elif not isinstance(content_data, dict):
+                    content_data = {"result": content_data}
                 contents.append(types.Content(
                     role="user",
                     parts=[types.Part.from_function_response(

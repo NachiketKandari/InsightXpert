@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PanelLeft, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,15 +25,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
   const isMobile = useIsMobile();
-  const prevMobileRef = useRef(isMobile);
 
-  // Close sidebars when switching to mobile view
+  // Desktop: both sidebars open by default; Mobile: both collapsed
   useEffect(() => {
-    if (isMobile && !prevMobileRef.current) {
+    if (isMobile) {
       setLeftSidebar(false);
       setRightSidebar(false);
+    } else {
+      setLeftSidebar(true);
+      setRightSidebar(true);
     }
-    prevMobileRef.current = isMobile;
   }, [isMobile, setLeftSidebar, setRightSidebar]);
 
   return (
