@@ -52,6 +52,11 @@ agent_data/
 # Dataset (populated after shortlist — CSV files can be large)
 data/*.csv
 
+# Playwright screenshots (root-level)
+/*.png
+/*.jpeg
+/*.jpg
+
 # Distribution
 *.tar.gz
 *.zip
