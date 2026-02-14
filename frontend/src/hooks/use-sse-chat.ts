@@ -57,14 +57,13 @@ export function useSSEChat() {
 
           appendChunk(chunk);
 
-          // Before processing any new chunk, mark the previous running
-          // step as done. This covers the gap between e.g. "status" and
-          // "tool_call" where RAG + LLM processing happens server-side
-          // without emitting intermediate chunks.
-          markLastRunningDone();
-
-          // Update agent step timeline
+          // Update agent step timeline.
+          // Only mark the previous running step as done when a NEW phase
+          // begins (status, tool_call, tool_result, answer, error).
+          // The "sql" chunk is a detail update on the current step, so it
+          // must NOT mark the previous step done.
           if (chunk.type === "status") {
+            markLastRunningDone();
             const stepId = generateStepId();
             const step: AgentStep = {
               id: stepId,
@@ -75,6 +74,7 @@ export function useSSEChat() {
             addAgentStep(step);
             lastRunningStepId = stepId;
           } else if (chunk.type === "tool_call") {
+            markLastRunningDone();
             const stepId = generateStepId();
             const step: AgentStep = {
               id: stepId,
@@ -83,27 +83,29 @@ export function useSSEChat() {
               detail: chunk.sql || undefined,
               sql: chunk.sql || undefined,
               toolName: chunk.tool_name || undefined,
+              toolArgs: chunk.args || undefined,
+              llmReasoning: (chunk.data?.llm_reasoning as string) || undefined,
               timestamp: chunk.timestamp,
             };
             addAgentStep(step);
             lastRunningStepId = stepId;
           } else if (chunk.type === "sql") {
-            const stepId = generateStepId();
-            const step: AgentStep = {
-              id: stepId,
-              label: "Executing SQL query",
-              status: "running",
-              detail: chunk.sql || undefined,
-              sql: chunk.sql || undefined,
-              timestamp: chunk.timestamp,
-            };
-            addAgentStep(step);
-            lastRunningStepId = stepId;
+            // Merge SQL into the existing tool_call step instead of creating
+            // a separate step. Do NOT call markLastRunningDone() here — the
+            // tool_call step should stay "running" until the next phase.
+            if (lastRunningStepId) {
+              updateAgentStep(lastRunningStepId, {
+                detail: chunk.sql || undefined,
+                sql: chunk.sql || undefined,
+              });
+            }
           } else if (chunk.type === "tool_result") {
+            markLastRunningDone();
+            const resultStr = chunk.data?.result as string | undefined;
+
             // Build a result preview
             let resultPreview: string | undefined;
             try {
-              const resultStr = chunk.data?.result as string | undefined;
               if (resultStr) {
                 const parsed = JSON.parse(resultStr);
                 if (parsed.rows) {
@@ -115,9 +117,7 @@ export function useSSEChat() {
                 }
               }
             } catch {
-              resultPreview = typeof chunk.data?.result === "string"
-                ? (chunk.data.result as string).slice(0, 120)
-                : undefined;
+              resultPreview = resultStr ? resultStr.slice(0, 120) : undefined;
             }
 
             const stepId = generateStepId();
@@ -127,20 +127,24 @@ export function useSSEChat() {
               status: "done",
               toolName: chunk.tool_name || undefined,
               resultPreview,
+              resultData: resultStr || undefined,
               timestamp: chunk.timestamp,
             };
             addAgentStep(step);
             // No running step to track — this step is already "done".
           } else if (chunk.type === "answer") {
+            markLastRunningDone();
             const stepId = generateStepId();
             const step: AgentStep = {
               id: stepId,
               label: "Generating answer",
               status: "done",
+              detail: chunk.content || undefined,
               timestamp: chunk.timestamp,
             };
             addAgentStep(step);
           } else if (chunk.type === "error") {
+            markLastRunningDone();
             const stepId = generateStepId();
             const step: AgentStep = {
               id: stepId,

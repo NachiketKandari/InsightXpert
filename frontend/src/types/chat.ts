@@ -42,6 +42,9 @@ export interface AgentStep {
   detail?: string;
   sql?: string;
   toolName?: string;
+  toolArgs?: Record<string, unknown>;
+  llmReasoning?: string;
   resultPreview?: string;
+  resultData?: string;
   timestamp: number;
 }

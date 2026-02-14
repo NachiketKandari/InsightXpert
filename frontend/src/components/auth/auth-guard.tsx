@@ -1,16 +1,20 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/auth-store";
 
 export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { user, isLoading, checkAuth } = useAuthStore();
+  const { user, isLoading } = useAuthStore();
   const router = useRouter();
+  const didCheck = useRef(false);
 
   useEffect(() => {
-    checkAuth();
-  }, [checkAuth]);
+    if (!didCheck.current) {
+      didCheck.current = true;
+      useAuthStore.getState().checkAuth();
+    }
+  }, []);
 
   useEffect(() => {
     if (!isLoading && !user) {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { TerminalSquare } from "lucide-react";
+import { TerminalSquare, Menu, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -12,14 +12,33 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { SqlExecutor } from "@/components/sql/sql-executor";
 import { ModelSelector } from "./model-selector";
 import { UserMenu } from "./user-menu";
+import { useChatStore } from "@/stores/chat-store";
+import { useIsMobile } from "@/hooks/use-media-query";
 
 export function Header() {
   const [sqlOpen, setSqlOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const leftOpen = useChatStore((s) => s.leftSidebarOpen);
+  const rightOpen = useChatStore((s) => s.rightSidebarOpen);
+  const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
+  const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
 
   return (
     <>
-      <header className="h-14 shrink-0 flex items-center justify-between px-4 glass border-b border-border">
+      <header className="h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 glass border-b border-border">
         <div className="flex items-center gap-2">
+          {isMobile && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9"
+              onClick={toggleLeftSidebar}
+              aria-label="Chat history"
+              aria-expanded={leftOpen}
+            >
+              <Menu className="size-5" />
+            </Button>
+          )}
           <svg
             xmlns="http://www.w3.org/2000/svg"
             viewBox="0 0 512 512"
@@ -34,12 +53,12 @@ export function Header() {
             <circle cx="376" cy="120" r="18" fill="#fff" opacity="0.9" />
             <circle cx="376" cy="120" r="10" fill="#06B6D4" />
           </svg>
-          <span className="text-lg font-semibold tracking-tight">
+          <span className="text-lg font-semibold tracking-tight hidden md:inline">
             Insight<span className="text-cyan-accent">Xpert</span>
           </span>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 md:gap-2">
           <ModelSelector />
 
           <Tooltip>
@@ -47,7 +66,7 @@ export function Header() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="size-8"
+                className="size-9"
                 onClick={() => setSqlOpen(true)}
               >
                 <TerminalSquare className="size-4" />
@@ -56,12 +75,25 @@ export function Header() {
             <TooltipContent>SQL Executor</TooltipContent>
           </Tooltip>
 
+          {isMobile && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-9"
+              onClick={toggleRightSidebar}
+              aria-label="Agent process"
+              aria-expanded={rightOpen}
+            >
+              <Activity className="size-4" />
+            </Button>
+          )}
+
           <UserMenu />
         </div>
       </header>
 
       <Sheet open={sqlOpen} onOpenChange={setSqlOpen}>
-        <SheetContent side="right" className="w-[560px] sm:w-[640px] p-0" showCloseButton={false}>
+        <SheetContent side="right" className="w-full md:w-[560px] lg:w-[640px] p-0" showCloseButton={false}>
           <SheetTitle className="sr-only">SQL Executor</SheetTitle>
           <SqlExecutor onClose={() => setSqlOpen(false)} />
         </SheetContent>

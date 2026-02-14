@@ -37,12 +37,13 @@ async def login(
         expire_minutes=settings.access_token_expire_minutes,
     )
 
+    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     response.set_cookie(
-        key="access_token",
+        key="__session",
         value=token,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=is_https,
         max_age=settings.access_token_expire_minutes * 60,
         path="/",
     )
@@ -52,8 +53,9 @@ async def login(
 
 
 @router.post("/logout")
-async def logout(response: Response):
-    response.delete_cookie(key="access_token", path="/")
+async def logout(request: Request, response: Response):
+    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    response.delete_cookie(key="__session", path="/", secure=is_https, samesite="lax")
     return {"status": "ok"}
 
 
