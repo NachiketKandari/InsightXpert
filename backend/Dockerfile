@@ -18,7 +18,8 @@ COPY src/ src/
 COPY generate_data.py .
 RUN uv run python generate_data.py && rm generate_data.py
 
-# ChromaDB / RAG data is bootstrapped at runtime by the app lifespan
+# Pre-download ChromaDB's ONNX embedding model so it doesn't download at runtime
+RUN uv run python -c "import chromadb; chromadb.Client()"
 
 ENV PORT=8080
 EXPOSE 8080
