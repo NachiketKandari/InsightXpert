@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="108" fill="#0B1120"/>
+  <!-- Three ascending bars (data chart motif) -->
+  <rect x="100" y="312" width="72" height="120" rx="10" fill="#06B6D4" opacity="0.55"/>
+  <rect x="220" y="216" width="72" height="216" rx="10" fill="#06B6D4" opacity="0.75"/>
+  <rect x="340" y="120" width="72" height="312" rx="10" fill="#06B6D4"/>
+  <!-- Trend line connecting bar tops -->
+  <polyline points="136,312 256,216 376,120" fill="none" stroke="#06B6D4" stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- AI spark at the peak -->
+  <circle cx="376" cy="120" r="18" fill="#fff" opacity="0.9"/>
+  <circle cx="376" cy="120" r="10" fill="#06B6D4"/>
+</svg>
