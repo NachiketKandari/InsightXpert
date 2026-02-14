@@ -1,0 +1,343 @@
+{
+  "info": {
+    "name": "InsightXpert API",
+    "description": "API collection for InsightXpert — AI data analyst for Indian digital payment transactions.\n\nBase URL: http://localhost:8000",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://localhost:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/health",
+              "host": ["{{base_url}}"],
+              "path": ["api", "health"]
+            },
+            "description": "Returns server status and timestamp. Use this to verify the server is running."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"timestamp\": 1707840000.0\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Chat",
+      "item": [
+        {
+          "name": "Chat (SSE Streaming)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"What is the average transaction amount for bill payments?\",\n  \"conversation_id\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat"]
+            },
+            "description": "Send a natural language question and receive Server-Sent Events (SSE) stream.\n\nChunk types in the stream:\n- `status` — progress update (e.g., \"Searching knowledge base...\")\n- `tool_call` — agent is calling a tool (run_sql, get_schema, search_similar)\n- `sql` — the SQL query being executed\n- `tool_result` — result from tool execution\n- `answer` — final natural language answer\n- `error` — error message\n\nStream ends with `data: [DONE]`.\n\n**Note:** Postman doesn't render SSE well. Use curl for best results:\n```\ncurl -N -X POST http://localhost:8000/api/chat \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"message\":\"What is the average transaction amount?\"}'\n```"
+          },
+          "response": [
+            {
+              "name": "200 SSE Stream",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "text/event-stream"
+                }
+              ],
+              "body": "data: {\"type\":\"status\",\"content\":\"Searching knowledge base for context...\",\"conversation_id\":\"a1b2c3\"}\n\ndata: {\"type\":\"tool_call\",\"content\":\"Calling run_sql...\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"sql\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"tool_result\",\"data\":{\"tool\":\"run_sql\",\"result\":\"{\\\"rows\\\":[{\\\"avg_amount\\\":1847.23}],\\\"row_count\\\":1}\"}}\n\ndata: {\"type\":\"answer\",\"content\":\"The average transaction amount for bill payments is INR 1,847.23.\"}\n\ndata: [DONE]"
+            }
+          ]
+        },
+        {
+          "name": "Chat (Polling / Non-Streaming)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"How do failure rates compare between Android and iOS users?\",\n  \"conversation_id\": null\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/poll",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat", "poll"]
+            },
+            "description": "Send a question and get all response chunks at once (non-streaming).\n\nReturns a JSON object with a `chunks` array containing all the same chunk types as the SSE endpoint, but collected into a single response.\n\nBetter for Postman testing since it returns normal JSON."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"chunks\": [\n    {\n      \"type\": \"status\",\n      \"content\": \"Searching knowledge base for context...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840000.0\n    },\n    {\n      \"type\": \"sql\",\n      \"content\": null,\n      \"data\": null,\n      \"sql\": \"SELECT device_type, COUNT(*) AS total_txns, ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct FROM transactions WHERE device_type IN ('Android', 'iOS') GROUP BY device_type\",\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840001.0\n    },\n    {\n      \"type\": \"answer\",\n      \"content\": \"Android and iOS users show similar failure rates...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.0\n    }\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Chat — Example Questions",
+      "description": "Pre-built requests for each of the 6 query categories in the challenge.",
+      "item": [
+        {
+          "name": "Descriptive — Overall success rate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"How many transactions are in the dataset and what is the overall success rate?\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/poll",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat", "poll"]
+            }
+          }
+        },
+        {
+          "name": "Comparative — Avg amount by txn type",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Compare the average transaction amount across all transaction types.\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/poll",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat", "poll"]
+            }
+          }
+        },
+        {
+          "name": "Temporal — Peak hours for food",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"What are the peak transaction hours for food delivery?\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/poll",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat", "poll"]
+            }
+          }
+        },
+        {
+          "name": "Segmentation — P2P by age group",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Which age group uses P2P transfers most frequently?\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/poll",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat", "poll"]
+            }
+          }
+        },
+        {
+          "name": "Correlation — Network type vs success",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"Is there a relationship between network type and transaction success?\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/poll",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat", "poll"]
+            }
+          }
+        },
+        {
+          "name": "Risk — High-value fraud flag rate",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"What percentage of high-value transactions are flagged for review?\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/poll",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat", "poll"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Schema",
+      "item": [
+        {
+          "name": "Get Database Schema",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/schema",
+              "host": ["{{base_url}}"],
+              "path": ["api", "schema"]
+            },
+            "description": "Returns the full DDL (CREATE TABLE statements) and list of table names from the connected database."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"ddl\": \"CREATE TABLE transactions (\\n  transaction_id TEXT,\\n  timestamp TEXT,\\n  ...\\n);\",\n  \"tables\": [\"transactions\"]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Training",
+      "item": [
+        {
+          "name": "Train — Add Q&A Pair",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"qa_pair\",\n  \"content\": \"What is the most common transaction type?\",\n  \"metadata\": {\n    \"sql\": \"SELECT transaction_type, COUNT(*) AS cnt FROM transactions GROUP BY transaction_type ORDER BY cnt DESC LIMIT 1;\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/train",
+              "host": ["{{base_url}}"],
+              "path": ["api", "train"]
+            },
+            "description": "Add a question-SQL pair to the RAG knowledge base. The agent uses these as few-shot examples for future queries.\n\n`type` can be: `qa_pair`, `ddl`, or `documentation`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"id\": \"a1b2c3d4e5f67890\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Train — Add Documentation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"documentation\",\n  \"content\": \"High-value transactions are those with amount_inr >= 10000. These have a higher fraud flag rate.\",\n  \"metadata\": {}\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/train",
+              "host": ["{{base_url}}"],
+              "path": ["api", "train"]
+            },
+            "description": "Add business documentation to the RAG store. This context is injected into the agent's system prompt when relevant."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"id\": \"f8e7d6c5b4a39210\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Train — Add DDL",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"type\": \"ddl\",\n  \"content\": \"CREATE TABLE transactions (transaction_id TEXT PRIMARY KEY, amount_inr REAL);\",\n  \"metadata\": {\n    \"table_name\": \"transactions\"\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/train",
+              "host": ["{{base_url}}"],
+              "path": ["api", "train"]
+            },
+            "description": "Add DDL schema information to the RAG store."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"id\": \"1234567890abcdef\"\n}"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+dist/
+build/
+eggs/
+*.whl
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database files (local dev)
+*.db
+*.sqlite
+*.sqlite3
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# ChromaDB local storage
+chromadb_data/
+chroma_data/
+
+# Agent data (generated at runtime)
+agent_data/
+
+# Dataset (populated after shortlist — CSV files can be large)
+data/*.csv
+
+# Distribution
+*.tar.gz
+*.zip
