@@ -22,7 +22,7 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
       content = <StatusChunk content={chunk.content ?? ""} isComplete={isComplete} />;
       break;
     case "tool_call":
-      content = <ToolCallChunk content={chunk.content ?? ""} />;
+      content = <ToolCallChunk content={chunk.content ?? ""} isComplete={isComplete} />;
       break;
     case "sql":
       content = chunk.sql ? <SqlChunk sql={chunk.sql} /> : null;

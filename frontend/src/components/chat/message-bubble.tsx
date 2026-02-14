@@ -42,7 +42,7 @@ export function MessageBubble({
                 key={i}
                 chunk={chunk}
                 isComplete={
-                  chunk.type === "status"
+                  chunk.type === "status" || chunk.type === "tool_call"
                     ? i < message.chunks.length - 1 || !isStreaming
                     : undefined
                 }
