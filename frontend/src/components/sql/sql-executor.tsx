@@ -5,10 +5,12 @@ import { Play, AlertTriangle, Clock, Rows3, X, Loader2 } from "lucide-react";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sqlLang from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
 import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
+import { github } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { API_BASE_URL } from "@/lib/constants";
+import { useTheme } from "@/hooks/use-theme";
 
 SyntaxHighlighter.registerLanguage("sql", sqlLang);
 
@@ -28,6 +30,8 @@ export function SqlExecutor({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const { theme } = useTheme();
+  const syntaxTheme = theme === "dark" ? vs2015 : github;
 
   const execute = useCallback(async () => {
     const trimmed = sql.trim();
@@ -204,7 +208,7 @@ export function SqlExecutor({ onClose }: { onClose: () => void }) {
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground/50 gap-2 px-4">
             <SyntaxHighlighter
               language="sql"
-              style={vs2015}
+              style={syntaxTheme}
               customStyle={{
                 background: "transparent",
                 fontSize: "0.75rem",

@@ -1,8 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LogOut, EllipsisVertical } from "lucide-react";
+import { LogOut, EllipsisVertical, Activity, TerminalSquare, Sun, Moon } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
+import { useChatStore } from "@/stores/chat-store";
+import { useIsMobile } from "@/hooks/use-media-query";
+import { useTheme } from "@/hooks/use-theme";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -31,9 +34,16 @@ function getDisplayName(email: string): string {
     .join(" ");
 }
 
-export function UserMenu() {
+interface UserMenuProps {
+  onOpenSqlExecutor?: () => void;
+}
+
+export function UserMenu({ onOpenSqlExecutor }: UserMenuProps) {
   const { user, logout } = useAuthStore();
   const router = useRouter();
+  const isMobile = useIsMobile();
+  const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
+  const { theme, toggle: toggleTheme } = useTheme();
 
   if (!user) return null;
 
@@ -47,15 +57,14 @@ export function UserMenu() {
 
   return (
     <div className="flex items-center gap-0.5 ml-1 pl-2 border-l border-border">
-      <Avatar size="sm">
-        <AvatarFallback className="bg-cyan-accent/15 text-cyan-accent text-[10px] font-semibold">
-          {initials}
-        </AvatarFallback>
-      </Avatar>
-
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button className="inline-flex items-center justify-center size-7 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors outline-none cursor-pointer">
+          <button className="inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-1.5 text-muted-foreground hover:bg-muted/50 transition-colors outline-none cursor-pointer">
+            <Avatar size="sm">
+              <AvatarFallback className="bg-primary/15 text-primary dark:bg-cyan-accent/15 dark:text-cyan-accent text-[10px] font-semibold">
+                {initials}
+              </AvatarFallback>
+            </Avatar>
             <EllipsisVertical className="size-4" />
           </button>
         </DropdownMenuTrigger>
@@ -68,6 +77,26 @@ export function UserMenu() {
               </p>
             </div>
           </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {isMobile && (
+            <>
+              <DropdownMenuItem onClick={toggleRightSidebar}>
+                <Activity className="size-4" />
+                Agent Process
+              </DropdownMenuItem>
+              {onOpenSqlExecutor && (
+                <DropdownMenuItem onClick={onOpenSqlExecutor}>
+                  <TerminalSquare className="size-4" />
+                  SQL Executor
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuSeparator />
+            </>
+          )}
+          <DropdownMenuItem onClick={toggleTheme}>
+            {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+            {theme === "dark" ? "Light Mode" : "Dark Mode"}
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} variant="destructive">
             <LogOut className="size-4" />

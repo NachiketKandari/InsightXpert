@@ -76,7 +76,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
     chartContent = (
       <ChartContainer config={groupedConfig} className={`${isMobile ? "h-56" : "h-72"} w-full`}>
         <BarChart data={pivoted}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
             tick={{ fontSize: 11 }}
@@ -105,7 +105,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
     chartContent = (
       <ChartContainer config={chartConfig} className={`${isMobile ? "h-48" : "h-64"} w-full`}>
         <BarChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
             tick={{ fontSize: 11 }}
@@ -165,7 +165,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
     chartContent = (
       <ChartContainer config={chartConfig} className={`${isMobile ? "h-48" : "h-64"} w-full`}>
         <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
             tick={{ fontSize: 11 }}

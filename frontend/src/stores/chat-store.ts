@@ -46,8 +46,7 @@ interface ChatState {
 }
 
 const getInitialSidebarState = () => {
-  if (typeof window === "undefined") return true;
-  return window.innerWidth >= 768;
+  return false;
 };
 
 export const useChatStore = create<ChatState>((set, get) => ({

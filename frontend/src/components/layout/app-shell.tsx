@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PanelLeft, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,15 +25,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
   const isMobile = useIsMobile();
-  const prevMobileRef = useRef(isMobile);
 
-  // Close sidebars when switching to mobile view
+  // Desktop: both sidebars open by default; Mobile: both collapsed
   useEffect(() => {
-    if (isMobile && !prevMobileRef.current) {
+    if (isMobile) {
       setLeftSidebar(false);
       setRightSidebar(false);
+    } else {
+      setLeftSidebar(true);
+      setRightSidebar(true);
     }
-    prevMobileRef.current = isMobile;
   }, [isMobile, setLeftSidebar, setRightSidebar]);
 
   return (
@@ -44,14 +45,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {isMobile ? (
           <>
             <Sheet open={leftOpen} onOpenChange={setLeftSidebar}>
-              <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0">
+              <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
                 <SheetTitle className="sr-only">Chat History</SheetTitle>
                 <LeftSidebar />
               </SheetContent>
             </Sheet>
 
             <Sheet open={rightOpen} onOpenChange={setRightSidebar}>
-              <SheetContent side="right" className="w-[85vw] max-w-[320px] p-0">
+              <SheetContent side="right" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
                 <SheetTitle className="sr-only">Agent Process</SheetTitle>
                 <RightSidebar />
               </SheetContent>

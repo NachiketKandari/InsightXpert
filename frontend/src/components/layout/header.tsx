@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { TerminalSquare, Menu, Activity } from "lucide-react";
+import { TerminalSquare, Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
@@ -19,9 +19,7 @@ export function Header() {
   const [sqlOpen, setSqlOpen] = useState(false);
   const isMobile = useIsMobile();
   const leftOpen = useChatStore((s) => s.leftSidebarOpen);
-  const rightOpen = useChatStore((s) => s.rightSidebarOpen);
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
-  const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
 
   return (
     <>
@@ -54,41 +52,31 @@ export function Header() {
             <circle cx="376" cy="120" r="10" fill="#06B6D4" />
           </svg>
           <span className="text-lg font-semibold tracking-tight hidden md:inline">
-            Insight<span className="text-cyan-accent">Xpert</span>
+            Insight<span className="text-primary dark:text-cyan-accent">Xpert</span>
           </span>
         </div>
 
         <div className="flex items-center gap-1 md:gap-2">
           <ModelSelector />
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="size-9"
-                onClick={() => setSqlOpen(true)}
-              >
-                <TerminalSquare className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>SQL Executor</TooltipContent>
-          </Tooltip>
-
-          {isMobile && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-9"
-              onClick={toggleRightSidebar}
-              aria-label="Agent process"
-              aria-expanded={rightOpen}
-            >
-              <Activity className="size-4" />
-            </Button>
+          {/* SQL Executor button - desktop only, moved to user menu on mobile */}
+          {!isMobile && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-9"
+                  onClick={() => setSqlOpen(true)}
+                >
+                  <TerminalSquare className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>SQL Executor</TooltipContent>
+            </Tooltip>
           )}
 
-          <UserMenu />
+          <UserMenu onOpenSqlExecutor={() => setSqlOpen(true)} />
         </div>
       </header>
 
