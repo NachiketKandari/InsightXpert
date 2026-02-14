@@ -111,6 +111,20 @@ class RenameRequest(BaseModel):
     title: str
 
 
+class SearchMatchMessage(BaseModel):
+    role: str
+    snippet: str
+    created_at: str
+
+
+class SearchResultItem(BaseModel):
+    id: str
+    title: str
+    updated_at: str
+    title_match: bool = False
+    matching_messages: list[SearchMatchMessage] = []
+
+
 class FeedbackRequest(BaseModel):
     conversation_id: str
     message_id: str

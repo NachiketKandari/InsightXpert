@@ -175,6 +175,81 @@ class PersistentConversationStore:
             session.commit()
             return True
 
+    def search_conversations(self, user_id: str, query: str, limit: int = 20) -> list[dict]:
+        """Search conversations by title and message content."""
+        pattern = f"%{query}%"
+        with Session(self.engine) as session:
+            # Find conversations with matching titles
+            title_matches = set(
+                row[0]
+                for row in session.execute(
+                    select(ConversationRecord.id)
+                    .where(ConversationRecord.user_id == user_id)
+                    .where(ConversationRecord.title.ilike(pattern))
+                ).all()
+            )
+
+            # Find conversations with matching message content
+            msg_rows = (
+                session.query(
+                    MessageRecord.conversation_id,
+                    MessageRecord.role,
+                    MessageRecord.content,
+                    MessageRecord.created_at,
+                )
+                .join(
+                    ConversationRecord,
+                    MessageRecord.conversation_id == ConversationRecord.id,
+                )
+                .filter(ConversationRecord.user_id == user_id)
+                .filter(MessageRecord.content.ilike(pattern))
+                .order_by(MessageRecord.created_at.desc())
+                .all()
+            )
+
+            # Group matching messages by conversation
+            msg_by_conv: dict[str, list[dict]] = {}
+            for conv_id, role, content, created_at in msg_rows:
+                if conv_id not in msg_by_conv:
+                    msg_by_conv[conv_id] = []
+                if len(msg_by_conv[conv_id]) < 3:  # max 3 snippets per conversation
+                    # Extract snippet around the match
+                    lower_content = content.lower()
+                    idx = lower_content.find(query.lower())
+                    start = max(0, idx - 40)
+                    end = min(len(content), idx + len(query) + 40)
+                    snippet = ("..." if start > 0 else "") + content[start:end] + ("..." if end < len(content) else "")
+                    msg_by_conv[conv_id].append({
+                        "role": role,
+                        "snippet": snippet,
+                        "created_at": created_at.isoformat(),
+                    })
+
+            # Collect all matching conversation IDs
+            all_conv_ids = title_matches | set(msg_by_conv.keys())
+            if not all_conv_ids:
+                return []
+
+            # Fetch conversation details
+            convos = (
+                session.query(ConversationRecord)
+                .filter(ConversationRecord.id.in_(all_conv_ids))
+                .order_by(desc(ConversationRecord.updated_at))
+                .limit(limit)
+                .all()
+            )
+
+            return [
+                {
+                    "id": c.id,
+                    "title": c.title,
+                    "updated_at": c.updated_at.isoformat(),
+                    "title_match": c.id in title_matches,
+                    "matching_messages": msg_by_conv.get(c.id, []),
+                }
+                for c in convos
+            ]
+
     def rename_conversation(self, conversation_id: str, user_id: str, title: str) -> bool:
         with Session(self.engine) as session:
             convo = session.get(ConversationRecord, conversation_id)
