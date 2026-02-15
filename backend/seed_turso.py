@@ -1,114 +1,59 @@
 """
-Seed the Turso (libSQL) cloud database with 250K synthetic transactions.
+Seed the Turso (libSQL) cloud database with data from upi_transactions_2024.csv.
+
+Supports resuming — skips rows already in Turso and inserts only missing ones.
+Reconnects between batches to avoid connection timeouts.
 
 Usage:
     # Set env vars first:
     export TURSO_DATABASE_URL=libsql://insightxpert-nachiketkandari.aws-ap-south-1.turso.io
     export TURSO_AUTH_TOKEN=<your-token>
 
-    # Then run:
+    # Fresh load (drops and recreates table):
+    uv run python seed_turso.py --fresh
+
+    # Resume (default — skips existing rows):
     uv run python seed_turso.py
 """
 
+import csv
 import os
-import random
-import uuid
-from datetime import datetime, timedelta
+import sys
+import time
+from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
-NUM_ROWS = 250_000
+CSV_PATH = Path(__file__).parent.parent / "upi_transactions_2024.csv"
 
 # Turso connection
 TURSO_URL = os.environ["TURSO_DATABASE_URL"]
 TURSO_TOKEN = os.environ["TURSO_AUTH_TOKEN"]
-
-# SQLAlchemy URL: sqlite+libsql:// prefix + Turso host
 SA_URL = f"sqlite+{TURSO_URL}?secure=true"
 
-# -- Domain values (same as generate_data.py) --
-
-TRANSACTION_TYPES = ["P2P", "P2M", "Bill Payment", "Recharge"]
-TRANSACTION_STATUSES = ["SUCCESS", "FAILED", "PENDING"]
-STATUS_WEIGHTS = [0.85, 0.10, 0.05]
-
-MERCHANT_CATEGORIES = [
-    "Food", "Grocery", "Fuel", "Entertainment", "Shopping",
-    "Healthcare", "Education", "Transport", "Utilities", "Other",
-]
-
-BANKS = ["SBI", "HDFC", "ICICI", "Axis", "PNB", "Kotak", "IndusInd", "Yes Bank"]
-
-STATES = [
-    "Maharashtra", "Karnataka", "Tamil Nadu", "Delhi", "Uttar Pradesh",
-    "Gujarat", "Rajasthan", "West Bengal", "Telangana", "Kerala",
-    "Madhya Pradesh", "Bihar", "Andhra Pradesh", "Punjab", "Haryana",
-]
-
-AGE_GROUPS = ["18-25", "26-35", "36-45", "46-55", "56+"]
-AGE_WEIGHTS = [0.25, 0.35, 0.20, 0.12, 0.08]
-
-DEVICE_TYPES = ["Android", "iOS", "Web"]
-DEVICE_WEIGHTS = [0.60, 0.25, 0.15]
-
-NETWORK_TYPES = ["4G", "5G", "WiFi", "3G"]
-NETWORK_WEIGHTS = [0.40, 0.25, 0.25, 0.10]
-
-START_DATE = datetime(2024, 7, 1)
-END_DATE = datetime(2024, 12, 31)
-DATE_RANGE_SECONDS = int((END_DATE - START_DATE).total_seconds())
-
-
-def random_timestamp() -> datetime:
-    offset = random.randint(0, DATE_RANGE_SECONDS)
-    return START_DATE + timedelta(seconds=offset)
-
-
-def random_amount(txn_type: str) -> float:
-    if txn_type == "P2P":
-        return round(random.lognormvariate(6.5, 1.2), 2)
-    elif txn_type == "P2M":
-        return round(random.lognormvariate(5.8, 1.0), 2)
-    elif txn_type == "Bill Payment":
-        return round(random.lognormvariate(7.0, 0.8), 2)
-    else:
-        return round(random.uniform(10, 2000), 2)
-
-
-def generate_row() -> dict:
-    txn_type = random.choice(TRANSACTION_TYPES)
-    ts = random_timestamp()
-    amount = min(random_amount(txn_type), 500_000)
-
-    fraud_prob = 0.03
-    if amount > 50_000:
-        fraud_prob += 0.05
-    if ts.hour in (22, 23, 0, 1, 2, 3):
-        fraud_prob += 0.02
-
-    return {
-        "transaction_id": str(uuid.uuid4()),
-        "timestamp": ts.isoformat(),
-        "transaction_type": txn_type,
-        "amount_inr": amount,
-        "transaction_status": random.choices(TRANSACTION_STATUSES, STATUS_WEIGHTS)[0],
-        "merchant_category": random.choice(MERCHANT_CATEGORIES) if txn_type != "P2P" else None,
-        "sender_bank": random.choice(BANKS),
-        "receiver_bank": random.choice(BANKS),
-        "sender_state": random.choice(STATES),
-        "sender_age_group": random.choices(AGE_GROUPS, AGE_WEIGHTS)[0],
-        "receiver_age_group": random.choices(AGE_GROUPS, AGE_WEIGHTS)[0] if txn_type == "P2P" else None,
-        "device_type": random.choices(DEVICE_TYPES, DEVICE_WEIGHTS)[0],
-        "network_type": random.choices(NETWORK_TYPES, NETWORK_WEIGHTS)[0],
-        "fraud_flag": 1 if random.random() < fraud_prob else 0,
-        "hour_of_day": ts.hour,
-        "day_of_week": ts.strftime("%A"),
-        "is_weekend": 1 if ts.weekday() >= 5 else 0,
-    }
-
+# Map CSV column names → DB column names
+COLUMN_MAP = {
+    "transaction id": "transaction_id",
+    "timestamp": "timestamp",
+    "transaction type": "transaction_type",
+    "merchant_category": "merchant_category",
+    "amount (INR)": "amount_inr",
+    "transaction_status": "transaction_status",
+    "sender_age_group": "sender_age_group",
+    "receiver_age_group": "receiver_age_group",
+    "sender_state": "sender_state",
+    "sender_bank": "sender_bank",
+    "receiver_bank": "receiver_bank",
+    "device_type": "device_type",
+    "network_type": "network_type",
+    "fraud_flag": "fraud_flag",
+    "hour_of_day": "hour_of_day",
+    "day_of_week": "day_of_week",
+    "is_weekend": "is_weekend",
+}
 
 INSERT_SQL = text("""
-    INSERT INTO transactions (
+    INSERT OR IGNORE INTO transactions (
         transaction_id, timestamp, transaction_type, amount_inr, transaction_status,
         merchant_category, sender_bank, receiver_bank, sender_state, sender_age_group,
         receiver_age_group, device_type, network_type, fraud_flag,
@@ -121,81 +66,149 @@ INSERT_SQL = text("""
     )
 """)
 
+CREATE_TABLE_SQL = """
+    CREATE TABLE IF NOT EXISTS transactions (
+        transaction_id    TEXT PRIMARY KEY,
+        timestamp         TEXT NOT NULL,
+        transaction_type  TEXT NOT NULL,
+        amount_inr        REAL NOT NULL,
+        transaction_status TEXT NOT NULL,
+        merchant_category TEXT,
+        sender_bank       TEXT NOT NULL,
+        receiver_bank     TEXT NOT NULL,
+        sender_state      TEXT NOT NULL,
+        sender_age_group  TEXT NOT NULL,
+        receiver_age_group TEXT,
+        device_type       TEXT NOT NULL,
+        network_type      TEXT NOT NULL,
+        fraud_flag        INTEGER NOT NULL DEFAULT 0,
+        hour_of_day       INTEGER NOT NULL,
+        day_of_week       TEXT NOT NULL,
+        is_weekend        INTEGER NOT NULL DEFAULT 0
+    )
+"""
+
+INDEX_SQLS = [
+    "CREATE INDEX IF NOT EXISTS idx_txn_type ON transactions(transaction_type)",
+    "CREATE INDEX IF NOT EXISTS idx_status ON transactions(transaction_status)",
+    "CREATE INDEX IF NOT EXISTS idx_merchant ON transactions(merchant_category)",
+    "CREATE INDEX IF NOT EXISTS idx_sender_bank ON transactions(sender_bank)",
+    "CREATE INDEX IF NOT EXISTS idx_device ON transactions(device_type)",
+    "CREATE INDEX IF NOT EXISTS idx_fraud ON transactions(fraud_flag)",
+    "CREATE INDEX IF NOT EXISTS idx_hour ON transactions(hour_of_day)",
+    "CREATE INDEX IF NOT EXISTS idx_weekend ON transactions(is_weekend)",
+    "CREATE INDEX IF NOT EXISTS idx_state ON transactions(sender_state)",
+]
+
+
+def make_engine():
+    return create_engine(SA_URL, connect_args={"auth_token": TURSO_TOKEN})
+
+
+def csv_row_to_dict(row: dict) -> dict:
+    mapped = {}
+    for csv_col, db_col in COLUMN_MAP.items():
+        val = row[csv_col].strip()
+        if db_col == "amount_inr":
+            val = float(val)
+        elif db_col in ("fraud_flag", "hour_of_day", "is_weekend"):
+            val = int(val)
+        elif val == "":
+            val = None
+        mapped[db_col] = val
+    return mapped
+
+
+def execute_with_retry(fn, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            return fn()
+        except Exception as e:
+            if attempt < max_retries - 1:
+                wait = 2 ** attempt
+                print(f"  Retry {attempt + 1}/{max_retries} after error: {e}")
+                time.sleep(wait)
+            else:
+                raise
+
 
 def main() -> None:
-    print(f"Connecting to Turso: {TURSO_URL}")
-    engine = create_engine(SA_URL, connect_args={"auth_token": TURSO_TOKEN})
+    fresh = "--fresh" in sys.argv
 
+    if not CSV_PATH.exists():
+        raise FileNotFoundError(f"CSV not found: {CSV_PATH}")
+
+    print(f"Connecting to Turso: {TURSO_URL}", flush=True)
+
+    if fresh:
+        engine = make_engine()
+        with engine.connect() as conn:
+            conn.execute(text("DROP TABLE IF EXISTS transactions"))
+            conn.commit()
+            print("Dropped existing table.", flush=True)
+        engine.dispose()
+
+    # Ensure table and indices exist
+    engine = make_engine()
     with engine.connect() as conn:
-        # Drop existing table if any
-        conn.execute(text("DROP TABLE IF EXISTS transactions"))
+        conn.execute(text(CREATE_TABLE_SQL))
         conn.commit()
-
-        # Create table
-        conn.execute(text("""
-            CREATE TABLE transactions (
-                transaction_id    TEXT PRIMARY KEY,
-                timestamp         TEXT NOT NULL,
-                transaction_type  TEXT NOT NULL,
-                amount_inr        REAL NOT NULL,
-                transaction_status TEXT NOT NULL,
-                merchant_category TEXT,
-                sender_bank       TEXT NOT NULL,
-                receiver_bank     TEXT NOT NULL,
-                sender_state      TEXT NOT NULL,
-                sender_age_group  TEXT NOT NULL,
-                receiver_age_group TEXT,
-                device_type       TEXT NOT NULL,
-                network_type      TEXT NOT NULL,
-                fraud_flag        INTEGER NOT NULL DEFAULT 0,
-                hour_of_day       INTEGER NOT NULL,
-                day_of_week       TEXT NOT NULL,
-                is_weekend        INTEGER NOT NULL DEFAULT 0
-            )
-        """))
-        conn.commit()
-        print("Table created.")
-
-        # Create indices
-        for idx_sql in [
-            "CREATE INDEX idx_txn_type ON transactions(transaction_type)",
-            "CREATE INDEX idx_status ON transactions(transaction_status)",
-            "CREATE INDEX idx_merchant ON transactions(merchant_category)",
-            "CREATE INDEX idx_sender_bank ON transactions(sender_bank)",
-            "CREATE INDEX idx_device ON transactions(device_type)",
-            "CREATE INDEX idx_fraud ON transactions(fraud_flag)",
-            "CREATE INDEX idx_hour ON transactions(hour_of_day)",
-            "CREATE INDEX idx_weekend ON transactions(is_weekend)",
-            "CREATE INDEX idx_state ON transactions(sender_state)",
-        ]:
+        for idx_sql in INDEX_SQLS:
             conn.execute(text(idx_sql))
         conn.commit()
-        print("Indices created.")
+        existing = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar()
+    engine.dispose()
+    print(f"Table ready. Existing rows: {existing:,}", flush=True)
 
-        # Seed data in batches
-        print(f"Generating {NUM_ROWS:,} transactions...")
-        random.seed(42)
+    # Load CSV in batches, reconnecting each batch
+    print(f"Loading data from {CSV_PATH}...", flush=True)
+    batch_size = 500
+    batch: list[dict] = []
+    total_read = 0
+    total_inserted = 0
 
-        batch_size = 1_000  # smaller batches for network writes
-        for i in range(0, NUM_ROWS, batch_size):
-            count = min(batch_size, NUM_ROWS - i)
-            rows = [generate_row() for _ in range(count)]
-            conn.execute(INSERT_SQL, rows)
-            conn.commit()
-            done = i + count
-            if done % 10_000 == 0 or done == NUM_ROWS:
-                print(f"  {done:>7,} / {NUM_ROWS:,}")
+    with open(CSV_PATH, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            total_read += 1
+            batch.append(csv_row_to_dict(row))
 
-        # Verify
-        total = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar()
+            if len(batch) >= batch_size:
+                def insert_batch(b=batch[:]):
+                    eng = make_engine()
+                    with eng.connect() as c:
+                        c.execute(INSERT_SQL, b)
+                        c.commit()
+                    eng.dispose()
+
+                execute_with_retry(insert_batch)
+                total_inserted += len(batch)
+                if total_inserted % 5_000 == 0:
+                    print(f"  {total_inserted:>7,} / 250,000 rows processed", flush=True)
+                batch.clear()
+
+        if batch:
+            def insert_batch(b=batch[:]):
+                eng = make_engine()
+                with eng.connect() as c:
+                    c.execute(INSERT_SQL, b)
+                    c.commit()
+                eng.dispose()
+
+            execute_with_retry(insert_batch)
+            total_inserted += len(batch)
+
+    # Verify
+    engine = make_engine()
+    with engine.connect() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar()
         avg_amt = conn.execute(text("SELECT ROUND(AVG(amount_inr), 2) FROM transactions")).scalar()
         fraud_count = conn.execute(text("SELECT SUM(fraud_flag) FROM transactions")).scalar()
-
-    print(f"\nDone! {total:,} rows in Turso")
-    print(f"  Average amount: INR {avg_amt:,.2f}")
-    print(f"  Fraud-flagged:  {fraud_count:,} ({fraud_count/total*100:.1f}%)")
-
     engine.dispose()
+
+    print(f"\nDone! {count:,} rows in Turso", flush=True)
+    print(f"  Average amount: INR {avg_amt:,.2f}", flush=True)
+    print(f"  Fraud-flagged:  {fraud_count:,} ({fraud_count/count*100:.1f}%)", flush=True)
 
 
 if __name__ == "__main__":
