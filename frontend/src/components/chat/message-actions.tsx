@@ -3,6 +3,11 @@
 import { useState } from "react";
 import { Check, Copy, ThumbsUp, ThumbsDown, RotateCcw, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 interface MessageActionsProps {
@@ -61,59 +66,81 @@ export function MessageActions({
         )}
       >
         {/* Copy */}
-        <Button
-          variant="ghost"
-          size="icon-xs"
-          onClick={handleCopy}
-          className="text-muted-foreground hover:text-foreground"
-          aria-label={role === "user" ? "Copy prompt" : "Copy response"}
-        >
-          {copied ? (
-            <Check className="size-3 text-emerald-400" />
-          ) : (
-            <Copy className="size-3" />
-          )}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-xs"
+              onClick={handleCopy}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label={role === "user" ? "Copy prompt" : "Copy response"}
+            >
+              {copied ? (
+                <Check className="size-3 text-emerald-400" />
+              ) : (
+                <Copy className="size-3" />
+              )}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">
+            {copied ? "Copied!" : "Copy"}
+          </TooltipContent>
+        </Tooltip>
 
         {/* Assistant-only actions */}
         {role === "assistant" && (
           <>
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={handleThumbsUp}
-              className={cn(
-                "text-muted-foreground hover:text-foreground",
-                feedbackGiven === "up" && "text-emerald-400 hover:text-emerald-400"
-              )}
-              aria-label="Good response"
-            >
-              <ThumbsUp className="size-3" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleThumbsUp}
+                  className={cn(
+                    "text-muted-foreground hover:text-foreground",
+                    feedbackGiven === "up" && "text-emerald-400 hover:text-emerald-400"
+                  )}
+                  aria-label="Good response"
+                >
+                  <ThumbsUp className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Good response</TooltipContent>
+            </Tooltip>
 
-            <Button
-              variant="ghost"
-              size="icon-xs"
-              onClick={handleThumbsDown}
-              className={cn(
-                "text-muted-foreground hover:text-foreground",
-                feedbackGiven === "down" && "text-red-400 hover:text-red-400"
-              )}
-              aria-label="Bad response"
-            >
-              <ThumbsDown className="size-3" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-xs"
+                  onClick={handleThumbsDown}
+                  className={cn(
+                    "text-muted-foreground hover:text-foreground",
+                    feedbackGiven === "down" && "text-red-400 hover:text-red-400"
+                  )}
+                  aria-label="Bad response"
+                >
+                  <ThumbsDown className="size-3" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">Bad response</TooltipContent>
+            </Tooltip>
 
             {isLastAssistant && onRetry && (
-              <Button
-                variant="ghost"
-                size="icon-xs"
-                onClick={onRetry}
-                className="text-muted-foreground hover:text-foreground"
-                aria-label="Retry"
-              >
-                <RotateCcw className="size-3" />
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon-xs"
+                    onClick={onRetry}
+                    className="text-muted-foreground hover:text-foreground"
+                    aria-label="Retry"
+                  >
+                    <RotateCcw className="size-3" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">Retry</TooltipContent>
+              </Tooltip>
             )}
           </>
         )}
@@ -133,15 +160,20 @@ export function MessageActions({
             className="flex-1 bg-transparent text-xs outline-none placeholder:text-muted-foreground"
             autoFocus
           />
-          <Button
-            variant="ghost"
-            size="icon-xs"
-            onClick={handleSubmitFeedback}
-            className="text-muted-foreground hover:text-foreground"
-            aria-label="Submit feedback"
-          >
-            <Send className="size-3" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={handleSubmitFeedback}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Submit feedback"
+              >
+                <Send className="size-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Submit feedback</TooltipContent>
+          </Tooltip>
         </div>
       )}
     </div>

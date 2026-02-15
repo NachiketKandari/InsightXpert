@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogOut, EllipsisVertical, Activity, Sun, Moon, Settings } from "lucide-react";
+import { LogOut, Activity, Sun, Moon, Settings } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { useChatStore } from "@/stores/chat-store";
@@ -17,6 +17,11 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 
 function getInitials(email: string): string {
   const local = email.split("@")[0] ?? "";
@@ -55,19 +60,23 @@ export function UserMenu() {
   };
 
   return (
-    <div className="flex items-center gap-0.5 ml-1 pl-2 border-l border-border">
+    <div className="flex items-center gap-2 px-4 py-3 border-t border-border">
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button className="inline-flex items-center gap-1.5 rounded-full py-1 pl-1 pr-1.5 text-muted-foreground hover:bg-muted/50 transition-colors outline-none cursor-pointer">
-            <Avatar size="sm">
-              <AvatarFallback className="bg-primary/15 text-primary dark:bg-cyan-accent/15 dark:text-cyan-accent text-[10px] font-semibold">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
-            <EllipsisVertical className="size-4" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <DropdownMenuTrigger asChild>
+              <button className="relative rounded-full outline-none cursor-pointer ring-2 ring-transparent hover:ring-primary/40 dark:hover:ring-cyan-accent/40 transition-all duration-200">
+                <Avatar size="default">
+                  <AvatarFallback className="bg-primary/15 text-primary dark:bg-cyan-accent/15 dark:text-cyan-accent text-xs font-semibold">
+                    {initials}
+                  </AvatarFallback>
+                </Avatar>
+              </button>
+            </DropdownMenuTrigger>
+          </TooltipTrigger>
+          <TooltipContent side="top">Account</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent side="top" align="start" className="w-56 mb-1">
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col gap-1">
               <p className="text-sm font-medium leading-none">{displayName}</p>
@@ -105,6 +114,13 @@ export function UserMenu() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium leading-none truncate">{displayName}</p>
+        <p className="text-xs text-muted-foreground leading-none mt-1 truncate">
+          {user.email}
+        </p>
+      </div>
     </div>
   );
 }

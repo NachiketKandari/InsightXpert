@@ -164,7 +164,7 @@
 .glass-input {
   background: oklch(0.985 0.003 75 / 0.8);
   backdrop-filter: blur(16px);
-  border: 1px solid oklch(0.45 0.12 230 / 0.12);
+  border: 1px solid oklch(0.75 0 0 / 0.35);
   box-shadow:
     0 -1px 3px oklch(0.45 0.12 230 / 0.04),
     0 0 20px oklch(0.45 0.12 230 / 0.06);
