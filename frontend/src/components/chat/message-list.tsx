@@ -35,19 +35,16 @@ export function MessageList({ onRetry }: MessageListProps) {
 
   const handleFeedback = useCallback(
     (messageId: string, type: "up" | "down", comment?: string) => {
-      const conversationId = conversation?.id;
-      if (!conversationId) return;
       apiFetch("/api/feedback", {
         method: "POST",
         body: JSON.stringify({
-          conversation_id: conversationId,
           message_id: messageId,
-          rating: type,
-          comment: comment || "",
+          feedback: type === "up",
+          comment: comment || null,
         }),
       }).catch(() => {});
     },
-    [conversation?.id]
+    []
   );
 
   return (

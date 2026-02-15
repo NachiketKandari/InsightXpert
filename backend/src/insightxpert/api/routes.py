@@ -429,6 +429,8 @@ async def get_conversation(
             role=m["role"],
             content=m["content"],
             chunks=json.loads(m["chunks_json"]) if m.get("chunks_json") else None,
+            feedback=m.get("feedback"),
+            feedback_comment=m.get("feedback_comment"),
             created_at=m["created_at"],
         )
         for m in convo["messages"]
@@ -436,6 +438,7 @@ async def get_conversation(
     return ConversationDetail(
         id=convo["id"],
         title=convo["title"],
+        is_starred=convo.get("is_starred", False),
         messages=messages,
         created_at=convo["created_at"],
         updated_at=convo["updated_at"],
@@ -467,6 +470,21 @@ async def rename_conversation(
     if not renamed:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok"}
+
+
+@router.patch("/conversations/{conversation_id}/star")
+async def star_conversation(
+    conversation_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    body = await request.json()
+    starred = body.get("starred", True)
+    store = request.app.state.persistent_conv_store
+    ok = store.star_conversation(conversation_id, user.id, starred)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    return {"status": "ok", "starred": starred}
 
 
 # --- Ollama model management --------------------------------------------
@@ -575,22 +593,13 @@ async def submit_feedback(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    from sqlalchemy.orm import Session
-    from insightxpert.auth.models import FeedbackRecord
-
-    engine = request.app.state.persistent_conv_store.engine
-    try:
-        with Session(engine) as session:
-            record = FeedbackRecord(
-                user_id=user.id,
-                conversation_id=body.conversation_id,
-                message_id=body.message_id,
-                rating=body.rating,
-                comment=body.comment or None,
-            )
-            session.add(record)
-            session.commit()
-    except Exception as e:
-        logger.warning("Failed to save feedback: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to save feedback")
+    store = request.app.state.persistent_conv_store
+    ok = store.update_message_feedback(
+        message_id=body.message_id,
+        user_id=user.id,
+        feedback=body.feedback,
+        comment=body.comment,
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="Message not found")
     return {"status": "ok"}

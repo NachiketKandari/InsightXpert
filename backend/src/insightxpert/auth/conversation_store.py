@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+IST = ZoneInfo("Asia/Kolkata")
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -51,6 +54,7 @@ class PersistentConversationStore:
                 {
                     "id": c.id,
                     "title": c.title,
+                    "is_starred": c.is_starred,
                     "created_at": c.created_at.isoformat(),
                     "updated_at": c.updated_at.isoformat(),
                     "last_message": last_content[:200] if last_content else None,
@@ -73,6 +77,7 @@ class PersistentConversationStore:
             return {
                 "id": convo.id,
                 "title": convo.title,
+                "is_starred": convo.is_starred,
                 "created_at": convo.created_at.isoformat(),
                 "updated_at": convo.updated_at.isoformat(),
                 "messages": [
@@ -81,6 +86,8 @@ class PersistentConversationStore:
                         "role": m.role,
                         "content": m.content,
                         "chunks_json": m.chunks_json,
+                        "feedback": m.feedback,
+                        "feedback_comment": m.feedback_comment,
                         "created_at": m.created_at.isoformat(),
                     }
                     for m in messages
@@ -95,12 +102,13 @@ class PersistentConversationStore:
                     return {
                         "id": convo.id,
                         "title": convo.title,
+                        "is_starred": convo.is_starred,
                         "created_at": convo.created_at.isoformat(),
                         "updated_at": convo.updated_at.isoformat(),
                     }
                 raise ValueError("Conversation not owned by user")
 
-            now = datetime.now(timezone.utc)
+            now = datetime.now(IST)
             convo = ConversationRecord(
                 id=conversation_id,
                 user_id=user_id,
@@ -113,12 +121,13 @@ class PersistentConversationStore:
             return {
                 "id": convo.id,
                 "title": convo.title,
+                "is_starred": convo.is_starred,
                 "created_at": convo.created_at.isoformat(),
                 "updated_at": convo.updated_at.isoformat(),
             }
 
     def create_conversation(self, user_id: str, title: str) -> dict:
-        now = datetime.now(timezone.utc)
+        now = datetime.now(IST)
         convo = ConversationRecord(
             id=str(uuid.uuid4()),
             user_id=user_id,
@@ -132,6 +141,7 @@ class PersistentConversationStore:
             return {
                 "id": convo.id,
                 "title": convo.title,
+                "is_starred": convo.is_starred,
                 "created_at": convo.created_at.isoformat(),
                 "updated_at": convo.updated_at.isoformat(),
             }
@@ -155,9 +165,9 @@ class PersistentConversationStore:
                 role=role,
                 content=content,
                 chunks_json=chunks_json,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(IST),
             )
-            convo.updated_at = datetime.now(timezone.utc)
+            convo.updated_at = datetime.now(IST)
             session.add(msg)
             session.commit()
             return msg.id
@@ -243,6 +253,7 @@ class PersistentConversationStore:
                 {
                     "id": c.id,
                     "title": c.title,
+                    "is_starred": c.is_starred,
                     "updated_at": c.updated_at.isoformat(),
                     "title_match": c.id in title_matches,
                     "matching_messages": msg_by_conv.get(c.id, []),
@@ -256,6 +267,35 @@ class PersistentConversationStore:
             if convo is None or convo.user_id != user_id:
                 return False
             convo.title = title
-            convo.updated_at = datetime.now(timezone.utc)
+            convo.updated_at = datetime.now(IST)
+            session.commit()
+            return True
+
+    def star_conversation(self, conversation_id: str, user_id: str, starred: bool) -> bool:
+        with Session(self.engine) as session:
+            convo = session.get(ConversationRecord, conversation_id)
+            if convo is None or convo.user_id != user_id:
+                return False
+            convo.is_starred = starred
+            session.commit()
+            return True
+
+    def update_message_feedback(
+        self,
+        message_id: str,
+        user_id: str,
+        feedback: bool | None,
+        comment: str | None = None,
+    ) -> bool:
+        with Session(self.engine) as session:
+            msg = session.get(MessageRecord, message_id)
+            if msg is None:
+                return False
+            # Verify the message belongs to a conversation owned by the user
+            convo = session.get(ConversationRecord, msg.conversation_id)
+            if convo is None or convo.user_id != user_id:
+                return False
+            msg.feedback = feedback
+            msg.feedback_comment = comment
             session.commit()
             return True

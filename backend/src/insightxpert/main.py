@@ -13,9 +13,8 @@ from insightxpert.admin.config_store import read_config, write_config
 from insightxpert.admin.routes import router as admin_router
 from insightxpert.api.routes import router
 from insightxpert.auth.conversation_store import PersistentConversationStore
-from insightxpert.auth.models import Base as AuthBase
 from insightxpert.auth.routes import router as auth_router
-from insightxpert.auth.seed import seed_admin
+from insightxpert.auth.seed import seed_admin, seed_default_user
 from insightxpert.config import Settings
 from insightxpert.llm.factory import create_llm
 from insightxpert.db.connector import DatabaseConnector
@@ -69,11 +68,18 @@ async def lifespan(app: FastAPI):
     llm = create_llm(settings.llm_provider.value, settings)
     logger.info("LLM provider: %s", settings.llm_provider.value)
 
-    # Auth tables (same database as transactions)
+    # Auth tables — run Alembic migrations
     auth_engine = db.engine
-    AuthBase.metadata.create_all(auth_engine)
+    from alembic.config import Config as AlembicConfig
+    from alembic import command as alembic_command
+
+    alembic_cfg = AlembicConfig(str(Path(__file__).resolve().parent.parent.parent / "alembic.ini"))
+    alembic_cfg.set_main_option("sqlalchemy.url", str(auth_engine.url))
+    alembic_command.upgrade(alembic_cfg, "head")
+
     seed_admin(auth_engine)
-    logger.info("Auth tables initialized")
+    seed_default_user(auth_engine)
+    logger.info("Auth tables initialized (via Alembic)")
 
     # Persistent conversation store (SQLite-backed)
     persistent_conv_store = PersistentConversationStore(auth_engine)

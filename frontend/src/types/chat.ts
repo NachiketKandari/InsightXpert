@@ -22,6 +22,8 @@ export interface Message {
   role: "user" | "assistant";
   content: string;
   chunks: ChatChunk[];
+  feedback?: boolean | null;
+  feedbackComment?: string | null;
   timestamp: number;
 }
 
@@ -29,6 +31,7 @@ export interface Conversation {
   id: string;
   title: string;
   messages: Message[];
+  isStarred: boolean;
   createdAt: number;
   updatedAt: number;
 }
