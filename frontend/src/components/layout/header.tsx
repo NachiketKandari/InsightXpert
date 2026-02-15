@@ -2,9 +2,13 @@
 
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { UserMenu } from "./user-menu";
 import { useChatStore } from "@/stores/chat-store";
 import { useIsMobile } from "@/hooks/use-media-query";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 
 export function Header() {
   const isMobile = useIsMobile();
@@ -15,16 +19,21 @@ export function Header() {
     <header className="h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 glass border-b border-border">
       <div className="flex items-center gap-2">
         {isMobile && (
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-9"
-            onClick={toggleLeftSidebar}
-            aria-label="Chat history"
-            aria-expanded={leftOpen}
-          >
-            <Menu className="size-5" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-9"
+                onClick={toggleLeftSidebar}
+                aria-label="Chat history"
+                aria-expanded={leftOpen}
+              >
+                <Menu className="size-5" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Chat history</TooltipContent>
+          </Tooltip>
         )}
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -43,10 +52,6 @@ export function Header() {
         <span className="text-lg font-semibold tracking-tight hidden md:inline">
           Insight<span className="text-primary dark:text-cyan-accent">Xpert</span>
         </span>
-      </div>
-
-      <div className="flex items-center gap-1 md:gap-2">
-        <UserMenu />
       </div>
     </header>
   );

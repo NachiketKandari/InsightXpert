@@ -6,6 +6,11 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ProcessSteps } from "@/components/sidebar/process-steps";
 import { useChatStore } from "@/stores/chat-store";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 
 export function RightSidebar() {
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
@@ -16,15 +21,20 @@ export function RightSidebar() {
         <h2 className="text-sm font-semibold tracking-wide text-muted-foreground uppercase">
           Agent Process
         </h2>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
-          onClick={toggleRightSidebar}
-          aria-label="Close agent process"
-        >
-          <PanelRightClose className="size-4" />
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-7"
+              onClick={toggleRightSidebar}
+              aria-label="Close agent process"
+            >
+              <PanelRightClose className="size-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom">Close panel</TooltipContent>
+        </Tooltip>
       </div>
       <Separator />
       <ScrollArea className="flex-1 min-h-0">

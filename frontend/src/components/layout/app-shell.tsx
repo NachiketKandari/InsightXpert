@@ -16,6 +16,11 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { useClientConfig } from "@/hooks/use-client-config";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 
 const sidebarTransition = { duration: 0.2, ease: "easeInOut" } as const;
 
@@ -86,28 +91,38 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <main className="relative flex-1 min-w-0 overflow-hidden">
           {/* Floating button to re-open left sidebar when closed */}
           {!isMobile && !leftOpen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute left-2 top-1/2 -translate-y-1/2 z-10 size-8 opacity-60 hover:opacity-100 transition-opacity"
-              onClick={toggleLeftSidebar}
-              aria-label="Open chat history"
-            >
-              <PanelLeft className="size-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute left-2 top-1/2 -translate-y-1/2 z-10 size-8 opacity-60 hover:opacity-100 transition-opacity"
+                  onClick={toggleLeftSidebar}
+                  aria-label="Open chat history"
+                >
+                  <PanelLeft className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Open chat history</TooltipContent>
+            </Tooltip>
           )}
 
           {/* Floating button to re-open right sidebar when closed */}
           {showRightSidebar && !isMobile && !rightOpen && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="absolute right-2 top-1/2 -translate-y-1/2 z-10 size-8 opacity-60 hover:opacity-100 transition-opacity"
-              onClick={toggleRightSidebar}
-              aria-label="Open agent process"
-            >
-              <PanelRight className="size-4" />
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 z-10 size-8 opacity-60 hover:opacity-100 transition-opacity"
+                  onClick={toggleRightSidebar}
+                  aria-label="Open agent process"
+                >
+                  <PanelRight className="size-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="left">Open agent process</TooltipContent>
+            </Tooltip>
           )}
 
           {children}

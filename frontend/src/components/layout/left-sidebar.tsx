@@ -8,8 +8,14 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { ConversationList } from "@/components/sidebar/conversation-list";
 import { SearchResults } from "@/components/sidebar/search-results";
+import { UserMenu } from "./user-menu";
 import { useChatStore } from "@/stores/chat-store";
 import { apiFetch } from "@/lib/api";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 
 interface SearchResult {
   id: string;
@@ -82,24 +88,34 @@ export function LeftSidebar() {
           Chat History
         </h2>
         <div className="flex items-center gap-1">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={handleOpenSearch}
-            aria-label="Search chats"
-          >
-            <Search className="size-4" />
-          </Button>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="size-7"
-            onClick={toggleLeftSidebar}
-            aria-label="Close chat history"
-          >
-            <PanelLeftClose className="size-4" />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={handleOpenSearch}
+                aria-label="Search chats"
+              >
+                <Search className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Search chats</TooltipContent>
+          </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="size-7"
+                onClick={toggleLeftSidebar}
+                aria-label="Close sidebar"
+              >
+                <PanelLeftClose className="size-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Close sidebar</TooltipContent>
+          </Tooltip>
         </div>
       </div>
       <Separator />
@@ -119,13 +135,19 @@ export function LeftSidebar() {
                 placeholder="Search chats..."
                 className="h-8 pl-8 pr-8 text-sm"
               />
-              <button
-                type="button"
-                onClick={handleCloseSearch}
-                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <X className="size-3.5" />
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={handleCloseSearch}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
+                    aria-label="Clear search"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="right">Clear search</TooltipContent>
+              </Tooltip>
             </div>
           </div>
           <Separator className="mt-3" />
@@ -135,14 +157,19 @@ export function LeftSidebar() {
       {!isSearchActive && (
         <>
           <div className="p-3">
-            <Button
-              variant="outline"
-              className="w-full justify-start gap-2"
-              onClick={() => newConversation()}
-            >
-              <Plus className="size-4" />
-              New Chat
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full justify-start gap-2"
+                  onClick={() => newConversation()}
+                >
+                  <Plus className="size-4" />
+                  New Chat
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="right">Start a new conversation</TooltipContent>
+            </Tooltip>
           </div>
           <Separator />
         </>
@@ -159,6 +186,9 @@ export function LeftSidebar() {
           <ConversationList />
         )}
       </ScrollArea>
+
+      {/* User profile at sidebar bottom — like Claude / ChatGPT */}
+      <UserMenu />
     </div>
   );
 }
