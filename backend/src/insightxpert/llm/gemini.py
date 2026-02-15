@@ -24,12 +24,8 @@ class GeminiProvider:
     def model(self) -> str:
         return self._model
 
-    @property
-    def supports_tools(self) -> bool:
-        return not self._model.startswith("gemma-")
-
     def _convert_tools(self, tools: list[dict] | None) -> list[types.Tool] | None:
-        if not tools or not self.supports_tools:
+        if not tools:
             return None
         declarations = []
         for t in tools:

@@ -28,7 +28,7 @@ import {
 import { useSettingsStore } from "@/stores/settings-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useClientConfig } from "@/hooks/use-client-config";
-import { PROVIDER_LABELS, formatModelName, isProviderModel } from "@/lib/model-utils";
+import { PROVIDER_LABELS, formatModelName } from "@/lib/model-utils";
 
 interface InputToolbarProps {
   onSend: () => void;
@@ -124,9 +124,7 @@ export function InputToolbar({
                 disabled={loading}
               >
                 <span className="truncate">
-                  {isProviderModel(currentModel, currentProvider)
-                    ? `${providerLabel} ${displayModel}`
-                    : displayModel}
+                  {providerLabel} {displayModel}
                 </span>
                 <ChevronDown className="size-3 opacity-50 shrink-0" />
               </button>
