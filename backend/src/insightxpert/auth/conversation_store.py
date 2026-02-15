@@ -2,10 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from datetime import datetime
-from zoneinfo import ZoneInfo
-
-IST = ZoneInfo("Asia/Kolkata")
+from datetime import datetime, timezone
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -108,7 +105,7 @@ class PersistentConversationStore:
                     }
                 raise ValueError("Conversation not owned by user")
 
-            now = datetime.now(IST)
+            now = datetime.now(timezone.utc)
             convo = ConversationRecord(
                 id=conversation_id,
                 user_id=user_id,
@@ -127,7 +124,7 @@ class PersistentConversationStore:
             }
 
     def create_conversation(self, user_id: str, title: str) -> dict:
-        now = datetime.now(IST)
+        now = datetime.now(timezone.utc)
         convo = ConversationRecord(
             id=str(uuid.uuid4()),
             user_id=user_id,
@@ -165,9 +162,9 @@ class PersistentConversationStore:
                 role=role,
                 content=content,
                 chunks_json=chunks_json,
-                created_at=datetime.now(IST),
+                created_at=datetime.now(timezone.utc),
             )
-            convo.updated_at = datetime.now(IST)
+            convo.updated_at = datetime.now(timezone.utc)
             session.add(msg)
             session.commit()
             return msg.id
@@ -267,7 +264,7 @@ class PersistentConversationStore:
             if convo is None or convo.user_id != user_id:
                 return False
             convo.title = title
-            convo.updated_at = datetime.now(IST)
+            convo.updated_at = datetime.now(timezone.utc)
             session.commit()
             return True
 
