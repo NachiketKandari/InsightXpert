@@ -9,7 +9,7 @@ import csv
 import sqlite3
 from pathlib import Path
 
-CSV_PATH = Path(__file__).parent.parent / "upi_transactions_2024.csv"
+CSV_PATH = Path(__file__).parent / "upi_transactions_2024.csv"
 DB_PATH = Path(__file__).parent / "insightxpert.db"
 
 # Map CSV column names → DB column names

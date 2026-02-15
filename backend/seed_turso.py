@@ -24,7 +24,7 @@ from pathlib import Path
 
 from sqlalchemy import create_engine, text
 
-CSV_PATH = Path(__file__).parent.parent / "upi_transactions_2024.csv"
+CSV_PATH = Path(__file__).parent / "upi_transactions_2024.csv"
 
 # Turso connection
 TURSO_URL = os.environ["TURSO_DATABASE_URL"]
