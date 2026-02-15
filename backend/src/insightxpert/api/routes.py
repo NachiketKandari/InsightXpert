@@ -8,7 +8,7 @@ import time
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sse_starlette.sse import EventSourceResponse
 
-from insightxpert.agents.analyst import analyst_loop
+from insightxpert.agents.orchestrator import orchestrator_loop
 from insightxpert.api.models import (
     ChatRequest,
     ConfigResponse,
@@ -99,7 +99,7 @@ async def chat_sse(
 
     async def event_generator():
         actual_cid = ""
-        async for chunk in analyst_loop(
+        async for chunk in orchestrator_loop(
             question=chat_req.message,
             llm=llm,
             db=db,
@@ -107,6 +107,7 @@ async def chat_sse(
             config=settings,
             conversation_id=cid or persistent_cid,
             history=history,
+            agent_mode=chat_req.agent_mode,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -152,7 +153,7 @@ async def chat_poll(
     chunks: list[dict] = []
     final_answer = ""
     poll_executed_sql: list[str] = []
-    async for chunk in analyst_loop(
+    async for chunk in orchestrator_loop(
         question=chat_req.message,
         llm=llm,
         db=db,
@@ -160,6 +161,7 @@ async def chat_poll(
         config=settings,
         conversation_id=cid or persistent_cid,
         history=history,
+        agent_mode=chat_req.agent_mode,
     ):
         chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:

@@ -1,0 +1,22 @@
+{
+  "admin_domains": [
+    "insightxpert.ai"
+  ],
+  "user_org_mappings": [],
+  "organizations": {},
+  "defaults": {
+    "features": {
+      "sql_executor": true,
+      "model_switching": true,
+      "rag_training": true,
+      "chart_rendering": true,
+      "conversation_export": true,
+      "agent_process_sidebar": true
+    },
+    "branding": {
+      "display_name": null,
+      "logo_url": null,
+      "theme": null
+    }
+  }
+}

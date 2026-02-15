@@ -1,5 +1,67 @@
 export type ChartType = "bar" | "pie" | "line" | "grouped-bar" | "none";
 
+/** RTO codes for all 36 Indian states and union territories */
+const STATE_CODES: Record<string, string> = {
+  "andhra pradesh": "AP",
+  "arunachal pradesh": "AR",
+  "assam": "AS",
+  "bihar": "BR",
+  "chhattisgarh": "CG",
+  "goa": "GA",
+  "gujarat": "GJ",
+  "haryana": "HR",
+  "himachal pradesh": "HP",
+  "jharkhand": "JH",
+  "karnataka": "KA",
+  "kerala": "KL",
+  "madhya pradesh": "MP",
+  "maharashtra": "MH",
+  "manipur": "MN",
+  "meghalaya": "ML",
+  "mizoram": "MZ",
+  "nagaland": "NL",
+  "odisha": "OD",
+  "punjab": "PB",
+  "rajasthan": "RJ",
+  "sikkim": "SK",
+  "tamil nadu": "TN",
+  "telangana": "TS",
+  "tripura": "TR",
+  "uttar pradesh": "UP",
+  "uttarakhand": "UK",
+  "west bengal": "WB",
+  "andaman and nicobar islands": "AN",
+  "chandigarh": "CH",
+  "dadra and nagar haveli and daman and diu": "DD",
+  "delhi": "DL",
+  "jammu and kashmir": "JK",
+  "ladakh": "LA",
+  "lakshadweep": "LD",
+  "puducherry": "PY",
+};
+
+/** Return RTO code for a state name, or null if not a state */
+export function getStateCode(name: string): string | null {
+  return STATE_CODES[name.toLowerCase().trim()] ?? null;
+}
+
+/** Abbreviate a value to its RTO code if it's a state name, otherwise return as-is */
+export function abbreviateState(name: string): string {
+  return getStateCode(name) ?? name;
+}
+
+/** Check if the majority of category values are Indian state names */
+export function hasStateCategories(
+  data: Record<string, unknown>[],
+  categoryKey: string,
+): boolean {
+  if (data.length === 0) return false;
+  const matchCount = data.filter(
+    (row) => getStateCode(String(row[categoryKey])) !== null,
+  ).length;
+  return matchCount > data.length / 2;
+}
+
 const TEMPORAL_PATTERNS =
   /\b(date|month|year|day|week|quarter|time|period|created_at|updated_at)\b/i;
 

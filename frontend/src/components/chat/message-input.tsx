@@ -1,9 +1,8 @@
 "use client";
 
 import { useRef, useState, useCallback, type KeyboardEvent } from "react";
-import { ArrowUp, Square } from "lucide-react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { InputToolbar } from "./input-toolbar";
 
 interface MessageInputProps {
   onSend: (message: string) => void;
@@ -34,8 +33,10 @@ export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps)
   );
 
   return (
-    <div className="border-t border-border/50 px-3 sm:px-4 pt-3" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
-      <div className="glass mx-auto flex max-w-2xl items-center gap-2 rounded-2xl px-3 py-1.5">
+    <div className="relative px-3 sm:px-4 pt-4 pb-3" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+      {/* Gradient fade — replaces hard border-t */}
+      <div className="pointer-events-none absolute inset-x-0 -top-6 h-6 bg-gradient-to-t from-background to-transparent" />
+      <div className="glass-input mx-auto flex max-w-2xl flex-col rounded-2xl px-3 py-1.5">
         <Textarea
           ref={textareaRef}
           value={value}
@@ -45,25 +46,12 @@ export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps)
           className="min-h-[36px] max-h-[140px] flex-1 resize-none border-0 bg-transparent px-1 py-1.5 text-sm shadow-none focus-visible:ring-0"
           rows={1}
         />
-        {isStreaming ? (
-          <Button
-            size="icon"
-            variant="ghost"
-            onClick={onStop}
-            className="h-8 w-8 shrink-0 rounded-lg text-destructive hover:bg-destructive/10"
-          >
-            <Square className="h-4 w-4 fill-current" />
-          </Button>
-        ) : (
-          <Button
-            size="icon"
-            onClick={handleSend}
-            disabled={!value.trim()}
-            className="h-8 w-8 shrink-0 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-30"
-          >
-            <ArrowUp className="h-4 w-4" />
-          </Button>
-        )}
+        <InputToolbar
+          onSend={handleSend}
+          onStop={onStop}
+          isStreaming={isStreaming}
+          canSend={!!value.trim()}
+        />
       </div>
     </div>
   );

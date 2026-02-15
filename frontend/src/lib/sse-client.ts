@@ -6,12 +6,15 @@ export interface SSECallbacks {
   onError: (error: Error) => void;
 }
 
-const CHUNK_STAGGER_MS = 150;
+const CHUNK_STAGGER_MS = 16;
+
+export type AgentMode = "auto" | "analyst" | "statistician";
 
 export function createSSEStream(
   message: string,
   conversationId: string | null,
-  callbacks: SSECallbacks
+  callbacks: SSECallbacks,
+  agentMode: AgentMode = "auto"
 ): AbortController {
   const controller = new AbortController();
 
@@ -60,6 +63,7 @@ export function createSSEStream(
         body: JSON.stringify({
           message,
           conversation_id: conversationId,
+          agent_mode: agentMode,
         }),
         signal: controller.signal,
       });

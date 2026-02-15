@@ -87,6 +87,8 @@ class GeminiProvider:
         tool_calls: list[ToolCall] = []
 
         for candidate in response.candidates:
+            if not candidate.content or not candidate.content.parts:
+                continue
             for part in candidate.content.parts:
                 if part.text:
                     content = (content or "") + part.text
@@ -148,6 +150,8 @@ class GeminiProvider:
             tool_calls: list[ToolCall] = []
             text = None
             for candidate in chunk.candidates:
+                if not candidate.content or not candidate.content.parts:
+                    continue
                 for part in candidate.content.parts:
                     if part.text:
                         text = (text or "") + part.text

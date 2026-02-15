@@ -25,7 +25,12 @@ class RunSqlTool(Tool):
                 "sql": {
                     "type": "string",
                     "description": "The SQL query to execute",
-                }
+                },
+                "visualization": {
+                    "type": "string",
+                    "enum": ["bar", "pie", "line", "grouped-bar", "table"],
+                    "description": "Chart type for the results. 'bar' for category comparisons, 'pie' for proportional breakdowns (2-10 categories), 'line' for temporal trends, 'grouped-bar' for cross-tabulations with 2 category dimensions, 'table' when no chart is appropriate.",
+                },
             },
             "required": ["sql"],
         }

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { API_BASE_URL } from "@/lib/constants";
+import type { AgentMode } from "@/lib/sse-client";
 
 interface ProviderModels {
   provider: string;
@@ -11,9 +12,11 @@ interface SettingsState {
   currentModel: string;
   providers: ProviderModels[];
   loading: boolean;
+  agentMode: AgentMode;
 
   fetchConfig: () => Promise<void>;
   switchModel: (provider: string, model: string) => Promise<void>;
+  setAgentMode: (mode: AgentMode) => void;
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
@@ -21,6 +24,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   currentModel: "gemini-2.5-flash",
   providers: [],
   loading: false,
+  agentMode: "analyst",
 
   fetchConfig: async () => {
     try {
@@ -62,4 +66,6 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ currentProvider: prev.provider, currentModel: prev.model });
     }
   },
+
+  setAgentMode: (mode) => set({ agentMode: mode }),
 }));

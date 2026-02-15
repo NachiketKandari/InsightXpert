@@ -19,6 +19,8 @@ class ToolContext:
     db: DatabaseConnector
     rag: VectorStoreBackend
     row_limit: int = 1000
+    analyst_results: list[dict] | None = None
+    analyst_sql: str | None = None
 
 
 class Tool(ABC):

@@ -9,6 +9,7 @@ import { useIsMobile } from "@/hooks/use-media-query";
 import { Header } from "./header";
 import { LeftSidebar } from "./left-sidebar";
 import { RightSidebar } from "./right-sidebar";
+import { SqlExecutor } from "@/components/sql/sql-executor";
 import {
   Sheet,
   SheetContent,
@@ -25,6 +26,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const setRightSidebar = useChatStore((s) => s.setRightSidebar);
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
+  const sqlExecutorOpen = useChatStore((s) => s.sqlExecutorOpen);
+  const setSqlExecutorOpen = useChatStore((s) => s.setSqlExecutorOpen);
   const isMobile = useIsMobile();
   const { isFeatureEnabled } = useClientConfig();
   const showRightSidebar = isFeatureEnabled("agent_process_sidebar");
@@ -127,6 +130,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </AnimatePresence>
         )}
       </div>
+
+      {/* SQL Executor sheet — triggered from input toolbar "+" menu */}
+      <Sheet open={sqlExecutorOpen} onOpenChange={setSqlExecutorOpen}>
+        <SheetContent side="right" className="w-full md:w-[560px] lg:w-[640px] p-0" showCloseButton={false}>
+          <SheetTitle className="sr-only">SQL Executor</SheetTitle>
+          <SqlExecutor onClose={() => setSqlExecutorOpen(false)} />
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

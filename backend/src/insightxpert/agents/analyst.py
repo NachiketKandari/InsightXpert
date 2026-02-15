@@ -213,9 +213,13 @@ async def analyst_loop(
                     "tool_name": tc.name,
                 })
 
+                tool_result_data = {"tool": tc.name, "result": result}
+                if tc.name == "run_sql" and tc.arguments.get("visualization"):
+                    tool_result_data["visualization"] = tc.arguments["visualization"]
+
                 yield ChatChunk(
                     type="tool_result",
-                    data={"tool": tc.name, "result": result},
+                    data=tool_result_data,
                     tool_name=tc.name,
                     conversation_id=cid,
                     timestamp=time.time(),

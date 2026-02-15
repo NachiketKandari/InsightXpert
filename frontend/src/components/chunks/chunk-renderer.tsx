@@ -31,6 +31,7 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
       break;
     case "tool_result": {
       const parsed = parseToolResult(chunk);
+      const suggestedChartType = (chunk.data?.visualization as string) ?? null;
       content = (
         <>
           <ToolResultChunk chunk={chunk} />
@@ -41,7 +42,7 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
               transition={{ duration: 0.3, ease: "easeOut", delay: 0.1 }}
               className="mt-3"
             >
-              <ChartBlock columns={parsed.columns} rows={parsed.rows} />
+              <ChartBlock columns={parsed.columns} rows={parsed.rows} suggestedChartType={suggestedChartType} />
             </motion.div>
           )}
         </>

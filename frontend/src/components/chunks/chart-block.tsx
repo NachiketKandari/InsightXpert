@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/chart";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { detectChartType, getChartConfig, pivotData } from "@/lib/chart-detector";
+import { detectChartType, getChartConfig, pivotData, hasStateCategories, abbreviateState } from "@/lib/chart-detector";
 import { useIsMobile } from "@/hooks/use-media-query";
 
 const CHART_COLORS = [
@@ -36,15 +36,21 @@ const CHART_COLORS = [
   "var(--color-chart-8)",
 ];
 
+const VALID_CHART_TYPES = new Set(["bar", "pie", "line", "grouped-bar", "table"]);
+
 interface ChartBlockProps {
   columns: string[];
   rows: Record<string, unknown>[];
+  suggestedChartType?: string | null;
 }
 
-export function ChartBlock({ columns, rows }: ChartBlockProps) {
+export function ChartBlock({ columns, rows, suggestedChartType }: ChartBlockProps) {
   const isMobile = useIsMobile();
-  const chartType = detectChartType(columns, rows);
-  if (chartType === "none") return null;
+  const chartType =
+    suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
+      ? suggestedChartType
+      : detectChartType(columns, rows);
+  if (chartType === "none" || chartType === "table") return null;
 
   const { categoryKey, valueKey, groupKey } = getChartConfig(columns, rows);
 
@@ -60,6 +66,9 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
     },
   };
 
+  const useStateCodes = hasStateCategories(data, categoryKey);
+  const tickFormatter = useStateCodes ? (v: string) => abbreviateState(v) : undefined;
+
   let chartContent: React.ReactNode;
 
   if (chartType === "grouped-bar" && groupKey) {
@@ -73,6 +82,9 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
       };
     });
 
+    const useStateCodesGrouped = hasStateCategories(pivoted, categoryKey);
+    const groupedTickFormatter = useStateCodesGrouped ? (v: string) => abbreviateState(v) : undefined;
+
     chartContent = (
       <ChartContainer config={groupedConfig} className={`${isMobile ? "h-56" : "h-72"} w-full`}>
         <BarChart data={pivoted}>
@@ -80,6 +92,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
           <XAxis
             dataKey={categoryKey}
             tick={{ fontSize: 11 }}
+            tickFormatter={groupedTickFormatter}
             tickLine={false}
             axisLine={false}
           />
@@ -109,6 +122,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
           <XAxis
             dataKey={categoryKey}
             tick={{ fontSize: 11 }}
+            tickFormatter={tickFormatter}
             tickLine={false}
             axisLine={false}
           />
@@ -141,7 +155,8 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
             outerRadius={isMobile ? 65 : 85}
             label={isMobile ? false : ({ name, value }) => {
               const pct = ((Number(value) / total) * 100).toFixed(1);
-              return `${name} (${pct}%)`;
+              const label = useStateCodes ? abbreviateState(String(name)) : name;
+              return `${label} (${pct}%)`;
             }}
             labelLine={isMobile ? false : { strokeWidth: 1 }}
           >
@@ -169,6 +184,7 @@ export function ChartBlock({ columns, rows }: ChartBlockProps) {
           <XAxis
             dataKey={categoryKey}
             tick={{ fontSize: 11 }}
+            tickFormatter={tickFormatter}
             tickLine={false}
             axisLine={false}
           />

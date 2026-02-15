@@ -29,6 +29,8 @@ class Settings(BaseSettings):
 
     # Agent
     max_agent_iterations: int = 10
+    max_statistician_iterations: int = 5
+    python_exec_timeout_seconds: int = 10
     sql_row_limit: int = 1000
     sql_timeout_seconds: int = 30
 

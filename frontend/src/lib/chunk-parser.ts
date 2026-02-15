@@ -43,6 +43,14 @@ export function parseToolResult(chunk: ChatChunk): ToolResultData | null {
         const columns = Object.keys(parsed.rows[0]);
         return { columns, rows: parsed.rows, rowCount: parsed.row_count || parsed.rows.length };
       }
+
+      // Flat key-value object (e.g. descriptive stats, correlation results)
+      // Convert to a 2-column table when there are enough fields
+      const keys = Object.keys(parsed);
+      if (keys.length >= 3 && keys.every((k) => !Array.isArray(parsed[k]) && typeof parsed[k] !== "object")) {
+        const rows = keys.map((k) => ({ Metric: k, Value: parsed[k] }));
+        return { columns: ["Metric", "Value"], rows, rowCount: rows.length };
+      }
     }
   } catch {
     // result might not be JSON (e.g., plain text error)

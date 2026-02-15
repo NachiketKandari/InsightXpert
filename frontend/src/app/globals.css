@@ -160,6 +160,23 @@
   border-color: oklch(1 0 0 / 0.06);
 }
 
+/* Elevated glass for the chat input — ambient glow draws attention */
+.glass-input {
+  background: oklch(0.985 0.003 75 / 0.8);
+  backdrop-filter: blur(16px);
+  border: 1px solid oklch(0.45 0.12 230 / 0.12);
+  box-shadow:
+    0 -1px 3px oklch(0.45 0.12 230 / 0.04),
+    0 0 20px oklch(0.45 0.12 230 / 0.06);
+}
+.dark .glass-input {
+  background: oklch(0.13 0.018 260 / 0.7);
+  border-color: oklch(0.70 0.12 230 / 0.15);
+  box-shadow:
+    0 -1px 3px oklch(0.70 0.12 230 / 0.06),
+    0 0 24px oklch(0.70 0.12 230 / 0.08);
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

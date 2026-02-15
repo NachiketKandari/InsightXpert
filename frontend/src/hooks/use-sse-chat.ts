@@ -2,7 +2,7 @@
 
 import { useCallback, useRef } from "react";
 import { useChatStore } from "@/stores/chat-store";
-import { createSSEStream } from "@/lib/sse-client";
+import { createSSEStream, type AgentMode } from "@/lib/sse-client";
 import { parseChunk } from "@/lib/chunk-parser";
 import type { AgentStep } from "@/types/chat";
 
@@ -27,7 +27,7 @@ export function useSSEChat() {
   } = useChatStore();
 
   const sendMessage = useCallback(
-    (message: string) => {
+    (message: string, agentMode: AgentMode = "auto") => {
       if (isStreaming) return;
 
       let convId = activeConversationId;
@@ -173,7 +173,7 @@ export function useSSEChat() {
           });
           finishStreaming();
         },
-      });
+      }, agentMode);
 
       abortRef.current = controller;
     },

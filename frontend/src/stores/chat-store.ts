@@ -18,6 +18,7 @@ interface ChatState {
   agentSteps: AgentStep[];
   leftSidebarOpen: boolean;
   rightSidebarOpen: boolean;
+  sqlExecutorOpen: boolean;
 
   // Derived
   activeConversation: () => Conversation | null;
@@ -43,6 +44,7 @@ interface ChatState {
   toggleRightSidebar: () => void;
   setLeftSidebar: (open: boolean) => void;
   setRightSidebar: (open: boolean) => void;
+  setSqlExecutorOpen: (open: boolean) => void;
 }
 
 const getInitialSidebarState = () => {
@@ -56,6 +58,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   agentSteps: [],
   leftSidebarOpen: getInitialSidebarState(),
   rightSidebarOpen: getInitialSidebarState(),
+  sqlExecutorOpen: false,
 
   activeConversation: () => {
     const { conversations, activeConversationId } = get();
@@ -279,5 +282,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setRightSidebar: (open) => {
     set({ rightSidebarOpen: open });
+  },
+
+  setSqlExecutorOpen: (open) => {
+    set({ sqlExecutorOpen: open });
   },
 }));

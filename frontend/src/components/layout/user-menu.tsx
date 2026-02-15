@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogOut, EllipsisVertical, Activity, TerminalSquare, Sun, Moon, Settings } from "lucide-react";
+import { LogOut, EllipsisVertical, Activity, Sun, Moon, Settings } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { useChatStore } from "@/stores/chat-store";
@@ -36,11 +36,7 @@ function getDisplayName(email: string): string {
     .join(" ");
 }
 
-interface UserMenuProps {
-  onOpenSqlExecutor?: () => void;
-}
-
-export function UserMenu({ onOpenSqlExecutor }: UserMenuProps) {
+export function UserMenu() {
   const { user, logout } = useAuthStore();
   const { isAdmin } = useClientConfig();
   const router = useRouter();
@@ -87,12 +83,6 @@ export function UserMenu({ onOpenSqlExecutor }: UserMenuProps) {
                 <Activity className="size-4" />
                 Agent Process
               </DropdownMenuItem>
-              {onOpenSqlExecutor && (
-                <DropdownMenuItem onClick={onOpenSqlExecutor}>
-                  <TerminalSquare className="size-4" />
-                  SQL Executor
-                </DropdownMenuItem>
-              )}
               <DropdownMenuSeparator />
             </>
           )}

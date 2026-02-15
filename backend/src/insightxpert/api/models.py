@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
+    agent_mode: Literal["auto", "analyst", "statistician"] = "auto"
 
 
 class ChatChunk(BaseModel):
