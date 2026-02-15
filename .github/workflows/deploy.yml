@@ -52,15 +52,7 @@ jobs:
             --cpu 1 \
             --timeout 300 \
             --cpu-boost \
-            --set-env-vars "\
-              LLM_PROVIDER=gemini,\
-              GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }},\
-              GEMINI_MODEL=${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }},\
-              DATABASE_URL=sqlite:///./insightxpert.db,\
-              CHROMA_PERSIST_DIR=./chroma_data,\
-              CORS_ORIGINS=${{ vars.CORS_ORIGINS || 'https://insightxpert-ai.web.app,https://insightxpert.vercel.app' }},\
-              LOG_LEVEL=INFO,\
-              SECRET_KEY=${{ secrets.SECRET_KEY }}"
+            --set-env-vars "^||^LLM_PROVIDER=gemini||GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}||GEMINI_MODEL=${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}||DATABASE_URL=sqlite:///./insightxpert.db||CHROMA_PERSIST_DIR=./chroma_data||CORS_ORIGINS=${{ vars.CORS_ORIGINS || 'https://insightxpert-ai.web.app,https://insightxpert.vercel.app' }}||LOG_LEVEL=INFO||SECRET_KEY=${{ secrets.SECRET_KEY }}"
 
   # ── Frontend: Build & deploy to Firebase Hosting ──────────────────────
   deploy-frontend:
