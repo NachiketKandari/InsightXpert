@@ -7,6 +7,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from pathlib import Path
+
+from insightxpert.admin.config_store import read_config, write_config
+from insightxpert.admin.routes import router as admin_router
 from insightxpert.api.routes import router
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.models import Base as AuthBase
@@ -88,6 +92,15 @@ async def lifespan(app: FastAPI):
     app.state.auth_engine = auth_engine
     app.state.persistent_conv_store = persistent_conv_store
 
+    # Admin config (JSON file)
+    config_path = Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    if not config_path.exists():
+        write_config(config_path, read_config(config_path))
+        logger.info("Default admin config created: %s", config_path)
+    app.state.config_path = config_path
+    logger.info("Admin config loaded: %s", config_path)
+
     logger.info("InsightXpert ready — http://0.0.0.0:8000")
     yield
 
@@ -108,6 +121,7 @@ app.add_middleware(
 
 app.include_router(router)
 app.include_router(auth_router)
+app.include_router(admin_router)
 
 if __name__ == "__main__":
     import uvicorn

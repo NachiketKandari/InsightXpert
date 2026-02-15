@@ -14,6 +14,7 @@ import {
   SheetContent,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { useClientConfig } from "@/hooks/use-client-config";
 
 const sidebarTransition = { duration: 0.2, ease: "easeInOut" } as const;
 
@@ -25,6 +26,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
   const isMobile = useIsMobile();
+  const { isFeatureEnabled } = useClientConfig();
+  const showRightSidebar = isFeatureEnabled("agent_process_sidebar");
 
   // Desktop: both sidebars open by default; Mobile: both collapsed
   useEffect(() => {
@@ -51,12 +54,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </SheetContent>
             </Sheet>
 
-            <Sheet open={rightOpen} onOpenChange={setRightSidebar}>
-              <SheetContent side="right" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
-                <SheetTitle className="sr-only">Agent Process</SheetTitle>
-                <RightSidebar />
-              </SheetContent>
-            </Sheet>
+            {showRightSidebar && (
+              <Sheet open={rightOpen} onOpenChange={setRightSidebar}>
+                <SheetContent side="right" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
+                  <SheetTitle className="sr-only">Agent Process</SheetTitle>
+                  <RightSidebar />
+                </SheetContent>
+              </Sheet>
+            )}
           </>
         ) : (
           <AnimatePresence initial={false}>
@@ -90,7 +95,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           )}
 
           {/* Floating button to re-open right sidebar when closed */}
-          {!isMobile && !rightOpen && (
+          {showRightSidebar && !isMobile && !rightOpen && (
             <Button
               variant="ghost"
               size="icon"
@@ -105,7 +110,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
 
-        {!isMobile && (
+        {showRightSidebar && !isMobile && (
           <AnimatePresence initial={false}>
             {rightOpen && (
               <motion.aside

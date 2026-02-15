@@ -14,12 +14,16 @@ import { ModelSelector } from "./model-selector";
 import { UserMenu } from "./user-menu";
 import { useChatStore } from "@/stores/chat-store";
 import { useIsMobile } from "@/hooks/use-media-query";
+import { useClientConfig } from "@/hooks/use-client-config";
 
 export function Header() {
   const [sqlOpen, setSqlOpen] = useState(false);
   const isMobile = useIsMobile();
+  const { isFeatureEnabled } = useClientConfig();
   const leftOpen = useChatStore((s) => s.leftSidebarOpen);
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
+  const showSqlExecutor = isFeatureEnabled("sql_executor");
+  const showModelSwitching = isFeatureEnabled("model_switching");
 
   return (
     <>
@@ -57,10 +61,10 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-1 md:gap-2">
-          <ModelSelector />
+          {showModelSwitching && <ModelSelector />}
 
           {/* SQL Executor button - desktop only, moved to user menu on mobile */}
-          {!isMobile && (
+          {showSqlExecutor && !isMobile && (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -76,7 +80,7 @@ export function Header() {
             </Tooltip>
           )}
 
-          <UserMenu onOpenSqlExecutor={() => setSqlOpen(true)} />
+          <UserMenu onOpenSqlExecutor={showSqlExecutor ? () => setSqlOpen(true) : undefined} />
         </div>
       </header>
 

@@ -23,6 +23,7 @@ def seed_admin(engine) -> None:
         user = User(
             email=ADMIN_EMAIL,
             hashed_password=hash_password(ADMIN_PASSWORD),
+            is_admin=True,
         )
         session.add(user)
         session.commit()

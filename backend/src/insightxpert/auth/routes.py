@@ -49,7 +49,7 @@ async def login(
     )
 
     logger.info("User logged in: %s", user.email)
-    return UserResponse(id=user.id, email=user.email)
+    return UserResponse(id=user.id, email=user.email, is_admin=user.is_admin)
 
 
 @router.post("/logout")
@@ -61,4 +61,4 @@ async def logout(request: Request, response: Response):
 
 @router.get("/me", response_model=UserResponse)
 async def me(user: User = Depends(get_current_user)):
-    return UserResponse(id=user.id, email=user.email)
+    return UserResponse(id=user.id, email=user.email, is_admin=user.is_admin)

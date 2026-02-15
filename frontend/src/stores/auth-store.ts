@@ -4,6 +4,7 @@ import { apiFetch } from "@/lib/api";
 interface AuthUser {
   id: string;
   email: string;
+  is_admin: boolean;
 }
 
 interface AuthState {
@@ -36,7 +37,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
       const data = await res.json();
-      set({ user: { id: data.id, email: data.email }, isLoading: false });
+      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, isLoading: false });
     } catch {
       set({ error: "Network error. Please try again.", isLoading: false });
     }
@@ -60,7 +61,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
       const data = await res.json();
-      set({ user: { id: data.id, email: data.email }, isLoading: false });
+      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, isLoading: false });
     } catch {
       set({ user: null, isLoading: false });
     }

@@ -1,8 +1,10 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LogOut, EllipsisVertical, Activity, TerminalSquare, Sun, Moon } from "lucide-react";
+import Link from "next/link";
+import { LogOut, EllipsisVertical, Activity, TerminalSquare, Sun, Moon, Settings } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
+import { useClientConfig } from "@/hooks/use-client-config";
 import { useChatStore } from "@/stores/chat-store";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { useTheme } from "@/hooks/use-theme";
@@ -40,6 +42,7 @@ interface UserMenuProps {
 
 export function UserMenu({ onOpenSqlExecutor }: UserMenuProps) {
   const { user, logout } = useAuthStore();
+  const { isAdmin } = useClientConfig();
   const router = useRouter();
   const isMobile = useIsMobile();
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
@@ -92,6 +95,14 @@ export function UserMenu({ onOpenSqlExecutor }: UserMenuProps) {
               )}
               <DropdownMenuSeparator />
             </>
+          )}
+          {isAdmin && (
+            <DropdownMenuItem asChild>
+              <Link href="/admin">
+                <Settings className="size-4" />
+                Admin Panel
+              </Link>
+            </DropdownMenuItem>
           )}
           <DropdownMenuItem onClick={toggleTheme}>
             {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
