@@ -11,7 +11,7 @@ class LLMProvider(str, Enum):
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env.local", env_file_encoding="utf-8")
+    model_config = SettingsConfigDict(env_file=".env.local", env_file_encoding="utf-8", extra="ignore")
 
     # LLM
     llm_provider: LLMProvider = LLMProvider.GEMINI
