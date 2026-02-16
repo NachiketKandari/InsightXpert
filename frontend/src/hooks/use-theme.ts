@@ -1,19 +1,30 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 
 type Theme = "light" | "dark";
 
-export function useTheme() {
-  const [theme, setTheme] = useState<Theme>("dark");
+function getThemeSnapshot(): Theme {
+  if (typeof window === "undefined") return "dark";
+  const stored = localStorage.getItem("theme");
+  return stored === "light" ? "light" : "dark";
+}
 
-  useEffect(() => {
-    const stored = localStorage.getItem("theme") as Theme | null;
-    setTheme(stored === "light" ? "light" : "dark");
-  }, []);
+function getServerSnapshot(): Theme {
+  return "dark";
+}
+
+function subscribeTheme(callback: () => void) {
+  window.addEventListener("storage", callback);
+  return () => window.removeEventListener("storage", callback);
+}
+
+export function useTheme() {
+  const theme = useSyncExternalStore(subscribeTheme, getThemeSnapshot, getServerSnapshot);
 
   const toggle = () => {
     const next: Theme = theme === "dark" ? "light" : "dark";
-    setTheme(next);
     localStorage.setItem("theme", next);
+    // Dispatch a storage event so useSyncExternalStore picks up the change
+    window.dispatchEvent(new StorageEvent("storage", { key: "theme" }));
 
     if (next === "dark") {
       document.documentElement.classList.add("dark");
