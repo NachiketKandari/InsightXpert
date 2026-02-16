@@ -11,8 +11,10 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies
 RUN uv sync --frozen --no-dev
 
-# Copy application source
+# Copy application source and Alembic migrations
 COPY src/ src/
+COPY alembic.ini alembic.ini
+COPY alembic/ alembic/
 
 # Load real CSV data into SQLite and clean up
 COPY generate_data.py upi_transactions_2024.csv ./
