@@ -62,6 +62,23 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     cid = chat_req.conversation_id or ""
     history = conv_store.get_history(cid)
 
+    # If in-memory history is empty but the conversation exists in the
+    # persistent store, hydrate from the database so the LLM has context
+    # from prior turns (e.g. after server restart or TTL expiry).
+    if not history and cid:
+        try:
+            convo_data = persistent_store.get_conversation(cid, user.id)
+            if convo_data and convo_data.get("messages"):
+                for m in convo_data["messages"]:
+                    if m["role"] == "user":
+                        conv_store.add_user_message(cid, m["content"])
+                    elif m["role"] == "assistant":
+                        conv_store.add_assistant_message(cid, m["content"])
+                history = conv_store.get_history(cid)
+                logger.info("Hydrated %d history messages from persistent store for %s", len(history), cid)
+        except Exception as e:
+            logger.warning("Failed to hydrate history from persistent store: %s", e)
+
     if cid:
         conv_store.add_user_message(cid, chat_req.message)
 
@@ -117,7 +134,9 @@ async def chat_sse(
             if chunk.type == "answer" and chunk.content:
                 final_answer.append(chunk.content)
             yield {"data": chunk_json}
-        yield {"data": "[DONE]"}
+
+        # Persist BEFORE yielding [DONE] so that data is saved even if the
+        # client disconnects immediately after receiving the sentinel.
 
         # Save assistant answer to in-memory conversation memory
         store_cid = cid or actual_cid
@@ -137,6 +156,8 @@ async def chat_sse(
                 )
             except Exception as e:
                 logger.warning("Failed to persist assistant message: %s", e)
+
+        yield {"data": "[DONE]"}
 
     return EventSourceResponse(event_generator())
 
