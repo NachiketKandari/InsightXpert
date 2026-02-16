@@ -20,9 +20,9 @@ Non-technical leadership at Indian fintech companies need to ask questions like:
 
 ---
 
-## 2. Current State (as of Feb 14)
+## 2. Current State (as of Feb 17)
 
-The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational. Three design patterns (LLM Factory, Tool ABC + Registry, VectorStore Protocol) formalize the extension points. Error handling wraps all LLM calls with proper error surfacing. Conversation persistence correctly bridges frontend-generated IDs with backend storage via `get_or_create_conversation`. Message action buttons (copy, thumbs up/down, retry) and a feedback endpoint are implemented. Security hardened: SQL executor enforces read-only at the SQLite engine level (`PRAGMA query_only`), tool errors return sanitized messages (no tracebacks), LLM provider switch validates before mutating settings and rolls back on failure, feedback rating constrained to `Literal["up", "down"]`. System prompt extracted into Jinja2 template. `LLMProvider` protocol includes a `model` property. VectorStore implementations verified against the protocol at import time. Conversation list query optimized (N+1 eliminated).
+The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational. Three design patterns (LLM Factory, Tool ABC + Registry, VectorStore Protocol) formalize the extension points. Error handling wraps all LLM calls with proper error surfacing. Conversation persistence correctly bridges frontend-generated IDs with backend storage via `get_or_create_conversation`. Message action buttons (copy, thumbs up/down, retry) and a feedback endpoint are implemented. Security hardened: SQL executor enforces read-only at the SQLite engine level (`PRAGMA query_only`), tool errors return sanitized messages (no tracebacks), LLM provider switch validates before mutating settings and rolls back on failure, feedback rating constrained to `Literal["up", "down"]`. System prompt extracted into Jinja2 template. `LLMProvider` protocol includes a `model` property. VectorStore implementations verified against the protocol at import time. Conversation list query optimized (N+1 eliminated). Admin system implemented with multi-tenant feature toggles, org branding, and user-org mappings. Statistical analysis tools implemented (descriptive stats, hypothesis testing, correlation, distribution fitting). Statistician system prompt template created. Frontend admin panel with feature toggle, branding, and user mapping editors. Fourth Zustand store (client-config) manages org-level feature flags and branding. Conversation search implemented. Theme toggle (dark/light) with localStorage sync. Cloud Run deployment with min-instances=1 to eliminate cold starts.
 
 ### Implemented
 - **Analyst agent** (`agents/analyst.py`) — Full tool-calling loop: RAG retrieval -> LLM -> tool execution (run_sql, get_schema, search_similar) -> streaming response
@@ -57,6 +57,16 @@ The from-scratch engine has replaced Vanna and is fully ported. The single-agent
 - **Jinja2 prompt templates** — System prompt extracted into `prompts/analyst_system.j2` with conditional RAG sections; rendered via `prompts.render()`
 - **Security hardening** — Tool errors sanitized (no tracebacks), SQL executor uses engine-level `PRAGMA query_only`, LLM switch validates before mutating settings with rollback, feedback rating typed as `Literal["up", "down"]`
 - **Chat route deduplication** — Shared `_prepare_chat()` helper eliminates duplicated setup logic between SSE and poll endpoints
+- **Admin system** (`admin/`) — Multi-tenant configuration with feature toggles (6 switches: sql_executor, model_switching, rag_training, chart_rendering, conversation_export, agent_process_sidebar), org branding (display name, logo URL, CSS theme overrides), user-org email mappings, admin email domains. JSON config stored on disk. Admin-only CRUD endpoints + public `/api/client-config` for resolved user config
+- **Statistical tools** (`agents/stat_tools.py`) — 4 tools for the statistician agent: `compute_descriptive_stats` (count, mean, std, quartiles, skewness, kurtosis), `test_hypothesis` (chi-squared, t-test, Mann-Whitney, ANOVA, z-proportion), `compute_correlation` (Pearson, Spearman, Kendall with p-values), `fit_distribution` (normal, exponential, lognormal, gamma, Weibull ranking by KS-test)
+- **Statistician system prompt** (`prompts/statistician_system.j2`) — Statistical rigor rules: always state hypotheses, report p-values + effect sizes + CIs, check sample size (n<30 → non-parametric), Bonferroni correction for multiple comparisons, correlation != causation
+- **Frontend admin panel** (`app/admin/`) — Admin page with guards, feature toggle switches, branding editor (display name, logo preview, theme colors), user-org mapping table, admin domain list
+- **Client config store** (`stores/client-config-store.ts`) — 4th Zustand store: fetches org config, applies branding CSS variables, sets document title, provides `isFeatureEnabled()` helper
+- **Conversation search** — Full-text search across conversation titles and messages via `GET /api/conversations/search?q=`
+- **Theme toggle** — Dark/light mode with localStorage persistence, storage event sync across tabs, `.dark` class on `<html>`
+- **Input toolbar** (`components/chat/input-toolbar.tsx`) — Send/stop button, model selector dropdown, agent mode toggle
+- **Search results** (`components/sidebar/search-results.tsx`) — Highlighted matched text in conversation titles and messages
+- **Cloud Run scaling** — Min-instances 1, max-instances 3 to eliminate cold starts; CPU boost enabled
 
 ### Not Yet Implemented (stubs or planned)
 - **Orchestrator** (`agents/orchestrator.py`) — 6-line stub, no multi-agent routing
@@ -391,7 +401,7 @@ Protected Route Flow:
 | Next.js | 16.1.6 | React framework (App Router) |
 | React | 19.2.3 | UI library |
 | TypeScript | 5.x | Type safety |
-| Zustand | 5.0.11 | State management (3 stores) |
+| Zustand | 5.0.11 | State management (4 stores) |
 | Tailwind CSS | 4 | Utility-first styling |
 | shadcn/ui | New York | Component library (Radix primitives) |
 | Framer Motion | 12.34.0 | Layout animations |
@@ -435,7 +445,7 @@ Three-column responsive layout:
 - **Right sidebar:** Real-time agent process steps timeline. Shows each step's status (pending/running/done/error)
 - **Chat panel:** Message list with auto-scroll, chunk-by-chunk rendering, message input with suggested questions on welcome
 
-### 7.3 State Management (3 Zustand Stores)
+### 7.3 State Management (4 Zustand Stores)
 
 **`stores/auth-store.ts`**
 ```
@@ -455,9 +465,18 @@ Persistence: Fetches from /api/conversations on init, CRUD via REST API,
 
 **`stores/settings-store.ts`**
 ```
-State: currentProvider, currentModel, providers[], loading
-Actions: fetchConfig() [GET /api/config], switchModel(provider, model) [POST /api/config/switch]
+State: currentProvider, currentModel, providers[], loading, agentMode
+Actions: fetchConfig() [GET /api/config], switchModel(provider, model) [POST /api/config/switch],
+         setAgentMode()
          Optimistic updates with rollback on failure
+```
+
+**`stores/client-config-store.ts`**
+```
+State: config (OrgConfig | null), isAdmin, orgId, isLoading
+Actions: fetchConfig() [GET /api/client-config]
+         Applies branding CSS variables on fetch, sets document title
+         Provides isFeatureEnabled() helper for conditional UI rendering
 ```
 
 ### 7.4 SSE Streaming
@@ -520,6 +539,7 @@ Breadcrumb-style selector in the header: `[Provider v] / [Model v]`
 |-------|-----------|---------------|
 | `/` | `AppShell` > `ChatPanel` | Yes (AuthGuard) |
 | `/login` | Login form | No |
+| `/admin` | Admin panel (feature toggles, branding, user mappings) | Yes (AdminGuard) |
 
 `AuthGuard` calls `checkAuth()` on mount, shows loading spinner while verifying, redirects to `/login` if session is invalid.
 
@@ -672,6 +692,14 @@ Assistant Answer
 | PATCH | `/api/conversations/{id}` | Yes | `{title}` | `{status: ok}` | Rename conversation |
 | POST | `/api/feedback` | Yes | `{conversation_id, message_id, rating, comment?}` | `{status: ok}` | Submit feedback |
 | GET | `/api/health` | No | — | `{status: "ok", timestamp}` | Health check |
+| GET | `/api/client-config` | Yes | — | `ResolvedClientConfig` | Get resolved org config (features, branding) |
+| GET | `/api/admin/config` | Admin | — | `ClientConfig` | Get full admin config |
+| PUT | `/api/admin/config` | Admin | `{admin_domains?, user_org_mappings?, defaults?}` | `ClientConfig` | Update global config |
+| GET | `/api/admin/organizations` | Admin | — | `{organizations: [...]}` | List organizations |
+| GET | `/api/admin/config/{org_id}` | Admin | — | `OrgConfig` | Get org config |
+| PUT | `/api/admin/config/{org_id}` | Admin | `OrgConfig` | `OrgConfig` | Upsert org config |
+| DELETE | `/api/admin/config/{org_id}` | Admin | — | `{status: ok}` | Delete org config |
+| GET | `/api/conversations/search` | Yes | `?q=term` | `ConversationSummary[]` | Full-text search conversations |
 
 **ChatChunk types:** `status`, `sql`, `tool_call`, `tool_result`, `answer`, `error`
 
@@ -926,14 +954,16 @@ InsightXpert/
 |   |   |   +-- analyst.py                # [DONE] Full agent loop (RAG + LLM + ToolRegistry + error recovery)
 |   |   |   +-- tool_base.py             # [DONE] Tool ABC, ToolContext (typed via TYPE_CHECKING), ToolRegistry
 |   |   |   +-- tools.py                  # [DONE] RunSqlTool, GetSchemaTool, SearchSimilarTool + default_registry()
+|   |   |   +-- stat_tools.py             # [DONE] Statistical tools (descriptive, hypothesis, correlation, distribution)
 |   |   |   +-- orchestrator.py           # [STUB] (6 lines, no routing logic)
-|   |   |   +-- statistician.py           # [PLANNED] Pure Python stats/comparisons
+|   |   |   +-- statistician.py           # [PLANNED] Statistician agent integration
 |   |   |   +-- narrator.py               # [PLANNED] LLM-powered narrator
 |   |   |   +-- anomaly_detector.py       # [PLANNED] Background scan
 |   |   |
 |   |   +-- prompts/
 |   |   |   +-- __init__.py               # [DONE] Jinja2 template loader (render function, autoescape=False)
 |   |   |   +-- analyst_system.j2         # [DONE] Analyst system prompt template (DDL, docs, rules, RAG context)
+|   |   |   +-- statistician_system.j2    # [DONE] Statistician prompt (hypothesis testing, effect sizes, CIs)
 |   |   |
 |   |   +-- llm/
 |   |   |   +-- __init__.py               # [DONE] Exports LLMProvider, LLMResponse, LLMChunk, ToolCall, create_llm
@@ -954,6 +984,11 @@ InsightXpert/
 |   |   |
 |   |   +-- memory/
 |   |   |   +-- conversation_store.py     # [DONE] In-memory LRU + TTL conversation history
+|   |   |
+|   |   +-- admin/
+|   |   |   +-- routes.py                 # [DONE] Admin endpoints (org config CRUD, client-config)
+|   |   |   +-- config_store.py           # [DONE] JSON config file management (read/write/upsert/delete)
+|   |   |   +-- models.py                 # [DONE] FeatureToggles, OrgConfig, OrgBranding, ClientConfig, ResolvedClientConfig
 |   |   |
 |   |   +-- observability/
 |   |   |   +-- tracer.py                 # [STUB] Empty
@@ -981,9 +1016,12 @@ InsightXpert/
         +-- app/
         |   +-- layout.tsx                # [DONE] Root layout (fonts, TooltipProvider)
         |   +-- page.tsx                  # [DONE] Home page (AuthGuard + AppShell + ChatPanel)
+        |   +-- globals.css               # [DONE] Tailwind 4 + OKLch theme + glass utility
         |   +-- login/
         |   |   +-- page.tsx              # [DONE] Login form
-        |   +-- globals.css               # [DONE] Tailwind 4 + OKLch theme + glass utility
+        |   +-- admin/
+        |   |   +-- layout.tsx            # [DONE] Admin layout with admin guard
+        |   |   +-- page.tsx              # [DONE] Admin panel (feature toggles, branding, user mappings)
         |
         +-- components/
         |   +-- auth/
@@ -1019,19 +1057,28 @@ InsightXpert/
         |   +-- sidebar/
         |   |   +-- conversation-item.tsx # [DONE] Single conversation (rename/delete)
         |   |   +-- conversation-list.tsx # [DONE] Conversation list
+        |   |   +-- search-results.tsx    # [DONE] Search result highlighting
         |   |   +-- process-steps.tsx     # [DONE] Agent step timeline
         |   |   +-- step-item.tsx         # [DONE] Single step indicator
         |   |
         |   +-- sql/
         |   |   +-- sql-executor.tsx      # [DONE] SQL editor + execution panel
         |   |
-        |   +-- ui/                       # [DONE] 14 shadcn/Radix components
+        |   +-- admin/
+        |   |   +-- feature-toggles.tsx   # [DONE] 6 feature toggle switches
+        |   |   +-- branding-editor.tsx   # [DONE] Display name, logo URL, theme CSS vars
+        |   |   +-- user-org-mappings.tsx # [DONE] Email-to-org mapping table
+        |   |   +-- admin-domain-editor.tsx # [DONE] Admin email domain list
+        |   |
+        |   +-- ui/                       # [DONE] 14+ shadcn/Radix components
         |       +-- avatar, badge, button, card, chart, collapsible,
         |       +-- dropdown-menu, input, scroll-area, separator,
         |       +-- sheet, skeleton, textarea, tooltip
         |
         +-- hooks/
         |   +-- use-sse-chat.ts           # [DONE] SSE streaming + agent step tracking
+        |   +-- use-client-config.ts      # [DONE] Org config + feature flags access
+        |   +-- use-theme.ts              # [DONE] Dark/light mode toggle
         |   +-- use-auto-scroll.ts        # [DONE] Auto-scroll to bottom
         |   +-- use-media-query.ts        # [DONE] Responsive breakpoint detection
         |
@@ -1047,9 +1094,11 @@ InsightXpert/
         |   +-- auth-store.ts             # [DONE] Zustand auth state (login/logout/check)
         |   +-- chat-store.ts             # [DONE] Zustand chat state (messages, steps, sidebar)
         |   +-- settings-store.ts         # [DONE] Zustand settings (provider/model selection)
+        |   +-- client-config-store.ts    # [DONE] Zustand org config (features, branding)
         |
         +-- types/
             +-- chat.ts                   # [DONE] ChatChunk, Message, Conversation, AgentStep
+            +-- admin.ts                  # [DONE] FeatureToggles, OrgConfig, OrgBranding
 ```
 
 ### Dependencies
@@ -1123,7 +1172,14 @@ Dev: pytest >=8.0, pytest-asyncio >=0.24, httpx >=0.27
 | Frontend Model Selector | [DONE] | `components/layout/model-selector.tsx`, `settings-store.ts` |
 | Frontend SQL Executor | [DONE] | `components/sql/sql-executor.tsx` |
 | SSE Client | [DONE] | `hooks/use-sse-chat.ts` |
-| State Management | [DONE] | `stores/` (3 stores: auth, chat, settings) |
+| State Management | [DONE] | `stores/` (4 stores: auth, chat, settings, client-config) |
+| Admin System (backend) | [DONE] | `admin/routes.py`, `admin/config_store.py`, `admin/models.py` |
+| Admin Panel (frontend) | [DONE] | `app/admin/`, `components/admin/` (4 components) |
+| Client Config Store | [DONE] | `stores/client-config-store.ts` |
+| Statistical Tools | [DONE] | `agents/stat_tools.py` (4 tools) |
+| Statistician Prompt | [DONE] | `prompts/statistician_system.j2` |
+| Conversation Search | [DONE] | `components/sidebar/search-results.tsx`, API endpoint |
+| Theme Toggle | [DONE] | `hooks/use-theme.ts` |
 | Orchestrator | [STUB] | `agents/orchestrator.py` (6 lines) |
 | Statistician Agent | [PLANNED] | — |
 | Narrator Agent | [PLANNED] | — |

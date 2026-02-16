@@ -84,35 +84,48 @@ User Question (natural language)
 ```
 InsightXpert/
 ├── ARCHITECTURE.md              # Technical blueprint & design decisions
+├── WALKTHROUGH.md               # Consolidated project walkthrough (flight reading)
+├── DEPLOY.md                    # Deployment guide (Firebase + Cloud Run)
 ├── CLAUDE.md                    # AI assistant instructions
 ├── README.md
 ├── .env.example
+├── firebase.json                # Firebase Hosting config (API rewrite to Cloud Run)
 ├── prd/                         # Problem statement & question bank
 ├── postman/                     # API collection
 │
+├── .github/workflows/
+│   ├── deploy.yml               # Production CI/CD (push to main)
+│   └── preview.yml              # PR preview CI/CD
+│
 ├── backend/
 │   ├── pyproject.toml           # Python 3.11+, hatchling build
+│   ├── Dockerfile               # Cloud Run container
 │   ├── generate_data.py         # 250K transaction generator (seed=42)
+│   ├── seed_turso.py            # Cloud Turso DB seeder
 │   ├── insightxpert.db          # SQLite DB (80MB, 250K rows)
+│   ├── insightxpert_auth.db     # SQLite auth + conversations DB
 │   ├── chroma_data/             # ChromaDB persistent store
+│   ├── config/client-configs.json  # Admin configuration
 │   │
 │   ├── src/insightxpert/
 │   │   ├── main.py              # FastAPI app + async lifespan
 │   │   ├── config.py            # Pydantic Settings (LLM, DB, limits)
 │   │   │
 │   │   ├── api/
-│   │   │   ├── routes.py        # /chat (SSE), /chat/poll, /train, /schema, /health, /feedback
+│   │   │   ├── routes.py        # /chat (SSE), /chat/poll, /train, /schema, /health, /feedback, /config, /sql
 │   │   │   └── models.py        # ChatRequest, ChatChunk, FeedbackRequest, etc.
 │   │   │
 │   │   ├── agents/
 │   │   │   ├── analyst.py       # Core agent loop (RAG + LLM + tools, error recovery)
 │   │   │   ├── tool_base.py     # Tool ABC, ToolContext, ToolRegistry
 │   │   │   ├── tools.py         # RunSqlTool, GetSchemaTool, SearchSimilarTool
+│   │   │   ├── stat_tools.py    # Statistical tools (descriptive, hypothesis, correlation, distribution)
 │   │   │   └── orchestrator.py  # Multi-agent routing (stub)
 │   │   │
 │   │   ├── prompts/
 │   │   │   ├── __init__.py      # Jinja2 template loader (render function)
-│   │   │   └── analyst_system.j2 # Analyst system prompt template
+│   │   │   ├── analyst_system.j2     # Analyst system prompt template
+│   │   │   └── statistician_system.j2 # Statistician system prompt template
 │   │   │
 │   │   ├── llm/
 │   │   │   ├── base.py          # LLMProvider protocol
@@ -121,7 +134,7 @@ InsightXpert/
 │   │   │   └── ollama.py        # Ollama local provider (120s timeout)
 │   │   │
 │   │   ├── db/
-│   │   │   ├── connector.py     # SQLAlchemy wrapper (execute, row limits)
+│   │   │   ├── connector.py     # SQLAlchemy wrapper (execute, row limits, read-only)
 │   │   │   └── schema.py        # DDL introspection
 │   │   │
 │   │   ├── rag/
@@ -133,8 +146,17 @@ InsightXpert/
 │   │   │   └── conversation_store.py  # In-memory LRU + TTL conversation history
 │   │   │
 │   │   ├── auth/
-│   │   │   ├── models.py        # User, ConversationRecord, MessageRecord, FeedbackRecord
-│   │   │   └── conversation_store.py  # Persistent CRUD + get_or_create_conversation
+│   │   │   ├── routes.py        # Login, logout, me endpoints
+│   │   │   ├── models.py        # User, ConversationRecord, MessageRecord ORM
+│   │   │   ├── security.py      # JWT + bcrypt
+│   │   │   ├── dependencies.py  # get_current_user, get_db_session
+│   │   │   ├── conversation_store.py  # Persistent CRUD + get_or_create_conversation
+│   │   │   └── seed.py          # Admin user bootstrap
+│   │   │
+│   │   ├── admin/
+│   │   │   ├── routes.py        # Admin endpoints (org config CRUD, client-config)
+│   │   │   ├── config_store.py  # JSON config file management
+│   │   │   └── models.py        # FeatureToggles, OrgConfig, OrgBranding, ClientConfig
 │   │   │
 │   │   ├── observability/       # Tracer + store (stubs for Day 2+)
 │   │   │
@@ -144,22 +166,24 @@ InsightXpert/
 │   │       ├── documentation.py # Business context & column descriptions
 │   │       └── queries.py       # 12 example Q→SQL pairs (6 categories)
 │   │
-│   └── tests/                   # Agent, DB, RAG tests (pytest-asyncio)
+│   └── tests/                   # Agent, DB, RAG, statistician tests (pytest-asyncio)
 │
 └── frontend/
     ├── package.json             # Next.js 16, React 19, Zustand, Shadcn
     └── src/
-        ├── app/                 # Next.js App Router (layout, page)
+        ├── app/                 # Next.js App Router (layout, page, login, admin)
         ├── components/
-        │   ├── chat/            # ChatPanel, MessageBubble, MessageActions, MessageInput, MessageList, WelcomeScreen
-        │   ├── chunks/          # ChunkRenderer, StatusChunk, SqlChunk, ToolResultChunk, AnswerChunk, ErrorChunk
+        │   ├── chat/            # ChatPanel, MessageBubble, MessageActions, MessageInput, MessageList, WelcomeScreen, InputToolbar
+        │   ├── chunks/          # ChunkRenderer, StatusChunk, SqlChunk, ToolResultChunk, AnswerChunk, ErrorChunk, ChartBlock, DataTable
         │   ├── layout/          # AppShell, Header, UserMenu, LeftSidebar, RightSidebar
-        │   ├── sidebar/         # ConversationList, ProcessSteps, StepItem
+        │   ├── sidebar/         # ConversationList, ConversationItem, SearchResults, ProcessSteps, StepItem
+        │   ├── sql/             # SqlExecutor (direct SQL execution panel)
+        │   ├── admin/           # FeatureToggles, BrandingEditor, UserOrgMappings, AdminDomainEditor
         │   └── ui/              # Shadcn primitives (button, card, avatar, input, etc.)
-        ├── hooks/               # useSSEChat, useAutoScroll, useMediaQuery
-        ├── lib/                 # SSE client, chunk parser, chart detector, constants
-        ├── stores/              # Zustand chat store (conversations, agent steps)
-        └── types/               # TypeScript interfaces (ChatChunk, Message, AgentStep)
+        ├── hooks/               # useSSEChat, useClientConfig, useTheme, useAutoScroll, useMediaQuery
+        ├── lib/                 # SSE client, chunk parser, chart detector, model utils, constants
+        ├── stores/              # Zustand stores (auth, chat, settings, client-config)
+        └── types/               # TypeScript interfaces (ChatChunk, Message, AgentStep, Admin)
 ```
 
 ## Prerequisites
