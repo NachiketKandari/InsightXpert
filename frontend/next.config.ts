@@ -5,6 +5,10 @@ const isStaticExport = process.env.NEXT_OUTPUT === "export";
 const nextConfig: NextConfig = {
   // Allow ngrok and similar tunnel origins in dev
   allowedDevOrigins: ["*.ngrok-free.dev", "*.ngrok.io"],
+  // Pin Turbopack root to this directory so it doesn't pick up unrelated lockfiles
+  turbopack: {
+    root: __dirname,
+  },
   // Static export for Firebase Hosting (set NEXT_OUTPUT=export in CI)
   ...(isStaticExport
     ? { output: "export" }
