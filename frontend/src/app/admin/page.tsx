@@ -66,22 +66,20 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
+    // loadConfig is async — setState happens in a callback, not synchronously
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadConfig();
   }, [loadConfig]);
 
-  // When org selection changes, load its config
-  useEffect(() => {
-    if (!fullConfig || !selectedOrgId) {
+  const handleOrgChange = (orgId: string) => {
+    setSelectedOrgId(orgId);
+    if (!fullConfig || !orgId) {
       setEditingConfig(null);
       return;
     }
-    const org = fullConfig.organizations[selectedOrgId];
-    if (org) {
-      setEditingConfig({ ...org });
-    } else {
-      setEditingConfig(null);
-    }
-  }, [selectedOrgId, fullConfig]);
+    const org = fullConfig.organizations[orgId];
+    setEditingConfig(org ? { ...org } : null);
+  };
 
   const showMessage = (type: "success" | "error", text: string) => {
     setSaveMessage({ type, text });
@@ -276,7 +274,7 @@ export default function AdminPage() {
                 <div className="flex items-center gap-3">
                   <Select
                     value={selectedOrgId}
-                    onValueChange={setSelectedOrgId}
+                    onValueChange={handleOrgChange}
                   >
                     <SelectTrigger className="w-64">
                       <SelectValue placeholder="Select organization" />
