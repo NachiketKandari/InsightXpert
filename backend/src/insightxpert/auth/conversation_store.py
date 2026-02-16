@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
@@ -10,6 +11,15 @@ from sqlalchemy.orm import Session
 from insightxpert.auth.models import ConversationRecord, MessageRecord
 
 logger = logging.getLogger("insightxpert.auth")
+
+IST = ZoneInfo("Asia/Kolkata")
+
+
+def _to_ist(dt: datetime) -> str:
+    """Convert a UTC datetime to IST and return as ISO string."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(IST).isoformat()
 
 
 class PersistentConversationStore:
@@ -52,8 +62,8 @@ class PersistentConversationStore:
                     "id": c.id,
                     "title": c.title,
                     "is_starred": c.is_starred,
-                    "created_at": c.created_at.isoformat(),
-                    "updated_at": c.updated_at.isoformat(),
+                    "created_at": _to_ist(c.created_at),
+                    "updated_at": _to_ist(c.updated_at),
                     "last_message": last_content[:200] if last_content else None,
                 }
                 for c, last_content in rows
@@ -75,8 +85,8 @@ class PersistentConversationStore:
                 "id": convo.id,
                 "title": convo.title,
                 "is_starred": convo.is_starred,
-                "created_at": convo.created_at.isoformat(),
-                "updated_at": convo.updated_at.isoformat(),
+                "created_at": _to_ist(convo.created_at),
+                "updated_at": _to_ist(convo.updated_at),
                 "messages": [
                     {
                         "id": m.id,
@@ -85,7 +95,7 @@ class PersistentConversationStore:
                         "chunks_json": m.chunks_json,
                         "feedback": m.feedback,
                         "feedback_comment": m.feedback_comment,
-                        "created_at": m.created_at.isoformat(),
+                        "created_at": _to_ist(m.created_at),
                     }
                     for m in messages
                 ],
@@ -100,8 +110,8 @@ class PersistentConversationStore:
                         "id": convo.id,
                         "title": convo.title,
                         "is_starred": convo.is_starred,
-                        "created_at": convo.created_at.isoformat(),
-                        "updated_at": convo.updated_at.isoformat(),
+                        "created_at": _to_ist(convo.created_at),
+                        "updated_at": _to_ist(convo.updated_at),
                     }
                 raise ValueError("Conversation not owned by user")
 
@@ -119,8 +129,8 @@ class PersistentConversationStore:
                 "id": convo.id,
                 "title": convo.title,
                 "is_starred": convo.is_starred,
-                "created_at": convo.created_at.isoformat(),
-                "updated_at": convo.updated_at.isoformat(),
+                "created_at": _to_ist(convo.created_at),
+                "updated_at": _to_ist(convo.updated_at),
             }
 
     def create_conversation(self, user_id: str, title: str) -> dict:
@@ -139,8 +149,8 @@ class PersistentConversationStore:
                 "id": convo.id,
                 "title": convo.title,
                 "is_starred": convo.is_starred,
-                "created_at": convo.created_at.isoformat(),
-                "updated_at": convo.updated_at.isoformat(),
+                "created_at": _to_ist(convo.created_at),
+                "updated_at": _to_ist(convo.updated_at),
             }
 
     def save_message(
@@ -229,7 +239,7 @@ class PersistentConversationStore:
                     msg_by_conv[conv_id].append({
                         "role": role,
                         "snippet": snippet,
-                        "created_at": created_at.isoformat(),
+                        "created_at": _to_ist(created_at),
                     })
 
             # Collect all matching conversation IDs
@@ -251,7 +261,7 @@ class PersistentConversationStore:
                     "id": c.id,
                     "title": c.title,
                     "is_starred": c.is_starred,
-                    "updated_at": c.updated_at.isoformat(),
+                    "updated_at": _to_ist(c.updated_at),
                     "title_match": c.id in title_matches,
                     "matching_messages": msg_by_conv.get(c.id, []),
                 }
