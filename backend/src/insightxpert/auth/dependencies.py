@@ -48,6 +48,6 @@ async def get_current_user(request: Request) -> User:
             )
         user.last_active = datetime.now(timezone.utc)
         session.commit()
-        # Detach from session so it can be used outside
+        session.refresh(user)
         session.expunge(user)
         return user
