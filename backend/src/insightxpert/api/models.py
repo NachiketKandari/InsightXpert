@@ -95,12 +95,15 @@ class MessageResponse(BaseModel):
     role: str
     content: str
     chunks: list[dict] | None = None
+    feedback: bool | None = None
+    feedback_comment: str | None = None
     created_at: str
 
 
 class ConversationSummary(BaseModel):
     id: str
     title: str
+    is_starred: bool = False
     created_at: str
     updated_at: str
     last_message: str | None = None
@@ -109,6 +112,7 @@ class ConversationSummary(BaseModel):
 class ConversationDetail(BaseModel):
     id: str
     title: str
+    is_starred: bool = False
     messages: list[MessageResponse]
     created_at: str
     updated_at: str
@@ -133,10 +137,9 @@ class SearchResultItem(BaseModel):
 
 
 class FeedbackRequest(BaseModel):
-    conversation_id: str
     message_id: str
-    rating: Literal["up", "down"]
-    comment: str = ""
+    feedback: bool | None  # True = thumbs up, False = thumbs down, None = clear
+    comment: str | None = None
 
 
 # --- Ollama models -------------------------------------------------------

@@ -23,7 +23,41 @@ from insightxpert.memory.conversation_store import ConversationStore
 from insightxpert.rag.store import VectorStore
 from insightxpert.training.trainer import Trainer
 
+from sqlalchemy import inspect, text
+
 logger = logging.getLogger("insightxpert")
+
+
+def _migrate_schema(engine) -> None:
+    """Add new columns to existing tables (idempotent, no Alembic needed)."""
+    insp = inspect(engine)
+    with engine.begin() as conn:
+        # users: add last_active
+        user_cols = {c["name"] for c in insp.get_columns("users")}
+        if "last_active" not in user_cols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN last_active DATETIME"))
+            logger.info("Migration: added users.last_active")
+
+        # conversations: add is_starred
+        conv_cols = {c["name"] for c in insp.get_columns("conversations")}
+        if "is_starred" not in conv_cols:
+            conn.execute(text("ALTER TABLE conversations ADD COLUMN is_starred BOOLEAN DEFAULT 0 NOT NULL"))
+            logger.info("Migration: added conversations.is_starred")
+
+        # messages: add feedback, feedback_comment
+        msg_cols = {c["name"] for c in insp.get_columns("messages")}
+        if "feedback" not in msg_cols:
+            conn.execute(text("ALTER TABLE messages ADD COLUMN feedback BOOLEAN"))
+            logger.info("Migration: added messages.feedback")
+        if "feedback_comment" not in msg_cols:
+            conn.execute(text("ALTER TABLE messages ADD COLUMN feedback_comment TEXT"))
+            logger.info("Migration: added messages.feedback_comment")
+
+        # Drop old feedback table (feedback now lives on messages)
+        existing_tables = set(insp.get_table_names())
+        if "feedback" in existing_tables:
+            conn.execute(text("DROP TABLE feedback"))
+            logger.info("Migration: dropped feedback table")
 
 
 def _setup_logging(level: str) -> None:
@@ -72,6 +106,7 @@ async def lifespan(app: FastAPI):
     # Auth tables (same database as transactions)
     auth_engine = db.engine
     AuthBase.metadata.create_all(auth_engine)
+    _migrate_schema(auth_engine)
     seed_admin(auth_engine)
     logger.info("Auth tables initialized")
 

@@ -28,6 +28,7 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utcnow, nullable=True)
 
 
 class ConversationRecord(Base):
@@ -36,6 +37,7 @@ class ConversationRecord(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
+    is_starred: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -52,16 +54,6 @@ class MessageRecord(Base):
     role: Mapped[str] = mapped_column(String(20), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     chunks_json: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-
-
-class FeedbackRecord(Base):
-    __tablename__ = "feedback"
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
-    conversation_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    message_id: Mapped[str] = mapped_column(String(36), nullable=False)
-    rating: Mapped[str] = mapped_column(String(10), nullable=False)
-    comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    feedback: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
+    feedback_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

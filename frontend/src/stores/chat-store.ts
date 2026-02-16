@@ -71,10 +71,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (!res.ok) return;
       const data = await res.json();
       const conversations: Conversation[] = data.map(
-        (c: { id: string; title: string; messages?: Message[]; created_at: number; updated_at: number }) => ({
+        (c: { id: string; title: string; messages?: Message[]; is_starred?: boolean; created_at: number; updated_at: number }) => ({
           id: c.id,
           title: c.title,
           messages: c.messages || [],
+          isStarred: c.is_starred ?? false,
           createdAt: c.created_at,
           updatedAt: c.updated_at,
         })
@@ -92,6 +93,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id,
       title: "New Chat",
       messages: [],
+      isStarred: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -117,11 +119,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
       if (!res.ok) return;
       const data = await res.json();
       const messages: Message[] = (data.messages || []).map(
-        (m: { id: string; role: "user" | "assistant"; content: string; chunks?: ChatChunk[]; created_at: string }) => ({
+        (m: { id: string; role: "user" | "assistant"; content: string; chunks?: ChatChunk[]; feedback?: boolean | null; feedback_comment?: string | null; created_at: string }) => ({
           id: m.id,
           role: m.role,
           content: m.content,
           chunks: m.chunks || [],
+          feedback: m.feedback ?? null,
+          feedbackComment: m.feedback_comment ?? null,
           timestamp: new Date(m.created_at).getTime(),
         })
       );
