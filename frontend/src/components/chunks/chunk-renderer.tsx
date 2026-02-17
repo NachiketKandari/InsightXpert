@@ -80,12 +80,12 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.2, ease: "easeOut" }}
               >
-                <ProgressStep label="Creating visualization" isComplete={isComplete} />
+                <ProgressStep label="Creating visualization" />
               </motion.div>
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, ease: "easeOut", delay: isComplete ? 0.1 : 0.7 }}
+                transition={{ duration: 0.3, ease: "easeOut", delay: 0.7 }}
                 className="mt-3"
               >
                 <ChartBlock columns={parsed!.columns} rows={parsed!.rows} suggestedChartType={suggestedChartType} />
