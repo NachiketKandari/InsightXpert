@@ -1,8 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { CheckCircle, Loader2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 import { parseToolResult } from "@/lib/chunk-parser";
+import { detectChartType } from "@/lib/chart-detector";
 import { StatusChunk } from "./status-chunk";
 import { ToolCallChunk } from "./tool-call-chunk";
 import { SqlChunk } from "./sql-chunk";
@@ -10,6 +13,31 @@ import { ToolResultChunk } from "./tool-result-chunk";
 import { ChartBlock } from "./chart-block";
 import { AnswerChunk } from "./answer-chunk";
 import { ErrorChunk } from "./error-chunk";
+
+const VALID_CHART_TYPES = new Set(["bar", "pie", "line", "grouped-bar", "table"]);
+
+/** Inline progress step: spinner → checkmark after a brief delay during streaming. */
+function ProgressStep({ label, isComplete }: { label: string; isComplete?: boolean }) {
+  const [timerDone, setTimerDone] = useState(false);
+  const done = (isComplete ?? false) || timerDone;
+
+  useEffect(() => {
+    if (isComplete) return;
+    const timer = setTimeout(() => setTimerDone(true), 600);
+    return () => clearTimeout(timer);
+  }, [isComplete]);
+
+  return (
+    <div className="flex items-center gap-2 text-muted-foreground text-sm py-1">
+      {done ? (
+        <CheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0" />
+      ) : (
+        <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />
+      )}
+      <span>{label}</span>
+    </div>
+  );
+}
 
 interface ChunkRendererProps {
   chunk: ChatChunk;
@@ -32,25 +60,49 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
     case "tool_result": {
       const parsed = parseToolResult(chunk);
       const suggestedChartType = (chunk.data?.visualization as string) ?? null;
+
+      let willShowChart = false;
+      if (parsed) {
+        const chartType =
+          suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
+            ? suggestedChartType
+            : detectChartType(parsed.columns, parsed.rows);
+        willShowChart = chartType !== "none" && chartType !== "table";
+      }
+
       content = (
         <>
           <ToolResultChunk chunk={chunk} />
-          {parsed && (
-            <motion.div
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.3, ease: "easeOut", delay: 0.1 }}
-              className="mt-3"
-            >
-              <ChartBlock columns={parsed.columns} rows={parsed.rows} suggestedChartType={suggestedChartType} />
-            </motion.div>
+          {willShowChart && (
+            <>
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+              >
+                <ProgressStep label="Creating visualization" isComplete={isComplete} />
+              </motion.div>
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, ease: "easeOut", delay: isComplete ? 0.1 : 0.7 }}
+                className="mt-3"
+              >
+                <ChartBlock columns={parsed!.columns} rows={parsed!.rows} suggestedChartType={suggestedChartType} />
+              </motion.div>
+            </>
           )}
         </>
       );
       break;
     }
     case "answer":
-      content = <AnswerChunk content={chunk.content ?? ""} />;
+      content = (
+        <>
+          <ProgressStep label="Generating answer" isComplete={isComplete} />
+          <AnswerChunk content={chunk.content ?? ""} />
+        </>
+      );
       break;
     case "error":
       content = <ErrorChunk content={chunk.content ?? "An error occurred"} />;

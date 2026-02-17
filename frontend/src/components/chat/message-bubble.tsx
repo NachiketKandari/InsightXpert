@@ -41,11 +41,7 @@ export function MessageBubble({
               <ChunkRenderer
                 key={i}
                 chunk={chunk}
-                isComplete={
-                  chunk.type === "status" || chunk.type === "tool_call"
-                    ? i < message.chunks.length - 1 || !isStreaming
-                    : undefined
-                }
+                isComplete={i < message.chunks.length - 1 || !isStreaming}
               />
             ))
           ) : (
