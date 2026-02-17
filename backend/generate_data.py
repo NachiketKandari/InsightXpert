@@ -108,17 +108,16 @@ def main() -> None:
     if not CSV_PATH.exists():
         raise FileNotFoundError(f"CSV not found: {CSV_PATH}")
 
-    if DB_PATH.exists():
-        DB_PATH.unlink()
-        print(f"Removed existing {DB_PATH}")
-
     conn = sqlite3.connect(str(DB_PATH))
     cur = conn.cursor()
 
+    # Drop only the transactions table (preserve other tables like users, conversations)
+    cur.execute("DROP TABLE IF EXISTS transactions")
     cur.execute(CREATE_TABLE)
     for idx_sql in INDICES:
         cur.execute(idx_sql)
-    print("Table and indices created.")
+    conn.commit()
+    print("Transactions table recreated (other tables preserved).")
 
     print(f"Loading data from {CSV_PATH}...")
     batch_size = 10_000
