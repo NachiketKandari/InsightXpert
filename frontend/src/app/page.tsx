@@ -7,7 +7,7 @@ import { AuthGuard } from "@/components/auth/auth-guard";
 import { useChatStore } from "@/stores/chat-store";
 import { useClientConfigStore } from "@/stores/client-config-store";
 
-export default function Home() {
+function AuthenticatedApp() {
   const initFromStorage = useChatStore((s) => s.initFromStorage);
   const fetchConfig = useClientConfigStore((s) => s.fetchConfig);
 
@@ -17,10 +17,16 @@ export default function Home() {
   }, [initFromStorage, fetchConfig]);
 
   return (
+    <AppShell>
+      <ChatPanel />
+    </AppShell>
+  );
+}
+
+export default function Home() {
+  return (
     <AuthGuard>
-      <AppShell>
-        <ChatPanel />
-      </AppShell>
+      <AuthenticatedApp />
     </AuthGuard>
   );
 }

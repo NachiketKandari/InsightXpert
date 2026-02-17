@@ -68,21 +68,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
   initFromStorage: async () => {
     try {
       const res = await apiFetch("/api/conversations");
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error("[chat-store] Failed to load conversations:", res.status, res.statusText);
+        return;
+      }
       const data = await res.json();
       const conversations: Conversation[] = data.map(
-        (c: { id: string; title: string; messages?: Message[]; is_starred?: boolean; created_at: number; updated_at: number }) => ({
+        (c: { id: string; title: string; messages?: Message[]; is_starred?: boolean; created_at: string; updated_at: string }) => ({
           id: c.id,
           title: c.title,
           messages: c.messages || [],
           isStarred: c.is_starred ?? false,
-          createdAt: c.created_at,
-          updatedAt: c.updated_at,
+          createdAt: new Date(c.created_at).getTime(),
+          updatedAt: new Date(c.updated_at).getTime(),
         })
       );
       set({ conversations });
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.error("[chat-store] Error loading conversations:", err);
     }
   },
 
@@ -116,7 +119,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
   loadConversationMessages: async (id) => {
     try {
       const res = await apiFetch(`/api/conversations/${id}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        console.error("[chat-store] Failed to load messages for", id, ":", res.status, res.statusText);
+        return;
+      }
       const data = await res.json();
       const messages: Message[] = (data.messages || []).map(
         (m: { id: string; role: "user" | "assistant"; content: string; chunks?: ChatChunk[]; feedback?: boolean | null; feedback_comment?: string | null; created_at: string }) => ({
@@ -134,8 +140,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
           c.id === id ? { ...c, messages } : c
         ),
       }));
-    } catch {
-      // silently fail
+    } catch (err) {
+      console.error("[chat-store] Error loading messages for", id, ":", err);
     }
   },
 

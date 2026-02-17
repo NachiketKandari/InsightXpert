@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
@@ -39,13 +40,14 @@ async def login(
 
     is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     origin = request.headers.get("origin", "")
-    is_cross_origin = bool(origin) and not origin.endswith(request.url.hostname or "")
+    origin_host = urlparse(origin).hostname if origin else None
+    is_cross_site = bool(origin_host) and origin_host != (request.url.hostname or "")
     response.set_cookie(
         key="__session",
         value=token,
         httponly=True,
-        samesite="none" if is_cross_origin else "lax",
-        secure=is_https,
+        samesite="none" if is_cross_site else "lax",
+        secure=is_https or is_cross_site,
         max_age=settings.access_token_expire_minutes * 60,
         path="/",
     )
@@ -58,8 +60,9 @@ async def login(
 async def logout(request: Request, response: Response):
     is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
     origin = request.headers.get("origin", "")
-    is_cross_origin = bool(origin) and not origin.endswith(request.url.hostname or "")
-    response.delete_cookie(key="__session", path="/", secure=is_https, samesite="none" if is_cross_origin else "lax")
+    origin_host = urlparse(origin).hostname if origin else None
+    is_cross_site = bool(origin_host) and origin_host != (request.url.hostname or "")
+    response.delete_cookie(key="__session", path="/", secure=is_https or is_cross_site, samesite="none" if is_cross_site else "lax")
     return {"status": "ok"}
 
 
