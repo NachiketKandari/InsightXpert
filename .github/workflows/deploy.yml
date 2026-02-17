@@ -84,11 +84,20 @@ jobs:
         run: npm ci
         working-directory: frontend
 
+      - name: Get Cloud Run URL
+        id: cloud-run-url
+        run: |
+          URL=$(gcloud run services describe ${{ env.CLOUD_RUN_SERVICE }} \
+            --region ${{ env.GCP_REGION }} \
+            --format 'value(status.url)')
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
       - name: Build static export
         run: npm run build
         working-directory: frontend
         env:
           NEXT_OUTPUT: export
+          NEXT_PUBLIC_API_URL: ${{ steps.cloud-run-url.outputs.url }}
 
       - name: Deploy to Firebase Hosting
         run: npx firebase-tools deploy --only hosting --project ${{ env.GCP_PROJECT_ID }}
