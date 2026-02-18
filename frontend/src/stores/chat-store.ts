@@ -15,10 +15,12 @@ interface ChatState {
   conversations: Conversation[];
   activeConversationId: string | null;
   isStreaming: boolean;
+  streamingConversationId: string | null;
   agentSteps: AgentStep[];
   leftSidebarOpen: boolean;
   rightSidebarOpen: boolean;
   sqlExecutorOpen: boolean;
+  datasetViewerOpen: boolean;
 
   // Derived
   activeConversation: () => Conversation | null;
@@ -34,7 +36,7 @@ interface ChatState {
   addUserMessage: (content: string) => void;
   startAssistantMessage: () => void;
   appendChunk: (chunk: ChatChunk) => void;
-  finishStreaming: () => void;
+  finishStreaming: (conversationId?: string) => void;
 
   addAgentStep: (step: AgentStep) => void;
   updateAgentStep: (id: string, updates: Partial<AgentStep>) => void;
@@ -45,6 +47,7 @@ interface ChatState {
   setLeftSidebar: (open: boolean) => void;
   setRightSidebar: (open: boolean) => void;
   setSqlExecutorOpen: (open: boolean) => void;
+  setDatasetViewerOpen: (open: boolean) => void;
 }
 
 const getInitialSidebarState = () => {
@@ -55,10 +58,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   isStreaming: false,
+  streamingConversationId: null,
   agentSteps: [],
   leftSidebarOpen: getInitialSidebarState(),
   rightSidebarOpen: getInitialSidebarState(),
   sqlExecutorOpen: false,
+  datasetViewerOpen: false,
 
   activeConversation: () => {
     const { conversations, activeConversationId } = get();
@@ -109,10 +114,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setActiveConversation: (id) => {
     set({ activeConversationId: id, agentSteps: [] });
-    // Lazy-load messages if the conversation has none
+    // Lazy-load messages from the server if the conversation was loaded
+    // from initFromStorage (server-side) and has no messages yet.
+    // Skip for locally-created conversations (createdAt within last 5s)
+    // since they haven't been persisted to the backend yet.
     const conv = get().conversations.find((c) => c.id === id);
     if (conv && conv.messages.length === 0) {
-      get().loadConversationMessages(id);
+      const isRecentlyCreated = Date.now() - conv.createdAt < 5000;
+      if (!isRecentlyCreated) {
+        get().loadConversationMessages(id);
+      }
     }
   },
 
@@ -225,13 +236,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
         };
       });
 
-      return { conversations, isStreaming: true };
+      return { conversations, isStreaming: true, streamingConversationId: convId };
     });
   },
 
   appendChunk: (chunk) => {
     set((state) => {
-      const convId = state.activeConversationId;
+      // Target the conversation the chunk belongs to (from the backend),
+      // falling back to the active conversation. This prevents chunks from
+      // an old stream leaking into a newly-created conversation.
+      const convId = chunk.conversation_id || state.activeConversationId;
       if (!convId) return state;
 
       const conversations = state.conversations.map((c) => {
@@ -258,8 +272,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
     });
   },
 
-  finishStreaming: () => {
-    set({ isStreaming: false });
+  finishStreaming: (conversationId?: string) => {
+    set((state) => {
+      // If a conversationId is provided (from the stream's closure), only
+      // clear streaming if it matches the currently-streaming conversation.
+      // This prevents an old stream's onDone from killing a newer stream.
+      if (conversationId && state.streamingConversationId && conversationId !== state.streamingConversationId) {
+        return state;
+      }
+      return { isStreaming: false, streamingConversationId: null };
+    });
   },
 
   addAgentStep: (step) => {
@@ -296,5 +318,9 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setSqlExecutorOpen: (open) => {
     set({ sqlExecutorOpen: open });
+  },
+
+  setDatasetViewerOpen: (open) => {
+    set({ datasetViewerOpen: open });
   },
 }));

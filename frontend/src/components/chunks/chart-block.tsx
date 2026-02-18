@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   BarChart,
   Bar,
@@ -13,7 +14,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, ChevronRight } from "lucide-react";
 import {
   ChartContainer,
   ChartTooltip,
@@ -22,6 +23,12 @@ import {
 } from "@/components/ui/chart";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
+import { cn } from "@/lib/utils";
 import { detectChartType, getChartConfig, pivotData, hasStateCategories, abbreviateState } from "@/lib/chart-detector";
 import { useIsMobile } from "@/hooks/use-media-query";
 
@@ -46,6 +53,7 @@ interface ChartBlockProps {
 
 export function ChartBlock({ columns, rows, suggestedChartType }: ChartBlockProps) {
   const isMobile = useIsMobile();
+  const [open, setOpen] = useState(true);
   const chartType =
     suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
       ? suggestedChartType
@@ -203,16 +211,28 @@ export function ChartBlock({ columns, rows, suggestedChartType }: ChartBlockProp
   }
 
   return (
-    <Card className="glass">
-      <div className="flex items-center gap-2 px-4 pt-3">
-        <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
-        <Badge variant="secondary" className="text-xs">
-          Visualization
-        </Badge>
-      </div>
-      <CardContent className="pt-3 pb-2">
-        {chartContent}
-      </CardContent>
-    </Card>
+    <Collapsible open={open} onOpenChange={setOpen}>
+      <Card className="glass overflow-hidden">
+        <CollapsibleTrigger asChild>
+          <button className="flex items-center gap-2 w-full px-4 pt-3 pb-2 hover:bg-accent/30 transition-colors text-left">
+            <ChevronRight
+              className={cn(
+                "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                open && "rotate-90"
+              )}
+            />
+            <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
+            <Badge variant="secondary" className="text-xs">
+              Visualization
+            </Badge>
+          </button>
+        </CollapsibleTrigger>
+        <CollapsibleContent>
+          <CardContent className="pt-1 pb-2">
+            {chartContent}
+          </CardContent>
+        </CollapsibleContent>
+      </Card>
+    </Collapsible>
   );
 }

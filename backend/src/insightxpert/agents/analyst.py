@@ -131,6 +131,8 @@ async def analyst_loop(
 
     max_iter = config.max_agent_iterations or MAX_ITERATIONS
 
+    tools_executed = False
+
     for iteration in range(max_iter):
         logger.info("--- Iteration %d/%d ---", iteration + 1, max_iter)
 
@@ -147,6 +149,27 @@ async def analyst_loop(
             )
             return
         llm_ms = (time.time() - llm_start) * 1000
+
+        # Guard: if the LLM tries to answer without ever executing a tool,
+        # reject the response and force it to query the database first.
+        if not response.tool_calls and not tools_executed:
+            logger.warning(
+                "LLM answered without tool calls on iteration %d — forcing tool use",
+                iteration + 1,
+            )
+            messages.append({
+                "role": "assistant",
+                "content": response.content or "",
+            })
+            messages.append({
+                "role": "user",
+                "content": (
+                    "You MUST use the run_sql tool to query the database before "
+                    "answering. Do not answer from memory or prior context. "
+                    "Please write and execute a SQL query now."
+                ),
+            })
+            continue
 
         if response.tool_calls:
             tool_names = [tc.name for tc in response.tool_calls]
@@ -206,6 +229,7 @@ async def analyst_loop(
                     tc.name, tc.arguments, tool_context,
                 )
                 tool_ms = (time.time() - tool_start) * 1000
+                tools_executed = True
                 logger.info("Tool %s completed (%.0fms): %s", tc.name, tool_ms, result[:200])
 
                 messages.append({

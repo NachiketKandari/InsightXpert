@@ -5,7 +5,7 @@ import { StepItem } from "./step-item";
 
 export function ProcessSteps() {
   const agentSteps = useChatStore((s) => s.agentSteps);
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useChatStore((s) => s.isStreaming && s.streamingConversationId === s.activeConversationId);
 
   if (agentSteps.length === 0 && !isStreaming) {
     return (
