@@ -69,15 +69,17 @@ async def analyst_loop(
     )
 
     rag_start = time.time()
-    similar_qa = rag.search_qa(question, n=5)
-    relevant_ddl = rag.search_ddl(question, n=3)
-    relevant_docs = rag.search_docs(question, n=3)
+    similar_qa = rag.search_qa(question, n=5, max_distance=1.0, sql_valid_only=True)
     relevant_findings = rag.search_findings(question, n=2)
+    # DDL and documentation are already injected directly into the system prompt,
+    # so we skip the redundant RAG searches for those collections.
+    relevant_ddl: list[dict] = []
+    relevant_docs: list[dict] = []
     rag_ms = (time.time() - rag_start) * 1000
 
     logger.info(
-        "RAG retrieval (%.0fms): qa=%d ddl=%d docs=%d findings=%d",
-        rag_ms, len(similar_qa), len(relevant_ddl), len(relevant_docs), len(relevant_findings),
+        "RAG retrieval (%.0fms): qa=%d (threshold=1.0, valid-only) findings=%d",
+        rag_ms, len(similar_qa), len(relevant_findings),
     )
     if similar_qa:
         for i, qa in enumerate(similar_qa):
@@ -244,8 +246,8 @@ async def analyst_loop(
             sql = _extract_sql_from_messages(messages)
             if sql:
                 try:
-                    rag.add_qa_pair(question, sql)
-                    logger.debug("Auto-saved QA pair to RAG")
+                    rag.add_qa_pair(question, sql, {"sql_valid": True})
+                    logger.debug("Auto-saved QA pair to RAG (sql_valid=True)")
                 except Exception:
                     pass
             break

@@ -104,9 +104,9 @@ class Trainer:
         count += 1
         logger.debug("Added business documentation")
 
-        # Add example Q&A pairs
+        # Add example Q&A pairs (curated examples are always valid SQL)
         for qa in EXAMPLE_QUERIES:
-            self._rag.add_qa_pair(qa["question"], qa["sql"], {"source": "insightxpert_training"})
+            self._rag.add_qa_pair(qa["question"], qa["sql"], {"source": "insightxpert_training", "sql_valid": True})
             count += 1
         logger.debug("Added %d example Q&A pairs", len(EXAMPLE_QUERIES))
 
