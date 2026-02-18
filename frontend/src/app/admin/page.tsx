@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Save, Trash2, Plus } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Plus, DatabaseZap } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,6 +48,7 @@ export default function AdminPage() {
   const [newOrgId, setNewOrgId] = useState("");
   const [newOrgName, setNewOrgName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [isFlushing, setIsFlushing] = useState(false);
   const [saveMessage, setSaveMessage] = useState<{
     type: "success" | "error";
     text: string;
@@ -185,6 +186,23 @@ export default function AdminPage() {
     setIsSaving(false);
   };
 
+  const flushQaPairs = async () => {
+    if (!confirm("Are you sure you want to clear all QA pairs from ChromaDB? This cannot be undone.")) return;
+    setIsFlushing(true);
+    try {
+      const res = await apiFetch("/api/admin/rag/qa-pairs", { method: "DELETE" });
+      if (res.ok) {
+        const data = await res.json();
+        showMessage("success", `Cleared ${data.deleted_count} QA pair(s)`);
+      } else {
+        showMessage("error", "Failed to clear QA pairs");
+      }
+    } catch {
+      showMessage("error", "Network error");
+    }
+    setIsFlushing(false);
+  };
+
   if (!fullConfig) {
     return (
       <div className="flex items-center justify-center h-screen bg-background">
@@ -227,6 +245,7 @@ export default function AdminPage() {
           <TabsList>
             <TabsTrigger value="organizations">Organizations</TabsTrigger>
             <TabsTrigger value="global">Global Settings</TabsTrigger>
+            <TabsTrigger value="rag">RAG Management</TabsTrigger>
           </TabsList>
 
           {/* Organizations Tab */}
@@ -358,6 +377,26 @@ export default function AdminPage() {
               <Save className="size-4 mr-1" />
               Save Global Settings
             </Button>
+          </TabsContent>
+
+          {/* RAG Management Tab */}
+          <TabsContent value="rag" className="space-y-6">
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <h3 className="text-sm font-medium">Clear QA Pairs</h3>
+              <p className="text-sm text-muted-foreground">
+                Remove all learned question–SQL pairs from ChromaDB. DDL schemas,
+                documentation, and findings will be kept. The system will
+                re-learn from conversations over time.
+              </p>
+              <Button
+                variant="destructive"
+                onClick={flushQaPairs}
+                disabled={isFlushing}
+              >
+                <DatabaseZap className="size-4 mr-1" />
+                {isFlushing ? "Clearing..." : "Clear QA Pairs"}
+              </Button>
+            </div>
           </TabsContent>
         </Tabs>
       </main>

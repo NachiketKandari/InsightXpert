@@ -149,6 +149,25 @@ async def delete_org(
     return {"status": "ok"}
 
 
+# --- RAG management (admin only) ---------------------------------------------
+
+
+@router.delete("/api/admin/rag/qa-pairs")
+async def flush_qa_pairs(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Delete all QA pairs from ChromaDB, keeping DDL, docs, and findings."""
+    path = _config_path(request)
+    config = read_config(path)
+    _require_admin(user, config)
+
+    rag = request.app.state.rag
+    count = rag.flush_qa_pairs()
+    logger.info("Admin %s flushed %d QA pairs", user.email, count)
+    return {"status": "ok", "deleted_count": count}
+
+
 # --- Public endpoint (any authenticated user) --------------------------------
 
 
