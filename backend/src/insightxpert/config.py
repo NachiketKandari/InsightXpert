@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     sql_timeout_seconds: int = 30
 
     # CORS
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,https://insightxpert.vercel.app,https://insightxpert-ai.web.app"
 
     # Auth
     secret_key: str = "CHANGE-ME-in-production-use-a-random-secret-key-here"
