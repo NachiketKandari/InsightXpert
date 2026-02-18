@@ -1,8 +1,9 @@
 "use client";
 
-import { useRef, useState, useCallback, type KeyboardEvent } from "react";
+import { useRef, useState, useCallback, useEffect, type KeyboardEvent } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { InputToolbar } from "./input-toolbar";
+import { useChatStore } from "@/stores/chat-store";
 
 interface MessageInputProps {
   onSend: (message: string) => void;
@@ -13,6 +14,16 @@ interface MessageInputProps {
 export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingInput = useChatStore((s) => s.pendingInput);
+  const setPendingInput = useChatStore((s) => s.setPendingInput);
+
+  useEffect(() => {
+    if (pendingInput) {
+      setValue(pendingInput);
+      setPendingInput(null);
+      textareaRef.current?.focus();
+    }
+  }, [pendingInput, setPendingInput]);
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();

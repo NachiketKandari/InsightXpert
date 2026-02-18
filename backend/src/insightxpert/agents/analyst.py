@@ -69,15 +69,17 @@ async def analyst_loop(
     )
 
     rag_start = time.time()
-    similar_qa = rag.search_qa(question, n=5)
-    relevant_ddl = rag.search_ddl(question, n=3)
-    relevant_docs = rag.search_docs(question, n=3)
+    similar_qa = rag.search_qa(question, n=5, max_distance=1.0, sql_valid_only=True)
     relevant_findings = rag.search_findings(question, n=2)
+    # DDL and documentation are already injected directly into the system prompt,
+    # so we skip the redundant RAG searches for those collections.
+    relevant_ddl: list[dict] = []
+    relevant_docs: list[dict] = []
     rag_ms = (time.time() - rag_start) * 1000
 
     logger.info(
-        "RAG retrieval (%.0fms): qa=%d ddl=%d docs=%d findings=%d",
-        rag_ms, len(similar_qa), len(relevant_ddl), len(relevant_docs), len(relevant_findings),
+        "RAG retrieval (%.0fms): qa=%d (threshold=1.0, valid-only) findings=%d",
+        rag_ms, len(similar_qa), len(relevant_findings),
     )
     if similar_qa:
         for i, qa in enumerate(similar_qa):
@@ -129,6 +131,8 @@ async def analyst_loop(
 
     max_iter = config.max_agent_iterations or MAX_ITERATIONS
 
+    tools_executed = False
+
     for iteration in range(max_iter):
         logger.info("--- Iteration %d/%d ---", iteration + 1, max_iter)
 
@@ -145,6 +149,27 @@ async def analyst_loop(
             )
             return
         llm_ms = (time.time() - llm_start) * 1000
+
+        # Guard: if the LLM tries to answer without ever executing a tool,
+        # reject the response and force it to query the database first.
+        if not response.tool_calls and not tools_executed:
+            logger.warning(
+                "LLM answered without tool calls on iteration %d — forcing tool use",
+                iteration + 1,
+            )
+            messages.append({
+                "role": "assistant",
+                "content": response.content or "",
+            })
+            messages.append({
+                "role": "user",
+                "content": (
+                    "You MUST use the run_sql tool to query the database before "
+                    "answering. Do not answer from memory or prior context. "
+                    "Please write and execute a SQL query now."
+                ),
+            })
+            continue
 
         if response.tool_calls:
             tool_names = [tc.name for tc in response.tool_calls]
@@ -204,6 +229,7 @@ async def analyst_loop(
                     tc.name, tc.arguments, tool_context,
                 )
                 tool_ms = (time.time() - tool_start) * 1000
+                tools_executed = True
                 logger.info("Tool %s completed (%.0fms): %s", tc.name, tool_ms, result[:200])
 
                 messages.append({
@@ -244,8 +270,8 @@ async def analyst_loop(
             sql = _extract_sql_from_messages(messages)
             if sql:
                 try:
-                    rag.add_qa_pair(question, sql)
-                    logger.debug("Auto-saved QA pair to RAG")
+                    rag.add_qa_pair(question, sql, {"sql_valid": True})
+                    logger.debug("Auto-saved QA pair to RAG (sql_valid=True)")
                 except Exception:
                     pass
             break

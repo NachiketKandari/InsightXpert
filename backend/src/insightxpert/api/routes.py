@@ -223,7 +223,8 @@ async def train(
 
     if req.type == "qa_pair":
         sql = req.metadata.get("sql", "")
-        doc_id = rag.add_qa_pair(req.content, sql, req.metadata)
+        meta = {**req.metadata, "sql_valid": req.metadata.get("sql_valid", True)}
+        doc_id = rag.add_qa_pair(req.content, sql, meta)
     elif req.type == "ddl":
         table_name = req.metadata.get("table_name", "")
         doc_id = rag.add_ddl(req.content, table_name)

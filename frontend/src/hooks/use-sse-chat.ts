@@ -16,6 +16,7 @@ export function useSSEChat() {
   const {
     activeConversationId,
     isStreaming,
+    streamingConversationId,
     addUserMessage,
     startAssistantMessage,
     appendChunk,
@@ -26,9 +27,13 @@ export function useSSEChat() {
     newConversation,
   } = useChatStore();
 
+  // isStreaming should reflect whether the *active* conversation is streaming,
+  // not whether *any* conversation is streaming somewhere in the background.
+  const isActiveStreaming = isStreaming && streamingConversationId === activeConversationId;
+
   const sendMessage = useCallback(
     (message: string, agentMode: AgentMode = "auto") => {
-      if (isStreaming) return;
+      if (isActiveStreaming) return;
 
       let convId = activeConversationId;
       if (!convId) {
@@ -160,7 +165,7 @@ export function useSSEChat() {
         onDone: () => {
           // Ensure no step is left in "running" state when the stream ends.
           markLastRunningDone();
-          finishStreaming();
+          finishStreaming(convId!);
         },
         onError: (error) => {
           // Mark any running step as done before reporting the error.
@@ -171,14 +176,14 @@ export function useSSEChat() {
             conversation_id: convId!,
             timestamp: Date.now() / 1000,
           });
-          finishStreaming();
+          finishStreaming(convId!);
         },
       }, agentMode);
 
       abortRef.current = controller;
     },
     [
-      isStreaming,
+      isActiveStreaming,
       activeConversationId,
       addUserMessage,
       startAssistantMessage,
@@ -196,5 +201,5 @@ export function useSSEChat() {
     finishStreaming();
   }, [finishStreaming]);
 
-  return { sendMessage, stopStreaming, isStreaming };
+  return { sendMessage, stopStreaming, isStreaming: isActiveStreaming };
 }

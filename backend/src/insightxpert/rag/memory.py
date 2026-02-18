@@ -57,8 +57,19 @@ class InMemoryVectorStore:
         self._findings[doc_id] = {"document": finding, "metadata": metadata or {}}
         return doc_id
 
-    def search_qa(self, question: str, n: int = 5) -> list[dict]:
-        return self._search(self._qa, question, n)
+    def search_qa(
+        self,
+        question: str,
+        n: int = 5,
+        max_distance: float | None = None,
+        sql_valid_only: bool = False,
+    ) -> list[dict]:
+        items = self._search(self._qa, question, n)
+        if sql_valid_only:
+            items = [it for it in items if it.get("metadata", {}).get("sql_valid") is True]
+        if max_distance is not None:
+            items = [it for it in items if it["distance"] <= max_distance]
+        return items
 
     def search_ddl(self, question: str, n: int = 3) -> list[dict]:
         return self._search(self._ddl, question, n)
@@ -68,6 +79,12 @@ class InMemoryVectorStore:
 
     def search_findings(self, question: str, n: int = 3) -> list[dict]:
         return self._search(self._findings, question, n)
+
+    def flush_qa_pairs(self) -> int:
+        """Delete all QA pairs, keeping DDL, docs, and findings. Returns count deleted."""
+        count = len(self._qa)
+        self._qa.clear()
+        return count
 
     def delete_all(self) -> dict[str, int]:
         counts = {

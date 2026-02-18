@@ -109,7 +109,7 @@ class SearchSimilarTool(Tool):
         query = args["query"]
         collection = args["collection"]
         if collection == "qa_pairs":
-            items = context.rag.search_qa(query)
+            items = context.rag.search_qa(query, max_distance=1.0, sql_valid_only=True)
         elif collection == "ddl":
             items = context.rag.search_ddl(query)
         elif collection == "docs":

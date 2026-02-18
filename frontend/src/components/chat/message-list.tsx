@@ -13,7 +13,7 @@ interface MessageListProps {
 
 export function MessageList({ onRetry }: MessageListProps) {
   const conversation = useChatStore((s) => s.activeConversation());
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useChatStore((s) => s.isStreaming && s.streamingConversationId === s.activeConversationId);
   const messages = conversation?.messages ?? [];
 
   const { scrollRef, handleScroll } = useAutoScroll([messages]);

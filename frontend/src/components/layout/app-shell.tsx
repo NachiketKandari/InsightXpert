@@ -10,6 +10,8 @@ import { Header } from "./header";
 import { LeftSidebar } from "./left-sidebar";
 import { RightSidebar } from "./right-sidebar";
 import { SqlExecutor } from "@/components/sql/sql-executor";
+import { DatasetViewer } from "@/components/dataset/dataset-viewer";
+import { SampleQuestionsModal } from "@/components/sample-questions/sample-questions-modal";
 import {
   Sheet,
   SheetContent,
@@ -33,6 +35,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
   const sqlExecutorOpen = useChatStore((s) => s.sqlExecutorOpen);
   const setSqlExecutorOpen = useChatStore((s) => s.setSqlExecutorOpen);
+  const datasetViewerOpen = useChatStore((s) => s.datasetViewerOpen);
+  const setDatasetViewerOpen = useChatStore((s) => s.setDatasetViewerOpen);
+  const sampleQuestionsOpen = useChatStore((s) => s.sampleQuestionsOpen);
+  const setSampleQuestionsOpen = useChatStore((s) => s.setSampleQuestionsOpen);
   const isMobile = useIsMobile();
   const { isFeatureEnabled } = useClientConfig();
   const showRightSidebar = isFeatureEnabled("agent_process_sidebar");
@@ -153,6 +159,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <SqlExecutor onClose={() => setSqlExecutorOpen(false)} />
         </SheetContent>
       </Sheet>
+
+      {/* Dataset Viewer modal — triggered from user menu */}
+      <DatasetViewer open={datasetViewerOpen} onOpenChange={setDatasetViewerOpen} />
+
+      {/* Sample Questions modal — triggered from user menu */}
+      <SampleQuestionsModal open={sampleQuestionsOpen} onOpenChange={setSampleQuestionsOpen} />
     </div>
   );
 }

@@ -20,7 +20,7 @@ export function MessageBubble({
   onRetry,
   onFeedback,
 }: MessageBubbleProps) {
-  const isStreaming = useChatStore((s) => s.isStreaming);
+  const isStreaming = useChatStore((s) => s.isStreaming && s.streamingConversationId === s.activeConversationId);
   const isUser = message.role === "user";
 
   return (

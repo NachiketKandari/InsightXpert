@@ -51,11 +51,25 @@ class ChromaVectorStore:
         self._findings.upsert(ids=[doc_id], documents=[finding], metadatas=[meta] if meta else None)
         return doc_id
 
-    def search_qa(self, question: str, n: int = 5) -> list[dict]:
+    def search_qa(
+        self,
+        question: str,
+        n: int = 5,
+        max_distance: float | None = None,
+        sql_valid_only: bool = False,
+    ) -> list[dict]:
         if self._qa.count() == 0:
             return []
-        results = self._qa.query(query_texts=[question], n_results=min(n, self._qa.count()))
-        return self._unpack(results)
+        where = {"sql_valid": True} if sql_valid_only else None
+        results = self._qa.query(
+            query_texts=[question],
+            n_results=min(n, self._qa.count()),
+            where=where,
+        )
+        items = self._unpack(results)
+        if max_distance is not None:
+            items = [it for it in items if it["distance"] <= max_distance]
+        return items
 
     def search_ddl(self, question: str, n: int = 3) -> list[dict]:
         if self._ddl.count() == 0:
@@ -74,6 +88,16 @@ class ChromaVectorStore:
             return []
         results = self._findings.query(query_texts=[question], n_results=min(n, self._findings.count()))
         return self._unpack(results)
+
+    def flush_qa_pairs(self) -> int:
+        """Delete all QA pairs, keeping DDL, docs, and findings. Returns count deleted."""
+        count = self._qa.count()
+        if count == 0:
+            return 0
+        self._client.delete_collection("qa_pairs")
+        self._qa = self._client.get_or_create_collection("qa_pairs")
+        logger.info("Flushed %d QA pairs", count)
+        return count
 
     def delete_all(self) -> dict[str, int]:
         """Delete all embeddings from all collections. Returns count of deleted items per collection."""
