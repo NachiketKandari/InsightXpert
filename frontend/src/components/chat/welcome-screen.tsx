@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState, useCallback, type KeyboardEvent } from "react";
+import { useRef, useState, useCallback, useEffect, type KeyboardEvent } from "react";
 import { motion } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import { SUGGESTED_QUESTIONS } from "@/lib/constants";
 import { InputToolbar } from "./input-toolbar";
+import { useChatStore } from "@/stores/chat-store";
 
 interface WelcomeScreenProps {
   onSendMessage: (message: string) => void;
@@ -28,6 +29,16 @@ const item = {
 export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScreenProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const pendingInput = useChatStore((s) => s.pendingInput);
+  const setPendingInput = useChatStore((s) => s.setPendingInput);
+
+  useEffect(() => {
+    if (pendingInput) {
+      setValue(pendingInput);
+      setPendingInput(null);
+      textareaRef.current?.focus();
+    }
+  }, [pendingInput, setPendingInput]);
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();

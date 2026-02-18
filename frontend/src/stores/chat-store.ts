@@ -21,6 +21,8 @@ interface ChatState {
   rightSidebarOpen: boolean;
   sqlExecutorOpen: boolean;
   datasetViewerOpen: boolean;
+  sampleQuestionsOpen: boolean;
+  pendingInput: string | null;
 
   // Derived
   activeConversation: () => Conversation | null;
@@ -48,6 +50,8 @@ interface ChatState {
   setRightSidebar: (open: boolean) => void;
   setSqlExecutorOpen: (open: boolean) => void;
   setDatasetViewerOpen: (open: boolean) => void;
+  setSampleQuestionsOpen: (open: boolean) => void;
+  setPendingInput: (text: string | null) => void;
 }
 
 const getInitialSidebarState = () => {
@@ -64,6 +68,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   rightSidebarOpen: getInitialSidebarState(),
   sqlExecutorOpen: false,
   datasetViewerOpen: false,
+  sampleQuestionsOpen: false,
+  pendingInput: null,
 
   activeConversation: () => {
     const { conversations, activeConversationId } = get();
@@ -322,5 +328,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   setDatasetViewerOpen: (open) => {
     set({ datasetViewerOpen: open });
+  },
+
+  setSampleQuestionsOpen: (open) => {
+    set({ sampleQuestionsOpen: open });
+  },
+
+  setPendingInput: (text) => {
+    set({ pendingInput: text });
   },
 }));
