@@ -723,6 +723,24 @@ export default function AdminPage() {
               onOpenChange={(open) => {
                 if (!open) setViewingConversation(null);
               }}
+              currentIndex={
+                viewingConversation
+                  ? userConversations.findIndex((c) => c.id === viewingConversation.id)
+                  : 0
+              }
+              totalCount={userConversations.length}
+              onPrev={() => {
+                if (userConversations.length === 0) return;
+                const idx = userConversations.findIndex((c) => c.id === viewingConversation?.id);
+                const prevIdx = idx <= 0 ? userConversations.length - 1 : idx - 1;
+                openConversation(userConversations[prevIdx].id);
+              }}
+              onNext={() => {
+                if (userConversations.length === 0) return;
+                const idx = userConversations.findIndex((c) => c.id === viewingConversation?.id);
+                const nextIdx = idx >= userConversations.length - 1 ? 0 : idx + 1;
+                openConversation(userConversations[nextIdx].id);
+              }}
             />
 
             {/* Loading overlay for conversation fetch */}

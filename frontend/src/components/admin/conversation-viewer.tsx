@@ -7,8 +7,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
-import { ThumbsUp, ThumbsDown, MessageSquare } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 
 interface ConversationMessage {
@@ -34,12 +35,20 @@ interface ConversationViewerProps {
   conversation: ConversationData | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  currentIndex: number;
+  totalCount: number;
+  onPrev: () => void;
+  onNext: () => void;
 }
 
 export function ConversationViewer({
   conversation,
   open,
   onOpenChange,
+  currentIndex,
+  totalCount,
+  onPrev,
+  onNext,
 }: ConversationViewerProps) {
   if (!conversation) return null;
 
@@ -50,9 +59,24 @@ export function ConversationViewer({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="w-[95vw] max-w-4xl max-h-[85vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-5 pb-3 border-b border-border shrink-0">
-          <DialogTitle className="text-base pr-8 truncate">
-            {conversation.title}
-          </DialogTitle>
+          <div className="flex items-center gap-2 pr-8">
+            <DialogTitle className="text-base truncate flex-1">
+              {conversation.title}
+            </DialogTitle>
+            {totalCount > 1 && (
+              <div className="flex items-center gap-1 shrink-0">
+                <Button variant="ghost" size="icon" className="size-7" onClick={onPrev}>
+                  <ChevronLeft className="size-4" />
+                </Button>
+                <span className="text-xs text-muted-foreground tabular-nums min-w-[3ch] text-center">
+                  {currentIndex + 1}/{totalCount}
+                </span>
+                <Button variant="ghost" size="icon" className="size-7" onClick={onNext}>
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            )}
+          </div>
           <DialogDescription className="flex items-center gap-3 text-xs">
             <span>{userMsgCount} question{userMsgCount !== 1 ? "s" : ""}, {msgCount} message{msgCount !== 1 ? "s" : ""}</span>
             <span>Started {new Date(conversation.created_at).toLocaleString()}</span>
