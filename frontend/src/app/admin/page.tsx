@@ -20,6 +20,7 @@ import { BrandingEditor } from "@/components/admin/branding-editor";
 import { UserOrgMappingsEditor } from "@/components/admin/user-org-mappings";
 import { AdminDomainEditor } from "@/components/admin/admin-domain-editor";
 import { ConversationViewer } from "@/components/admin/conversation-viewer";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 import type {
   ClientConfig,
   OrgConfig,
@@ -93,6 +94,7 @@ export default function AdminPage() {
     type: "success" | "error";
     text: string;
   } | null>(null);
+  const { confirm, ConfirmDialog } = useConfirm();
 
   const loadConfig = useCallback(async () => {
     try {
@@ -149,7 +151,7 @@ export default function AdminPage() {
 
   const deleteOrg = async () => {
     if (!selectedOrgId) return;
-    if (!confirm(`Delete organization "${selectedOrgId}"?`)) return;
+    if (!await confirm({ title: "Delete organization", description: `Delete organization "${selectedOrgId}"? This cannot be undone.`, confirmLabel: "Delete", variant: "destructive" })) return;
     setIsSaving(true);
     try {
       const res = await apiFetch(`/api/admin/config/${selectedOrgId}`, {
@@ -241,7 +243,7 @@ export default function AdminPage() {
   }, []);
 
   const deleteUserConversations = async (userId: string, email: string) => {
-    if (!confirm(`Delete all conversations for ${email}? This cannot be undone.`)) return;
+    if (!await confirm({ title: "Delete user conversations", description: `Delete all conversations for ${email}? This cannot be undone.`, confirmLabel: "Delete all", variant: "destructive" })) return;
     setIsDeletingConvos(userId);
     try {
       const res = await apiFetch(`/api/admin/conversations/user/${userId}`, { method: "DELETE" });
@@ -259,7 +261,7 @@ export default function AdminPage() {
   };
 
   const deleteAllConversations = async () => {
-    if (!confirm("Delete ALL conversations for ALL users? This cannot be undone.")) return;
+    if (!await confirm({ title: "Delete all conversations", description: "Delete ALL conversations for ALL users? This cannot be undone.", confirmLabel: "Delete everything", variant: "destructive" })) return;
     setIsDeletingConvos("all");
     try {
       const res = await apiFetch("/api/admin/conversations", { method: "DELETE" });
@@ -313,7 +315,7 @@ export default function AdminPage() {
   };
 
   const deleteConversation = async (conversationId: string, title: string) => {
-    if (!confirm(`Delete conversation "${title}"? This cannot be undone.`)) return;
+    if (!await confirm({ title: "Delete conversation", description: `Delete "${title}"? This cannot be undone.`, confirmLabel: "Delete", variant: "destructive" })) return;
     try {
       const res = await apiFetch(`/api/admin/conversations/${conversationId}`, { method: "DELETE" });
       if (res.ok) {
@@ -335,7 +337,7 @@ export default function AdminPage() {
   };
 
   const flushQaPairs = async () => {
-    if (!confirm("Are you sure you want to clear all QA pairs from ChromaDB? This cannot be undone.")) return;
+    if (!await confirm({ title: "Clear QA pairs", description: "Remove all learned question-SQL pairs from ChromaDB? DDL schemas, documentation, and findings will be kept. This cannot be undone.", confirmLabel: "Clear", variant: "destructive" })) return;
     setIsFlushing(true);
     try {
       const res = await apiFetch("/api/admin/rag/qa-pairs", { method: "DELETE" });
@@ -390,7 +392,7 @@ export default function AdminPage() {
   };
 
   const resetPrompt = async (name: string) => {
-    if (!confirm(`Reset "${name}" to its file-based default? Current content will be overwritten.`)) return;
+    if (!await confirm({ title: "Reset prompt", description: `Reset "${name}" to its file-based default? Current content will be overwritten.`, confirmLabel: "Reset", variant: "default" })) return;
     try {
       const res = await apiFetch(`/api/admin/prompts/${name}/reset`, { method: "POST" });
       if (res.ok) {
@@ -406,7 +408,7 @@ export default function AdminPage() {
   };
 
   const deletePrompt = async (name: string) => {
-    if (!confirm(`Delete "${name}"? It will revert to file-based template.`)) return;
+    if (!await confirm({ title: "Delete prompt", description: `Delete "${name}"? It will revert to the file-based template.`, confirmLabel: "Delete", variant: "destructive" })) return;
     try {
       const res = await apiFetch(`/api/admin/prompts/${name}`, { method: "DELETE" });
       if (res.ok) {
@@ -929,6 +931,7 @@ export default function AdminPage() {
           </TabsContent>
         </Tabs>
       </main>
+      <ConfirmDialog />
     </div>
   );
 }
