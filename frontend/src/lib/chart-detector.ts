@@ -132,7 +132,7 @@ export function getChartConfig(
   const categoryCols = columns.filter((col) => !numericCols.includes(col));
 
   const categoryKey = categoryCols[0] || columns[0];
-  const valueKey = numericCols[0] || columns[1];
+  const valueKey = numericCols.find((col) => col !== categoryKey) || columns[1];
   const groupKey = categoryCols.length >= 2 ? categoryCols[1] : undefined;
 
   return { categoryKey, valueKey, numericCols, categoryCols, groupKey };
