@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
-import { ThumbsUp, ThumbsDown, MessageSquare, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, ChevronLeft, ChevronRight } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 
 interface ConversationMessage {
@@ -89,13 +89,8 @@ export function ConversationViewer({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {isLoading ? (
-            <div className="flex flex-col items-center justify-center py-16">
-              <Loader2 className="size-6 animate-spin text-muted-foreground" />
-              <p className="text-sm text-muted-foreground mt-2">Loading conversation...</p>
-            </div>
-          ) : conversation ? (
+        <div className={`flex-1 overflow-y-auto px-6 py-4 space-y-4 transition-opacity duration-150 ${isLoading ? "opacity-40 pointer-events-none" : ""}`}>
+          {conversation ? (
             <>
               {conversation.messages.map((msg) => (
                 <div
