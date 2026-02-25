@@ -14,10 +14,6 @@ RUN uv sync --frozen --no-dev
 # Copy application source
 COPY src/ src/
 
-# Load real CSV data into SQLite and clean up
-COPY generate_data.py upi_transactions_2024.csv ./
-RUN uv run python generate_data.py && rm generate_data.py upi_transactions_2024.csv
-
 # Pre-download ChromaDB's ONNX embedding model so it doesn't download at runtime
 RUN uv run python -c "import chromadb; chromadb.Client()"
 

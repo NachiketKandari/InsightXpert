@@ -26,14 +26,28 @@ class DatabaseConnector:
             raise RuntimeError("Database not connected. Call connect() first.")
         return self._engine
 
+    @property
+    def dialect(self) -> str:
+        return self.engine.dialect.name
+
     def connect(self, url: str, *, auth_token: str = "") -> None:
-        connect_args = {}
+        connect_args: dict = {}
+        kwargs: dict = {"pool_pre_ping": True}
+
         if "libsql" in url and auth_token:
             connect_args = {"auth_token": auth_token}
-        self._engine = create_engine(url, connect_args=connect_args, pool_pre_ping=True)
+        elif url.startswith("postgresql"):
+            kwargs.update(pool_size=5, max_overflow=10)
+        elif url.startswith("mysql"):
+            connect_args = {"charset": "utf8mb4"}
+            kwargs.update(pool_size=5, max_overflow=10)
+
+        self._engine = create_engine(url, connect_args=connect_args, **kwargs)
+
         if url.startswith("sqlite"):
             event.listen(self._engine, "connect", _enable_sqlite_fks)
-        logger.debug("Engine created for %s", url)
+
+        logger.debug("Engine created for %s (dialect=%s)", url, self._engine.dialect.name)
 
     def disconnect(self) -> None:
         if self._engine is not None:
@@ -46,7 +60,7 @@ class DatabaseConnector:
     ) -> list[dict]:
         start = time.time()
         with self.engine.connect() as conn:
-            if read_only and "libsql" not in str(self.engine.url):
+            if read_only and self.dialect in ("sqlite",):
                 conn.execute(text("PRAGMA query_only = ON"))
             result = conn.execute(text(sql))
             if result.returns_rows:

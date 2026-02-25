@@ -77,6 +77,7 @@ async def statistician_loop(
     results_summary = _summarize_results(analyst_results)
     system_prompt = render_prompt(
         "statistician_system.j2",
+        engine=db.engine,
         analyst_sql=analyst_sql or "(no SQL)",
         results_summary=results_summary,
     )

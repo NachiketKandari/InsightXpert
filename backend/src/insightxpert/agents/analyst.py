@@ -99,6 +99,7 @@ async def analyst_loop(
 
     system_prompt = render_prompt(
         "analyst_system.j2",
+        engine=db.engine,
         ddl=DDL,
         documentation=DOCUMENTATION,
         similar_qa=similar_qa,
