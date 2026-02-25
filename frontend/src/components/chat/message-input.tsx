@@ -14,16 +14,18 @@ interface MessageInputProps {
 export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const pendingInput = useChatStore((s) => s.pendingInput);
-  const setPendingInput = useChatStore((s) => s.setPendingInput);
 
+  // Subscribe to pendingInput changes outside the render cycle to avoid
+  // cascading setState-in-effect warnings.
   useEffect(() => {
-    if (pendingInput) {
-      setValue(pendingInput);
-      setPendingInput(null);
-      textareaRef.current?.focus();
-    }
-  }, [pendingInput, setPendingInput]);
+    return useChatStore.subscribe((state) => {
+      if (state.pendingInput) {
+        setValue(state.pendingInput);
+        state.setPendingInput(null);
+        textareaRef.current?.focus();
+      }
+    });
+  }, []);
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
