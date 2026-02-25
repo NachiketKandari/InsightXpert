@@ -719,9 +719,12 @@ export default function AdminPage() {
             {/* Conversation Viewer Modal */}
             <ConversationViewer
               conversation={viewingConversation}
-              open={viewingConversation !== null}
+              open={viewingConversation !== null || isLoadingConversation}
               onOpenChange={(open) => {
-                if (!open) setViewingConversation(null);
+                if (!open) {
+                  setViewingConversation(null);
+                  setIsLoadingConversation(false);
+                }
               }}
               currentIndex={
                 viewingConversation
@@ -741,17 +744,8 @@ export default function AdminPage() {
                 const nextIdx = idx >= userConversations.length - 1 ? 0 : idx + 1;
                 openConversation(userConversations[nextIdx].id);
               }}
+              isLoading={isLoadingConversation}
             />
-
-            {/* Loading overlay for conversation fetch */}
-            {isLoadingConversation && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
-                <div className="rounded-lg bg-background border border-border p-6 flex items-center gap-3">
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
-                  <span className="text-sm">Loading conversation...</span>
-                </div>
-              </div>
-            )}
           </TabsContent>
 
           {/* Prompts Tab */}

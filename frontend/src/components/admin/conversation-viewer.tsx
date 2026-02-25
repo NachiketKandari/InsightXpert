@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
-import { ThumbsUp, ThumbsDown, MessageSquare, ChevronLeft, ChevronRight } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, ChevronLeft, ChevronRight, Loader2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 
 interface ConversationMessage {
@@ -39,6 +39,7 @@ interface ConversationViewerProps {
   totalCount: number;
   onPrev: () => void;
   onNext: () => void;
+  isLoading?: boolean;
 }
 
 export function ConversationViewer({
@@ -49,11 +50,12 @@ export function ConversationViewer({
   totalCount,
   onPrev,
   onNext,
+  isLoading,
 }: ConversationViewerProps) {
-  if (!conversation) return null;
+  if (!conversation && !open) return null;
 
-  const msgCount = conversation.messages.length;
-  const userMsgCount = conversation.messages.filter((m) => m.role === "user").length;
+  const msgCount = conversation?.messages.length ?? 0;
+  const userMsgCount = conversation?.messages.filter((m) => m.role === "user").length ?? 0;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -61,7 +63,7 @@ export function ConversationViewer({
         <DialogHeader className="px-6 pt-5 pb-3 border-b border-border shrink-0">
           <div className="flex items-center gap-2 pr-8">
             <DialogTitle className="text-base truncate flex-1">
-              {conversation.title}
+              {conversation?.title ?? "Loading..."}
             </DialogTitle>
             {totalCount > 1 && (
               <div className="flex items-center gap-1 shrink-0">
@@ -78,59 +80,72 @@ export function ConversationViewer({
             )}
           </div>
           <DialogDescription className="flex items-center gap-3 text-xs">
-            <span>{userMsgCount} question{userMsgCount !== 1 ? "s" : ""}, {msgCount} message{msgCount !== 1 ? "s" : ""}</span>
-            <span>Started {new Date(conversation.created_at).toLocaleString()}</span>
+            {conversation && (
+              <>
+                <span>{userMsgCount} question{userMsgCount !== 1 ? "s" : ""}, {msgCount} message{msgCount !== 1 ? "s" : ""}</span>
+                <span>Started {new Date(conversation.created_at).toLocaleString()}</span>
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
-          {conversation.messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
-            >
-              {msg.role === "user" ? (
-                <div className="max-w-[90%] sm:max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-primary-foreground">
-                  {msg.content}
-                </div>
-              ) : (
-                <div className="w-full space-y-3">
-                  {msg.chunks && msg.chunks.length > 0 ? (
-                    msg.chunks.map((chunk, i) => (
-                      <ChunkRenderer key={i} chunk={chunk} isComplete={true} />
-                    ))
-                  ) : (
-                    <div className="text-sm text-foreground whitespace-pre-wrap">
+          {isLoading ? (
+            <div className="flex flex-col items-center justify-center py-16">
+              <Loader2 className="size-6 animate-spin text-muted-foreground" />
+              <p className="text-sm text-muted-foreground mt-2">Loading conversation...</p>
+            </div>
+          ) : conversation ? (
+            <>
+              {conversation.messages.map((msg) => (
+                <div
+                  key={msg.id}
+                  className={`flex flex-col ${msg.role === "user" ? "items-end" : "items-start"}`}
+                >
+                  {msg.role === "user" ? (
+                    <div className="max-w-[90%] sm:max-w-[80%] rounded-2xl rounded-br-sm bg-primary px-3 sm:px-4 py-2 sm:py-2.5 text-sm text-primary-foreground">
                       {msg.content}
+                    </div>
+                  ) : (
+                    <div className="w-full space-y-3">
+                      {msg.chunks && msg.chunks.length > 0 ? (
+                        msg.chunks.map((chunk, i) => (
+                          <ChunkRenderer key={i} chunk={chunk} isComplete={true} />
+                        ))
+                      ) : (
+                        <div className="text-sm text-foreground whitespace-pre-wrap">
+                          {msg.content}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Feedback indicator (read-only) */}
+                  {msg.role === "assistant" && msg.feedback !== null && msg.feedback !== undefined && (
+                    <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
+                      {msg.feedback ? (
+                        <ThumbsUp className="size-3 text-emerald-500" />
+                      ) : (
+                        <ThumbsDown className="size-3 text-red-400" />
+                      )}
+                      {msg.feedback_comment && (
+                        <span className="italic truncate max-w-[200px]">
+                          &quot;{msg.feedback_comment}&quot;
+                        </span>
+                      )}
                     </div>
                   )}
                 </div>
-              )}
+              ))}
 
-              {/* Feedback indicator (read-only) */}
-              {msg.role === "assistant" && msg.feedback !== null && msg.feedback !== undefined && (
-                <div className="flex items-center gap-1.5 mt-1 text-xs text-muted-foreground">
-                  {msg.feedback ? (
-                    <ThumbsUp className="size-3 text-emerald-500" />
-                  ) : (
-                    <ThumbsDown className="size-3 text-red-400" />
-                  )}
-                  {msg.feedback_comment && (
-                    <span className="italic truncate max-w-[200px]">
-                      &quot;{msg.feedback_comment}&quot;
-                    </span>
-                  )}
+              {conversation.messages.length === 0 && (
+                <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                  <MessageSquare className="size-8 mb-2 opacity-50" />
+                  <p className="text-sm">No messages in this conversation</p>
                 </div>
               )}
-            </div>
-          ))}
-
-          {conversation.messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-              <MessageSquare className="size-8 mb-2 opacity-50" />
-              <p className="text-sm">No messages in this conversation</p>
-            </div>
-          )}
+            </>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>
