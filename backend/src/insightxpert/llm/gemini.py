@@ -7,7 +7,7 @@ import uuid
 from google import genai
 from google.genai import types
 
-from .base import LLMResponse, ToolCall
+from .base import LLMResponse, ToolCall, log_llm_response
 
 logger = logging.getLogger("insightxpert.llm.gemini")
 
@@ -121,12 +121,5 @@ class GeminiProvider:
         ms = (time.time() - start) * 1000
 
         parsed = self._parse_response(response)
-        if parsed.tool_calls:
-            logger.debug(
-                "chat() response (%.0fms): %d tool_calls [%s]",
-                ms, len(parsed.tool_calls), ", ".join(tc.name for tc in parsed.tool_calls),
-            )
-        else:
-            preview = (parsed.content or "")[:100]
-            logger.debug("chat() response (%.0fms): text=%s...", ms, preview)
+        log_llm_response(logger, ms, parsed)
         return parsed

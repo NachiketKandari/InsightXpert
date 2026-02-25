@@ -3,20 +3,7 @@
 import { MessageSquare, FileText } from "lucide-react";
 import { useChatStore } from "@/stores/chat-store";
 import { cn } from "@/lib/utils";
-
-interface SearchMatchMessage {
-  role: string;
-  snippet: string;
-  created_at: string;
-}
-
-interface SearchResult {
-  id: string;
-  title: string;
-  updated_at: string;
-  title_match: boolean;
-  matching_messages: SearchMatchMessage[];
-}
+import type { SearchResult } from "@/types/chat";
 
 interface SearchResultsProps {
   results: SearchResult[];

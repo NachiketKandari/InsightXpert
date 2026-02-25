@@ -6,7 +6,7 @@ import time
 import uuid
 import ollama as ollama_sdk
 
-from .base import LLMResponse, ToolCall
+from .base import LLMResponse, ToolCall, log_llm_response
 
 logger = logging.getLogger("insightxpert.llm.ollama")
 
@@ -98,12 +98,5 @@ class OllamaProvider:
         tool_calls = self._parse_tool_calls({"tool_calls": raw_tool_calls}) if raw_tool_calls else []
 
         result = LLMResponse(content=content or None, tool_calls=tool_calls)
-        if result.tool_calls:
-            logger.debug(
-                "chat() response (%.0fms): %d tool_calls [%s]",
-                ms, len(result.tool_calls), ", ".join(tc.name for tc in result.tool_calls),
-            )
-        else:
-            preview = (result.content or "")[:100]
-            logger.debug("chat() response (%.0fms): text=%s...", ms, preview)
+        log_llm_response(logger, ms, result)
         return result

@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { apiFetch } from "@/lib/api";
+import { apiFetch, apiCall } from "@/lib/api";
 import type { AgentMode } from "@/lib/sse-client";
 
 interface ProviderModels {
@@ -27,21 +27,16 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   agentMode: "analyst",
 
   fetchConfig: async () => {
-    try {
-      set({ loading: true });
-      const res = await apiFetch("/api/config");
-      if (!res.ok) return;
-      const data = await res.json();
+    set({ loading: true });
+    const data = await apiCall<{ current_provider: string; current_model: string; providers: ProviderModels[] }>("/api/config");
+    if (data) {
       set({
         currentProvider: data.current_provider,
         currentModel: data.current_model,
         providers: data.providers,
       });
-    } catch {
-      // Silently fail — keep defaults
-    } finally {
-      set({ loading: false });
     }
+    set({ loading: false });
   },
 
   switchModel: async (provider: string, model: string) => {

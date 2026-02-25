@@ -12,23 +12,11 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useChatStore } from "@/stores/chat-store";
 import type { Conversation } from "@/types/chat";
-import { cn } from "@/lib/utils";
+import { cn, relativeTime } from "@/lib/utils";
 
 interface ConversationItemProps {
   conversation: Conversation;
   isActive: boolean;
-}
-
-function relativeTime(timestamp: number): string {
-  const diff = Date.now() - timestamp;
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return "just now";
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
 }
 
 export function ConversationItem({

@@ -6,26 +6,10 @@ import json
 
 import pytest
 
+from conftest import MockLLM
 from insightxpert.agents.analyst import analyst_loop
 from insightxpert.agents.tools import execute_tool
 from insightxpert.llm.base import LLMResponse, ToolCall
-
-
-class MockLLM:
-    """Mock LLM that returns predetermined responses."""
-
-    def __init__(self, responses: list[LLMResponse]):
-        self._responses = list(responses)
-        self._call_count = 0
-
-    async def chat(self, messages, tools=None):
-        idx = min(self._call_count, len(self._responses) - 1)
-        self._call_count += 1
-        return self._responses[idx]
-
-    async def chat_stream(self, messages, tools=None):
-        resp = await self.chat(messages, tools)
-        yield resp
 
 
 @pytest.mark.asyncio

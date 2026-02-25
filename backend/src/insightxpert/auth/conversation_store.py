@@ -22,6 +22,16 @@ def _to_ist(dt: datetime) -> str:
     return dt.astimezone(IST).isoformat()
 
 
+def _conv_to_dict(convo: ConversationRecord) -> dict:
+    return {
+        "id": convo.id,
+        "title": convo.title,
+        "is_starred": convo.is_starred,
+        "created_at": _to_ist(convo.created_at),
+        "updated_at": _to_ist(convo.updated_at),
+    }
+
+
 class PersistentConversationStore:
     def __init__(self, engine):
         self.engine = engine
@@ -58,14 +68,7 @@ class PersistentConversationStore:
             )
 
             return [
-                {
-                    "id": c.id,
-                    "title": c.title,
-                    "is_starred": c.is_starred,
-                    "created_at": _to_ist(c.created_at),
-                    "updated_at": _to_ist(c.updated_at),
-                    "last_message": last_content[:200] if last_content else None,
-                }
+                {**_conv_to_dict(c), "last_message": last_content[:200] if last_content else None}
                 for c, last_content in rows
             ]
 
@@ -82,11 +85,7 @@ class PersistentConversationStore:
                 .all()
             )
             return {
-                "id": convo.id,
-                "title": convo.title,
-                "is_starred": convo.is_starred,
-                "created_at": _to_ist(convo.created_at),
-                "updated_at": _to_ist(convo.updated_at),
+                **_conv_to_dict(convo),
                 "messages": [
                     {
                         "id": m.id,
@@ -106,13 +105,7 @@ class PersistentConversationStore:
             convo = session.get(ConversationRecord, conversation_id)
             if convo is not None:
                 if convo.user_id == user_id:
-                    return {
-                        "id": convo.id,
-                        "title": convo.title,
-                        "is_starred": convo.is_starred,
-                        "created_at": _to_ist(convo.created_at),
-                        "updated_at": _to_ist(convo.updated_at),
-                    }
+                    return _conv_to_dict(convo)
                 raise ValueError("Conversation not owned by user")
 
             now = datetime.now(timezone.utc)
@@ -125,13 +118,7 @@ class PersistentConversationStore:
             )
             session.add(convo)
             session.commit()
-            return {
-                "id": convo.id,
-                "title": convo.title,
-                "is_starred": convo.is_starred,
-                "created_at": _to_ist(convo.created_at),
-                "updated_at": _to_ist(convo.updated_at),
-            }
+            return _conv_to_dict(convo)
 
     def create_conversation(self, user_id: str, title: str) -> dict:
         now = datetime.now(timezone.utc)
@@ -145,13 +132,7 @@ class PersistentConversationStore:
         with Session(self.engine) as session:
             session.add(convo)
             session.commit()
-            return {
-                "id": convo.id,
-                "title": convo.title,
-                "is_starred": convo.is_starred,
-                "created_at": _to_ist(convo.created_at),
-                "updated_at": _to_ist(convo.updated_at),
-            }
+            return _conv_to_dict(convo)
 
     def save_message(
         self,

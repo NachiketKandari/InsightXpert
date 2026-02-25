@@ -2,8 +2,30 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from insightxpert.db.connector import DatabaseConnector
+from insightxpert.llm.base import LLMResponse
 from insightxpert.rag.store import VectorStore
 from insightxpert.config import Settings
+
+
+class MockLLM:
+    """Mock LLM that returns predetermined responses."""
+
+    def __init__(self, responses: list[LLMResponse]):
+        self._responses = list(responses)
+        self._call_count = 0
+
+    @property
+    def model(self) -> str:
+        return "mock"
+
+    async def chat(self, messages, tools=None):
+        idx = min(self._call_count, len(self._responses) - 1)
+        self._call_count += 1
+        return self._responses[idx]
+
+    async def chat_stream(self, messages, tools=None):
+        resp = await self.chat(messages, tools)
+        yield resp
 
 
 @pytest.fixture

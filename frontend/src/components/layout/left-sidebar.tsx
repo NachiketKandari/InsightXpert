@@ -11,19 +11,12 @@ import { SearchResults } from "@/components/sidebar/search-results";
 import { UserMenu } from "./user-menu";
 import { useChatStore } from "@/stores/chat-store";
 import { apiFetch } from "@/lib/api";
+import type { SearchResult } from "@/types/chat";
 import {
   Tooltip,
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-
-interface SearchResult {
-  id: string;
-  title: string;
-  updated_at: string;
-  title_match: boolean;
-  matching_messages: { role: string; snippet: string; created_at: string }[];
-}
 
 export function LeftSidebar() {
   const newConversation = useChatStore((s) => s.newConversation);
