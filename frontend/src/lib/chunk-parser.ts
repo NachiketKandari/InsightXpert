@@ -10,7 +10,7 @@ export function parseChunk(raw: string): ChatChunk | null {
   }
 }
 
-export interface ToolResultData {
+interface ToolResultData {
   columns: string[];
   rows: Record<string, unknown>[];
   rowCount: number;

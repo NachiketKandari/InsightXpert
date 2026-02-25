@@ -3,10 +3,17 @@ from __future__ import annotations
 import logging
 import time
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
 logger = logging.getLogger("insightxpert.db")
+
+
+def _enable_sqlite_fks(dbapi_conn, connection_record):
+    """Enable foreign key enforcement for every new SQLite connection."""
+    cursor = dbapi_conn.cursor()
+    cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.close()
 
 
 class DatabaseConnector:
@@ -24,6 +31,8 @@ class DatabaseConnector:
         if "libsql" in url and auth_token:
             connect_args = {"auth_token": auth_token}
         self._engine = create_engine(url, connect_args=connect_args, pool_pre_ping=True)
+        if url.startswith("sqlite"):
+            event.listen(self._engine, "connect", _enable_sqlite_fks)
         logger.debug("Engine created for %s", url)
 
     def disconnect(self) -> None:

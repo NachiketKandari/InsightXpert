@@ -16,6 +16,16 @@ logger = logging.getLogger("insightxpert.auth")
 router = APIRouter(prefix="/api/auth")
 
 
+def _cookie_flags(request: Request) -> tuple[bool, str]:
+    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
+    origin = request.headers.get("origin", "")
+    origin_host = urlparse(origin).hostname if origin else None
+    is_cross_site = bool(origin_host) and origin_host != (request.url.hostname or "")
+    secure = is_https or is_cross_site
+    samesite = "none" if is_cross_site else "lax"
+    return secure, samesite
+
+
 @router.post("/login", response_model=UserResponse)
 async def login(
     body: LoginRequest,
@@ -38,16 +48,13 @@ async def login(
         expire_minutes=settings.access_token_expire_minutes,
     )
 
-    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-    origin = request.headers.get("origin", "")
-    origin_host = urlparse(origin).hostname if origin else None
-    is_cross_site = bool(origin_host) and origin_host != (request.url.hostname or "")
+    secure, samesite = _cookie_flags(request)
     response.set_cookie(
         key="__session",
         value=token,
         httponly=True,
-        samesite="none" if is_cross_site else "lax",
-        secure=is_https or is_cross_site,
+        samesite=samesite,
+        secure=secure,
         max_age=settings.access_token_expire_minutes * 60,
         path="/",
     )
@@ -58,11 +65,8 @@ async def login(
 
 @router.post("/logout")
 async def logout(request: Request, response: Response):
-    is_https = request.url.scheme == "https" or request.headers.get("x-forwarded-proto") == "https"
-    origin = request.headers.get("origin", "")
-    origin_host = urlparse(origin).hostname if origin else None
-    is_cross_site = bool(origin_host) and origin_host != (request.url.hostname or "")
-    response.delete_cookie(key="__session", path="/", secure=is_https or is_cross_site, samesite="none" if is_cross_site else "lax")
+    secure, samesite = _cookie_flags(request)
+    response.delete_cookie(key="__session", path="/", secure=secure, samesite=samesite)
     return {"status": "ok"}
 
 

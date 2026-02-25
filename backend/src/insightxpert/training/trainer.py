@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import csv
-import json
 import logging
-from pathlib import Path
 
 from insightxpert.db.connector import DatabaseConnector
 from insightxpert.rag.base import VectorStoreBackend
+from insightxpert.training.documentation import DOCUMENTATION
+from insightxpert.training.queries import EXAMPLE_QUERIES
+from insightxpert.training.schema import DDL
 
 logger = logging.getLogger("insightxpert.training")
 
@@ -46,52 +46,8 @@ class Trainer:
 
         return count
 
-    def train_from_file(self, path: str) -> int:
-        """Load Q&A pairs or docs from JSON or CSV file. Returns count of items added."""
-        p = Path(path)
-        count = 0
-
-        if p.suffix == ".json":
-            with open(p) as f:
-                data = json.load(f)
-            if isinstance(data, list):
-                for item in data:
-                    if "question" in item and "sql" in item:
-                        self._rag.add_qa_pair(item["question"], item["sql"], item.get("metadata", {}))
-                        count += 1
-                    elif "doc" in item or "documentation" in item:
-                        doc = item.get("doc") or item.get("documentation", "")
-                        self._rag.add_documentation(doc, item.get("metadata", {}))
-                        count += 1
-                    elif "ddl" in item:
-                        self._rag.add_ddl(item["ddl"], item.get("table_name", ""))
-                        count += 1
-
-        elif p.suffix == ".csv":
-            with open(p) as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if "question" in row and "sql" in row:
-                        self._rag.add_qa_pair(row["question"], row["sql"])
-                        count += 1
-
-        return count
-
-    def train_qa(self, question: str, sql: str, metadata: dict | None = None) -> str:
-        return self._rag.add_qa_pair(question, sql, metadata)
-
-    def train_doc(self, doc: str, metadata: dict | None = None) -> str:
-        return self._rag.add_documentation(doc, metadata)
-
-    def train_ddl(self, ddl: str, table_name: str = "") -> str:
-        return self._rag.add_ddl(ddl, table_name)
-
     def train_insightxpert(self, db: DatabaseConnector | None = None) -> int:
         """Bootstrap RAG with InsightXpert training data: DDL, documentation, and example Q&A pairs."""
-        from insightxpert.training.documentation import DOCUMENTATION
-        from insightxpert.training.queries import EXAMPLE_QUERIES
-        from insightxpert.training.schema import DDL
-
         count = 0
 
         # Add the DDL

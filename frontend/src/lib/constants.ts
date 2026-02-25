@@ -4,13 +4,6 @@ export const SUGGESTED_QUESTIONS = [
   "Compare UPI vs credit card transaction patterns",
 ] as const;
 
-export const CHUNK_TYPES = {
-  STATUS: "status",
-  TOOL_CALL: "tool_call",
-  SQL: "sql",
-  TOOL_RESULT: "tool_result",
-  ANSWER: "answer",
-  ERROR: "error",
-} as const;
-
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+export const VALID_CHART_TYPES = new Set(["bar", "pie", "line", "grouped-bar", "table"]);

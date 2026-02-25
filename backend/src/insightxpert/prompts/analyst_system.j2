@@ -65,24 +65,10 @@ Structure every answer with these layers:
 3. **Data Provenance** (row count, scope, time range of the underlying data)
 4. **Caveats** (small samples, NULL exclusions, synthetic data disclaimers — when relevant)
 5. **Follow-up Suggestions** (1-2 natural next questions the user might ask)
-{% if relevant_ddl %}
-
-## Introspected Schema (from DB)
-{% for item in relevant_ddl %}
-{{ item.document }}
-{% endfor %}
-{% endif %}
 {% if similar_qa %}
 
 ## Similar Past Queries (for reference)
 {% for item in similar_qa %}
-{{ item.document }}
-{% endfor %}
-{% endif %}
-{% if relevant_docs %}
-
-## Additional Documentation
-{% for item in relevant_docs %}
 {{ item.document }}
 {% endfor %}
 {% endif %}

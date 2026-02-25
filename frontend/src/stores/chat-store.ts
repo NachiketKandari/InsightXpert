@@ -54,18 +54,14 @@ interface ChatState {
   setPendingInput: (text: string | null) => void;
 }
 
-const getInitialSidebarState = () => {
-  return false;
-};
-
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   isStreaming: false,
   streamingConversationId: null,
   agentSteps: [],
-  leftSidebarOpen: getInitialSidebarState(),
-  rightSidebarOpen: getInitialSidebarState(),
+  leftSidebarOpen: false,
+  rightSidebarOpen: false,
   sqlExecutorOpen: false,
   datasetViewerOpen: false,
   sampleQuestionsOpen: false,
@@ -85,11 +81,10 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
       const data = await res.json();
       const conversations: Conversation[] = data.map(
-        (c: { id: string; title: string; messages?: Message[]; is_starred?: boolean; created_at: string; updated_at: string }) => ({
+        (c: { id: string; title: string; messages?: Message[]; created_at: string; updated_at: string }) => ({
           id: c.id,
           title: c.title,
           messages: c.messages || [],
-          isStarred: c.is_starred ?? false,
           createdAt: new Date(c.created_at).getTime(),
           updatedAt: new Date(c.updated_at).getTime(),
         })
@@ -107,7 +102,6 @@ export const useChatStore = create<ChatState>((set, get) => ({
       id,
       title: "New Chat",
       messages: [],
-      isStarred: false,
       createdAt: now,
       updatedAt: now,
     };

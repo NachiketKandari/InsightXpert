@@ -31,9 +31,22 @@ export interface Conversation {
   id: string;
   title: string;
   messages: Message[];
-  isStarred: boolean;
   createdAt: number;
   updatedAt: number;
+}
+
+export interface SearchMatchMessage {
+  role: string;
+  snippet: string;
+  created_at: string;
+}
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  updated_at: string;
+  title_match: boolean;
+  matching_messages: SearchMatchMessage[];
 }
 
 export type AgentStepStatus = "pending" | "running" | "done" | "error";

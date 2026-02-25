@@ -13,7 +13,7 @@ def read_config(config_path: Path) -> ClientConfig:
     try:
         data = json.loads(config_path.read_text())
         return ClientConfig.model_validate(data)
-    except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
+    except Exception as e:
         logger.warning("Could not read config from %s: %s — using defaults", config_path, e)
         return ClientConfig()
 
@@ -22,11 +22,6 @@ def write_config(config_path: Path, config: ClientConfig) -> None:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config.model_dump(), indent=2))
     logger.info("Config written to %s", config_path)
-
-
-def get_org_config(config_path: Path, org_id: str) -> OrgConfig | None:
-    cfg = read_config(config_path)
-    return cfg.organizations.get(org_id)
 
 
 def set_org_config(config_path: Path, org_id: str, org_config: OrgConfig) -> ClientConfig:

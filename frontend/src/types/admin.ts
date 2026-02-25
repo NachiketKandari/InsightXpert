@@ -37,8 +37,3 @@ export interface ClientConfig {
   defaults: DefaultConfig;
 }
 
-export interface ResolvedClientConfig {
-  config: OrgConfig | null;
-  is_admin: boolean;
-  org_id: string | null;
-}

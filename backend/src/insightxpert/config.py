@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
 from enum import Enum
 
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_logger = logging.getLogger("insightxpert.config")
 
 
 class LLMProvider(str, Enum):
@@ -28,34 +32,36 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = "./chroma_data"
 
     # Agent
-    max_agent_iterations: int = 10
-    max_statistician_iterations: int = 5
-    python_exec_timeout_seconds: int = 10
-    sql_row_limit: int = 1000
-    sql_timeout_seconds: int = 30
+    max_agent_iterations: int = Field(default=10, gt=0)
+    max_statistician_iterations: int = Field(default=5, gt=0)
+    python_exec_timeout_seconds: int = Field(default=10, gt=0)
+    sql_row_limit: int = Field(default=1000, gt=0)
+    sql_timeout_seconds: int = Field(default=30, gt=0)
 
     # CORS
     cors_origins: str = "http://localhost:3000,https://insightxpert.vercel.app,https://insightxpert-ai.web.app"
 
     # Auth
     secret_key: str = "CHANGE-ME-in-production-use-a-random-secret-key-here"
-    access_token_expire_minutes: int = 1440
+    access_token_expire_minutes: int = Field(default=1440, gt=0)
+    admin_seed_email: str = "admin@insightxpert.ai"
+    admin_seed_password: str = "admin123"
 
     # Logging
     log_level: str = "DEBUG"
 
-    # Observability (Day 2+)
-    obs_database_path: str = "./obs.db"
+    @field_validator("log_level")
+    @classmethod
+    def _normalize_log_level(cls, v: str) -> str:
+        v = v.upper()
+        if v not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+            raise ValueError(f"log_level must be one of DEBUG, INFO, WARNING, ERROR, CRITICAL; got {v!r}")
+        return v
 
-    @property
-    def db_type(self) -> str:
-        url = self.database_url.lower()
-        if "libsql" in url:
-            return "libsql"
-        if url.startswith("sqlite"):
-            return "sqlite"
-        if "postgresql" in url or "postgres" in url:
-            return "postgresql"
-        if "mysql" in url:
-            return "mysql"
-        return "unknown"
+    @model_validator(mode="after")
+    def _check_runtime_config(self) -> Settings:
+        if "CHANGE-ME" in self.secret_key or len(self.secret_key) < 32:
+            _logger.warning("secret_key is insecure — set a random string of 32+ characters for production")
+        if self.llm_provider == LLMProvider.GEMINI and not self.gemini_api_key:
+            _logger.warning("llm_provider is 'gemini' but gemini_api_key is empty")
+        return self

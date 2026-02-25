@@ -11,21 +11,16 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DataTable } from "@/components/chunks/data-table";
 import {
   Dialog,
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { API_BASE_URL } from "@/lib/constants";
+import { apiFetch, apiCall } from "@/lib/api";
+import type { QueryResult } from "@/types/api";
 
 const PAGE_SIZE = 100;
-
-interface QueryResult {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  row_count: number;
-  execution_time_ms: number;
-}
 
 interface DatasetViewerProps {
   open: boolean;
@@ -45,10 +40,8 @@ export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sql/execute`, {
+      const res = await apiFetch("/api/sql/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           sql: `SELECT * FROM transactions LIMIT ${PAGE_SIZE} OFFSET ${pageOffset}`,
         }),
@@ -71,24 +64,14 @@ export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
   }, []);
 
   const fetchTotalCount = useCallback(async () => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/api/sql/execute`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          sql: "SELECT COUNT(*) as total FROM transactions",
-        }),
-      });
-
-      if (res.ok) {
-        const result: QueryResult = await res.json();
-        if (result.rows.length > 0) {
-          setTotalRows(Number(result.rows[0].total));
-        }
-      }
-    } catch {
-      // non-critical, ignore
+    const result = await apiCall<QueryResult>("/api/sql/execute", {
+      method: "POST",
+      body: JSON.stringify({
+        sql: "SELECT COUNT(*) as total FROM transactions",
+      }),
+    });
+    if (result && result.rows.length > 0) {
+      setTotalRows(Number(result.rows[0].total));
     }
   }, []);
 
@@ -167,53 +150,24 @@ export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
 
           {data && data.columns.length > 0 && (
             <div ref={scrollRef} className="h-full overflow-auto">
-              <table className="w-full text-sm border-collapse">
-                <thead className="sticky top-0 z-10">
-                  <tr className="bg-secondary dark:bg-accent border-b border-border">
-                    <th className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-primary/70 dark:text-cyan-accent/80 whitespace-nowrap w-12 bg-inherit">
-                      #
-                    </th>
-                    {data.columns.map((col) => (
-                      <th
-                        key={col}
-                        className="px-3 py-2.5 text-left text-[11px] font-semibold uppercase tracking-wider text-primary/70 dark:text-cyan-accent/80 whitespace-nowrap bg-inherit"
-                      >
-                        {col}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody className={loading ? "opacity-40 transition-opacity" : "transition-opacity"}>
-                  {data.rows.map((row, i) => (
-                    <tr
-                      key={i}
-                      className={
-                        i % 2 === 0
-                          ? "bg-card hover:bg-accent/50 dark:hover:bg-accent/60 transition-colors"
-                          : "bg-muted/30 dark:bg-muted/20 hover:bg-accent/50 dark:hover:bg-accent/60 transition-colors"
-                      }
-                    >
-                      <td className="px-3 py-1.5 text-[11px] text-muted-foreground/60 border-b border-border/20 tabular-nums font-mono">
-                        {offset + i + 1}
-                      </td>
-                      {data.columns.map((col) => (
-                        <td
-                          key={col}
-                          className="px-3 py-1.5 font-mono text-xs whitespace-nowrap border-b border-border/20 text-foreground/85"
-                        >
-                          {row[col] == null ? (
-                            <span className="text-muted-foreground/50 italic">
-                              null
-                            </span>
-                          ) : (
-                            String(row[col])
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable
+                columns={data.columns}
+                rows={data.rows}
+                showExpandToggle={false}
+                showRowNumbers
+                rowNumberOffset={offset}
+                loading={loading}
+                className="space-y-0"
+                tableClassName="rounded-none border-none"
+                headerRowClassName="bg-secondary dark:bg-accent border-b border-border sticky top-0 z-10"
+                headerCellClassName="py-2.5 text-[11px] font-semibold uppercase tracking-wider text-primary/70 dark:text-cyan-accent/80 bg-inherit"
+                rowClassName={(i) =>
+                  i % 2 === 0
+                    ? "bg-card hover:bg-accent/50 dark:hover:bg-accent/60 transition-colors"
+                    : "bg-muted/30 dark:bg-muted/20 hover:bg-accent/50 dark:hover:bg-accent/60 transition-colors"
+                }
+                cellClassName="border-b border-border/20 text-foreground/85"
+              />
             </div>
           )}
 

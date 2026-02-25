@@ -3,11 +3,11 @@ from __future__ import annotations
 import logging
 import sys
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-
-from pathlib import Path
+from sqlalchemy import inspect, text
 
 from insightxpert.admin.config_store import read_config, write_config
 from insightxpert.admin.routes import router as admin_router
@@ -17,13 +17,11 @@ from insightxpert.auth.models import Base as AuthBase
 from insightxpert.auth.routes import router as auth_router
 from insightxpert.auth.seed import seed_admin
 from insightxpert.config import Settings
-from insightxpert.llm.factory import create_llm
 from insightxpert.db.connector import DatabaseConnector
+from insightxpert.llm.factory import create_llm
 from insightxpert.memory.conversation_store import ConversationStore
 from insightxpert.rag.store import VectorStore
 from insightxpert.training.trainer import Trainer
-
-from sqlalchemy import inspect, text
 
 logger = logging.getLogger("insightxpert")
 
@@ -77,7 +75,7 @@ def _setup_logging(level: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = Settings()
+    settings = _settings
     _setup_logging(settings.log_level)
 
     logger.info("Starting InsightXpert (log_level=%s)", settings.log_level)
@@ -107,7 +105,7 @@ async def lifespan(app: FastAPI):
     auth_engine = db.engine
     AuthBase.metadata.create_all(auth_engine)
     _migrate_schema(auth_engine)
-    seed_admin(auth_engine)
+    seed_admin(auth_engine, settings)
     logger.info("Auth tables initialized")
 
     # Persistent conversation store (SQLite-backed)
@@ -159,5 +157,7 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 
 if __name__ == "__main__":
+    import os
     import uvicorn
-    uvicorn.run("insightxpert.main:app", host="0.0.0.0", port=8000, reload=True)
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run("insightxpert.main:app", host="0.0.0.0", port=port, reload=True)

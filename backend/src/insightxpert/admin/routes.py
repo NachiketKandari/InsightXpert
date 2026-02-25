@@ -43,30 +43,42 @@ def _require_admin(user: User, config: ClientConfig) -> None:
         )
 
 
+class _AdminContext:
+    """Bundles admin-verified config + user so endpoints don't re-resolve the user."""
+    __slots__ = ("config", "user")
+
+    def __init__(self, config: ClientConfig, user: User) -> None:
+        self.config = config
+        self.user = user
+
+
+def _get_admin_context(
+    request: Request,
+    user: User = Depends(get_current_user),
+) -> _AdminContext:
+    path = _config_path(request)
+    config = read_config(path)
+    _require_admin(user, config)
+    return _AdminContext(config, user)
+
+
 # --- Admin endpoints (admin only) -------------------------------------------
 
 
 @router.get("/api/admin/config")
 async def get_full_config(
-    request: Request,
-    user: User = Depends(get_current_user),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
-    return config
+    return ctx.config
 
 
 @router.put("/api/admin/config")
 async def update_global_config(
     body: dict,
     request: Request,
-    user: User = Depends(get_current_user),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
-
+    config = ctx.config
     if "admin_domains" in body:
         config.admin_domains = body["admin_domains"]
     if "user_org_mappings" in body:
@@ -80,22 +92,18 @@ async def update_global_config(
 
         config.defaults = DefaultConfig.model_validate(body["defaults"])
 
-    write_config(path, config)
+    write_config(_config_path(request), config)
     return config
 
 
 @router.get("/api/admin/organizations")
 async def list_organizations(
-    request: Request,
-    user: User = Depends(get_current_user),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
     return {
         "organizations": [
             {"org_id": org.org_id, "org_name": org.org_name}
-            for org in config.organizations.values()
+            for org in ctx.config.organizations.values()
         ]
     }
 
@@ -103,14 +111,9 @@ async def list_organizations(
 @router.get("/api/admin/config/{org_id}")
 async def get_org(
     org_id: str,
-    request: Request,
-    user: User = Depends(get_current_user),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
-
-    org = config.organizations.get(org_id)
+    org = ctx.config.organizations.get(org_id)
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
     return org
@@ -121,14 +124,10 @@ async def upsert_org(
     org_id: str,
     body: OrgConfig,
     request: Request,
-    user: User = Depends(get_current_user),
+    _ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
-
     body.org_id = org_id
-    updated = set_org_config(path, org_id, body)
+    updated = set_org_config(_config_path(request), org_id, body)
     return updated.organizations[org_id]
 
 
@@ -136,16 +135,12 @@ async def upsert_org(
 async def delete_org(
     org_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
-
-    if org_id not in config.organizations:
+    if org_id not in ctx.config.organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    delete_org_config(path, org_id)
+    delete_org_config(_config_path(request), org_id)
     return {"status": "ok"}
 
 
@@ -155,16 +150,12 @@ async def delete_org(
 @router.delete("/api/admin/rag/qa-pairs")
 async def flush_qa_pairs(
     request: Request,
-    user: User = Depends(get_current_user),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Delete all QA pairs from ChromaDB, keeping DDL, docs, and findings."""
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
-
     rag = request.app.state.rag
     count = rag.flush_qa_pairs()
-    logger.info("Admin %s flushed %d QA pairs", user.email, count)
+    logger.info("Admin %s flushed %d QA pairs", ctx.user.email, count)
     return {"status": "ok", "deleted_count": count}
 
 

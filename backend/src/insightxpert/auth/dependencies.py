@@ -1,13 +1,20 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Generator
 
 from fastapi import HTTPException, Request, status
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import User
 from insightxpert.auth.security import decode_access_token
+
+logger = logging.getLogger("insightxpert.auth")
+
+_read_only_warned = False
+
 
 def get_db_session(request: Request) -> Generator[Session, None, None]:
     engine = request.app.state.auth_engine
@@ -38,6 +45,8 @@ async def get_current_user(request: Request) -> User:
             detail="Invalid token payload",
         )
 
+    global _read_only_warned
+
     engine = request.app.state.auth_engine
     with Session(engine) as session:
         user = session.get(User, user_id)
@@ -46,8 +55,15 @@ async def get_current_user(request: Request) -> User:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="User not found or inactive",
             )
-        user.last_active = datetime.now(timezone.utc)
-        session.commit()
-        session.refresh(user)
+        if not _read_only_warned:
+            user.last_active = datetime.now(timezone.utc)
+            try:
+                session.commit()
+                session.refresh(user)
+            except OperationalError:
+                logger.warning("Database is read-only; last_active updates will be skipped")
+                _read_only_warned = True
+                session.rollback()
+                session.refresh(user)
         session.expunge(user)
         return user

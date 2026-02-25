@@ -8,7 +8,7 @@ export interface SSECallbacks {
 
 const CHUNK_STAGGER_MS = 16;
 
-export type AgentMode = "auto" | "analyst" | "statistician";
+export type AgentMode = "auto" | "analyst";
 
 export function createSSEStream(
   message: string,

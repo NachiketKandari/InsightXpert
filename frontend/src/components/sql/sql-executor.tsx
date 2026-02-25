@@ -4,34 +4,22 @@ import { useState, useCallback } from "react";
 import { Play, AlertTriangle, Clock, Rows3, X, Loader2 } from "lucide-react";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sqlLang from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
-import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
-import { github } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { API_BASE_URL } from "@/lib/constants";
-import { useTheme } from "@/hooks/use-theme";
+import { DataTable } from "@/components/chunks/data-table";
+import { apiFetch } from "@/lib/api";
+import { useSyntaxTheme } from "@/hooks/use-syntax-theme";
+import type { QueryResult, QueryError } from "@/types/api";
 
 SyntaxHighlighter.registerLanguage("sql", sqlLang);
-
-interface QueryResult {
-  columns: string[];
-  rows: Record<string, unknown>[];
-  row_count: number;
-  execution_time_ms: number;
-}
-
-interface QueryError {
-  detail: string;
-}
 
 export function SqlExecutor({ onClose }: { onClose: () => void }) {
   const [sql, setSql] = useState("");
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { theme } = useTheme();
-  const syntaxTheme = theme === "dark" ? vs2015 : github;
+  const syntaxTheme = useSyntaxTheme();
 
   const execute = useCallback(async () => {
     const trimmed = sql.trim();
@@ -42,9 +30,8 @@ export function SqlExecutor({ onClose }: { onClose: () => void }) {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sql/execute`, {
+      const res = await apiFetch("/api/sql/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sql: trimmed }),
       });
 
@@ -152,49 +139,20 @@ export function SqlExecutor({ onClose }: { onClose: () => void }) {
             {/* Table */}
             {result.columns.length > 0 ? (
               <ScrollArea className="flex-1 min-h-0">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-muted/50 sticky top-0 z-10">
-                        {result.columns.map((col) => (
-                          <th
-                            key={col}
-                            className="px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap border-b border-border"
-                          >
-                            {col}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.rows.map((row, i) => (
-                        <tr
-                          key={i}
-                          className={
-                            i % 2 === 0
-                              ? "bg-transparent hover:bg-muted/30"
-                              : "bg-muted/20 hover:bg-muted/40"
-                          }
-                        >
-                          {result.columns.map((col) => (
-                            <td
-                              key={col}
-                              className="px-3 py-1.5 font-mono text-xs whitespace-nowrap border-b border-border/30"
-                            >
-                              {row[col] == null ? (
-                                <span className="text-muted-foreground italic">
-                                  null
-                                </span>
-                              ) : (
-                                String(row[col])
-                              )}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                <DataTable
+                  columns={result.columns}
+                  rows={result.rows}
+                  showExpandToggle={false}
+                  headerRowClassName="bg-muted/50 sticky top-0 z-10"
+                  headerCellClassName="border-b border-border"
+                  rowClassName={(i) =>
+                    i % 2 === 0
+                      ? "bg-transparent hover:bg-muted/30"
+                      : "bg-muted/20 hover:bg-muted/40"
+                  }
+                  cellClassName="border-b border-border/30"
+                  tableClassName="rounded-none border-none"
+                />
               </ScrollArea>
             ) : (
               <div className="px-4 py-6 text-center text-sm text-muted-foreground">

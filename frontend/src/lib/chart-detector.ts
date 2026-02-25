@@ -41,7 +41,7 @@ const STATE_CODES: Record<string, string> = {
 };
 
 /** Return RTO code for a state name, or null if not a state */
-export function getStateCode(name: string): string | null {
+function getStateCode(name: string): string | null {
   return STATE_CODES[name.toLowerCase().trim()] ?? null;
 }
 
@@ -111,7 +111,7 @@ export function detectChartType(
   return rows.length > 1 ? "bar" : "none";
 }
 
-export interface ChartConfigResult {
+interface ChartConfigResult {
   categoryKey: string;
   valueKey: string;
   numericCols: string[];
@@ -132,7 +132,7 @@ export function getChartConfig(
   const categoryCols = columns.filter((col) => !numericCols.includes(col));
 
   const categoryKey = categoryCols[0] || columns[0];
-  const valueKey = numericCols[0] || columns[1];
+  const valueKey = numericCols.find((col) => col !== categoryKey) || columns[1];
   const groupKey = categoryCols.length >= 2 ? categoryCols[1] : undefined;
 
   return { categoryKey, valueKey, numericCols, categoryCols, groupKey };

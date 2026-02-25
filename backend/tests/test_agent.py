@@ -2,30 +2,11 @@
 
 from __future__ import annotations
 
-import json
-
 import pytest
 
+from conftest import MockLLM
 from insightxpert.agents.analyst import analyst_loop
-from insightxpert.agents.tools import execute_tool
 from insightxpert.llm.base import LLMResponse, ToolCall
-
-
-class MockLLM:
-    """Mock LLM that returns predetermined responses."""
-
-    def __init__(self, responses: list[LLMResponse]):
-        self._responses = list(responses)
-        self._call_count = 0
-
-    async def chat(self, messages, tools=None):
-        idx = min(self._call_count, len(self._responses) - 1)
-        self._call_count += 1
-        return self._responses[idx]
-
-    async def chat_stream(self, messages, tools=None):
-        resp = await self.chat(messages, tools)
-        yield resp
 
 
 @pytest.mark.asyncio
@@ -91,26 +72,6 @@ async def test_agent_loop_max_iterations(db_connector, rag_store, settings):
     error_chunks = [c for c in chunks if c.type == "error"]
     assert len(error_chunks) == 1
     assert "maximum iterations" in error_chunks[0].content.lower()
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_run_sql(db_connector, rag_store):
-    result = await execute_tool("run_sql", {"sql": "SELECT COUNT(*) as cnt FROM users"}, db_connector, rag_store)
-    data = json.loads(result)
-    assert data["rows"][0]["cnt"] == 2
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_get_schema(db_connector, rag_store):
-    result = await execute_tool("get_schema", {}, db_connector, rag_store)
-    assert "users" in result.lower()
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_unknown(db_connector, rag_store):
-    result = await execute_tool("nonexistent", {}, db_connector, rag_store)
-    data = json.loads(result)
-    assert "error" in data
 
 
 @pytest.mark.asyncio

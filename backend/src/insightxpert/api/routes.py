@@ -31,10 +31,12 @@ from insightxpert.api.models import (
     TrainRequest,
     TrainResponse,
 )
+from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
-from insightxpert.llm.factory import create_llm
 from insightxpert.db.schema import get_schema_ddl
+from insightxpert.llm.factory import create_llm
+from insightxpert.memory.conversation_store import ConversationStore
 
 logger = logging.getLogger("insightxpert.api")
 
@@ -101,6 +103,32 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     return llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history
 
 
+def _persist_response(
+    conv_store: ConversationStore,
+    persistent_store: PersistentConversationStore,
+    store_cid: str,
+    persistent_cid: str,
+    user_id: str,
+    final_answer: str,
+    executed_sql: list[str],
+    chunks_blob: str,
+) -> None:
+    if store_cid and final_answer:
+        history_content = final_answer
+        if executed_sql:
+            sql_ctx = "; ".join(executed_sql)
+            history_content = f"[SQL: {sql_ctx}]\n\n{history_content}"
+        conv_store.add_assistant_message(store_cid, history_content)
+
+    if final_answer:
+        try:
+            persistent_store.save_message(
+                persistent_cid, user_id, "assistant", final_answer, chunks_blob,
+            )
+        except Exception as e:
+            logger.warning("Failed to persist assistant message: %s", e)
+
+
 @router.post("/chat")
 async def chat_sse(
     chat_req: ChatRequest,
@@ -137,25 +165,13 @@ async def chat_sse(
 
         # Persist BEFORE yielding [DONE] so that data is saved even if the
         # client disconnects immediately after receiving the sentinel.
-
-        # Save assistant answer to in-memory conversation memory
         store_cid = cid or actual_cid
-        if store_cid and final_answer:
-            history_content = final_answer[-1]
-            if executed_sql:
-                sql_ctx = "; ".join(executed_sql)
-                history_content = f"[SQL: {sql_ctx}]\n\n{history_content}"
-            conv_store.add_assistant_message(store_cid, history_content)
-
-        # Persist assistant message to SQLite
-        if final_answer:
-            try:
-                chunks_blob = "[" + ",".join(all_chunks) + "]"
-                persistent_store.save_message(
-                    persistent_cid, user.id, "assistant", final_answer[-1], chunks_blob,
-                )
-            except Exception as e:
-                logger.warning("Failed to persist assistant message: %s", e)
+        _persist_response(
+            conv_store, persistent_store, store_cid, persistent_cid, user.id,
+            final_answer[-1] if final_answer else "",
+            executed_sql,
+            "[" + ",".join(all_chunks) + "]",
+        )
 
         yield {"data": "[DONE]"}
 
@@ -191,22 +207,10 @@ async def chat_poll(
             final_answer = chunk.content
 
     store_cid = cid or (chunks[0]["conversation_id"] if chunks else "")
-    if store_cid and final_answer:
-        history_content = final_answer
-        if poll_executed_sql:
-            sql_ctx = "; ".join(poll_executed_sql)
-            history_content = f"[SQL: {sql_ctx}]\n\n{history_content}"
-        conv_store.add_assistant_message(store_cid, history_content)
-
-    # Persist assistant message to SQLite
-    if final_answer:
-        try:
-            chunks_blob = json.dumps(chunks)
-            persistent_store.save_message(
-                persistent_cid, user.id, "assistant", final_answer, chunks_blob,
-            )
-        except Exception as e:
-            logger.warning("Failed to persist assistant message: %s", e)
+    _persist_response(
+        conv_store, persistent_store, store_cid, persistent_cid, user.id,
+        final_answer, poll_executed_sql, json.dumps(chunks),
+    )
 
     logger.info("POST /chat/poll done: %d chunks", len(chunks))
     return {"chunks": chunks}
@@ -270,17 +274,6 @@ GEMINI_MODELS = [
     "gemini-2.0-flash-lite",
 ]
 
-OLLAMA_MODELS = [
-    "llama3.1",
-    "llama3.2",
-    "qwen2.5",
-    "mistral",
-    "phi3",
-    "deepseek-r1",
-    "codellama",
-]
-
-
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     request: Request,
@@ -305,7 +298,7 @@ async def get_config(
         if ollama_models:
             providers.append(ProviderModels(provider="ollama", models=ollama_models))
     except Exception:
-        pass
+        logger.debug("Ollama not available for model listing", exc_info=True)
 
     return ConfigResponse(
         current_provider=current_provider,

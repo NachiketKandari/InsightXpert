@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 import { detectChartType, getChartConfig, pivotData, hasStateCategories, abbreviateState } from "@/lib/chart-detector";
+import { VALID_CHART_TYPES } from "@/lib/constants";
 import { useIsMobile } from "@/hooks/use-media-query";
 
 const CHART_COLORS = [
@@ -42,8 +43,6 @@ const CHART_COLORS = [
   "var(--color-chart-7)",
   "var(--color-chart-8)",
 ];
-
-const VALID_CHART_TYPES = new Set(["bar", "pie", "line", "grouped-bar", "table"]);
 
 interface ChartBlockProps {
   columns: string[];
