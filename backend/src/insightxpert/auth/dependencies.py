@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
 from typing import Generator
 
 from fastapi import HTTPException, Request, status
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import User
 from insightxpert.auth.security import decode_access_token
+
+logger = logging.getLogger(__name__)
 
 def get_db_session(request: Request) -> Generator[Session, None, None]:
     engine = request.app.state.auth_engine
@@ -47,7 +51,11 @@ async def get_current_user(request: Request) -> User:
                 detail="User not found or inactive",
             )
         user.last_active = datetime.now(timezone.utc)
-        session.commit()
-        session.refresh(user)
+        try:
+            session.commit()
+            session.refresh(user)
+        except OperationalError:
+            logger.warning("Could not update last_active for user %s (read-only database)", user_id)
+            session.rollback()
         session.expunge(user)
         return user
