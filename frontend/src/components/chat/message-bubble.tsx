@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Loader2 } from "lucide-react";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
 import { MessageActions } from "@/components/chat/message-actions";
 import { useChatStore } from "@/stores/chat-store";
@@ -48,12 +48,12 @@ export function MessageBubble({
                 }
               />
             ))
-          ) : (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
+          ) : isStreaming && isLastAssistant ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+              <Loader2 className="h-4 w-4 animate-spin text-cyan-accent" />
+              <span>Thinking&hellip;</span>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 
