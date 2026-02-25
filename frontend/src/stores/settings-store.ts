@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { API_BASE_URL } from "@/lib/constants";
+import { apiFetch } from "@/lib/api";
 import type { AgentMode } from "@/lib/sse-client";
 
 interface ProviderModels {
@@ -29,9 +29,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   fetchConfig: async () => {
     try {
       set({ loading: true });
-      const res = await fetch(`${API_BASE_URL}/api/config`, {
-        credentials: "include",
-      });
+      const res = await apiFetch("/api/config");
       if (!res.ok) return;
       const data = await res.json();
       set({
@@ -52,10 +50,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     set({ currentProvider: provider, currentModel: model });
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/config/switch`, {
+      const res = await apiFetch("/api/config/switch", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({ provider, model }),
       });
       if (!res.ok) {

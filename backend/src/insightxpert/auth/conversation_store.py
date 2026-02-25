@@ -184,10 +184,6 @@ class PersistentConversationStore:
             convo = session.get(ConversationRecord, conversation_id)
             if convo is None or convo.user_id != user_id:
                 return False
-            # Delete messages first (cascade may handle this, but be explicit)
-            session.query(MessageRecord).filter(
-                MessageRecord.conversation_id == conversation_id
-            ).delete()
             session.delete(convo)
             session.commit()
             return True

@@ -24,11 +24,6 @@ def write_config(config_path: Path, config: ClientConfig) -> None:
     logger.info("Config written to %s", config_path)
 
 
-def get_org_config(config_path: Path, org_id: str) -> OrgConfig | None:
-    cfg = read_config(config_path)
-    return cfg.organizations.get(org_id)
-
-
 def set_org_config(config_path: Path, org_id: str, org_config: OrgConfig) -> ClientConfig:
     cfg = read_config(config_path)
     cfg.organizations[org_id] = org_config

@@ -9,7 +9,7 @@ import { github } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
-import { API_BASE_URL } from "@/lib/constants";
+import { apiFetch } from "@/lib/api";
 import { useTheme } from "@/hooks/use-theme";
 
 SyntaxHighlighter.registerLanguage("sql", sqlLang);
@@ -42,9 +42,8 @@ export function SqlExecutor({ onClose }: { onClose: () => void }) {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sql/execute`, {
+      const res = await apiFetch("/api/sql/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ sql: trimmed }),
       });
 

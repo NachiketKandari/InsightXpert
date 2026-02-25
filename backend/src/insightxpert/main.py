@@ -77,7 +77,7 @@ def _setup_logging(level: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = Settings()
+    settings = _settings
     _setup_logging(settings.log_level)
 
     logger.info("Starting InsightXpert (log_level=%s)", settings.log_level)

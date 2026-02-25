@@ -4,12 +4,10 @@ import json
 import logging
 import time
 import uuid
-from typing import AsyncGenerator
-
 from google import genai
 from google.genai import types
 
-from .base import LLMChunk, LLMResponse, ToolCall
+from .base import LLMResponse, ToolCall
 
 logger = logging.getLogger("insightxpert.llm.gemini")
 
@@ -132,34 +130,3 @@ class GeminiProvider:
             preview = (parsed.content or "")[:100]
             logger.debug("chat() response (%.0fms): text=%s...", ms, preview)
         return parsed
-
-    async def chat_stream(
-        self, messages: list[dict], tools: list[dict] | None = None
-    ) -> AsyncGenerator[LLMChunk, None]:
-        system_instruction, contents = self._convert_messages(messages)
-        config = types.GenerateContentConfig(
-            tools=self._convert_tools(tools),
-            system_instruction=system_instruction,
-        )
-        stream = self._client.aio.models.generate_content_stream(
-            model=self._model,
-            contents=contents,
-            config=config,
-        )
-        async for chunk in stream:
-            tool_calls: list[ToolCall] = []
-            text = None
-            for candidate in chunk.candidates:
-                if not candidate.content or not candidate.content.parts:
-                    continue
-                for part in candidate.content.parts:
-                    if part.text:
-                        text = (text or "") + part.text
-                    if part.function_call:
-                        fc = part.function_call
-                        tool_calls.append(ToolCall(
-                            id=str(uuid.uuid4())[:8],
-                            name=fc.name,
-                            arguments=dict(fc.args) if fc.args else {},
-                        ))
-            yield LLMChunk(content=text, tool_calls=tool_calls)

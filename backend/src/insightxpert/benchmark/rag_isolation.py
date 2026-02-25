@@ -6,22 +6,22 @@ import shutil
 import tempfile
 
 from insightxpert.db.connector import DatabaseConnector
-from insightxpert.rag.store import ChromaVectorStore
+from insightxpert.rag.store import VectorStore
 from insightxpert.training.trainer import Trainer
 
 
-def create_isolated_rag(db: DatabaseConnector) -> tuple[ChromaVectorStore, str]:
-    """Create a fresh ChromaVectorStore in a temp directory, seeded with training data.
+def create_isolated_rag(db: DatabaseConnector) -> tuple[VectorStore, str]:
+    """Create a fresh VectorStore in a temp directory, seeded with training data.
 
     Returns the store and the temp directory path (caller must clean up).
     """
     temp_dir = tempfile.mkdtemp(prefix="benchmark_rag_")
-    rag = ChromaVectorStore(persist_dir=temp_dir)
+    rag = VectorStore(persist_dir=temp_dir)
     Trainer(rag).train_insightxpert(db)
     return rag, temp_dir
 
 
-def reset_qa_pairs(rag: ChromaVectorStore) -> None:
+def reset_qa_pairs(rag: VectorStore) -> None:
     """Flush auto-saved QA pairs and re-seed with curated training pairs only."""
     from insightxpert.training.queries import EXAMPLE_QUERIES
 

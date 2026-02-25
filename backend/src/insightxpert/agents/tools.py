@@ -4,7 +4,6 @@ import json
 import logging
 
 from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
-from insightxpert.db.connector import DatabaseConnector
 
 logger = logging.getLogger("insightxpert.tools")
 
@@ -128,18 +127,3 @@ def default_registry() -> ToolRegistry:
     registry.register(GetSchemaTool())
     registry.register(SearchSimilarTool())
     return registry
-
-
-# Backward-compat exports
-_COMPAT_TOOLS = [RunSqlTool(), GetSchemaTool(), SearchSimilarTool()]
-TOOL_DEFINITIONS: list[dict] = [t.get_definition() for t in _COMPAT_TOOLS]
-
-
-async def execute_tool(
-    tool_name: str, arguments: dict, db: DatabaseConnector, rag: object,
-    *, row_limit: int = 1000,
-) -> str:
-    """Backward-compatible wrapper. Prefer ToolRegistry.execute() for new code."""
-    registry = default_registry()
-    context = ToolContext(db=db, rag=rag, row_limit=row_limit)
-    return await registry.execute(tool_name, arguments, context)

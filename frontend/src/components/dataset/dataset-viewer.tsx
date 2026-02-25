@@ -16,7 +16,7 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { API_BASE_URL } from "@/lib/constants";
+import { apiFetch } from "@/lib/api";
 
 const PAGE_SIZE = 100;
 
@@ -45,10 +45,8 @@ export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sql/execute`, {
+      const res = await apiFetch("/api/sql/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           sql: `SELECT * FROM transactions LIMIT ${PAGE_SIZE} OFFSET ${pageOffset}`,
         }),
@@ -72,10 +70,8 @@ export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
 
   const fetchTotalCount = useCallback(async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/sql/execute`, {
+      const res = await apiFetch("/api/sql/execute", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
         body: JSON.stringify({
           sql: "SELECT COUNT(*) as total FROM transactions",
         }),

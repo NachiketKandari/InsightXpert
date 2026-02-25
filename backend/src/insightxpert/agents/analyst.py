@@ -4,7 +4,6 @@ import asyncio
 import logging
 import re
 import time
-import uuid
 from typing import AsyncGenerator
 
 from insightxpert.api.models import ChatChunk
@@ -49,7 +48,7 @@ async def analyst_loop(
     history: list[dict] | None = None,
     tool_registry: ToolRegistry | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
-    cid = conversation_id or str(uuid.uuid4())[:12]
+    cid = conversation_id or ""
     loop_start = time.time()
 
     # Build tool registry and context
@@ -71,10 +70,6 @@ async def analyst_loop(
     rag_start = time.time()
     similar_qa = rag.search_qa(question, n=5, max_distance=1.0, sql_valid_only=True)
     relevant_findings = rag.search_findings(question, n=2)
-    # DDL and documentation are already injected directly into the system prompt,
-    # so we skip the redundant RAG searches for those collections.
-    relevant_ddl: list[dict] = []
-    relevant_docs: list[dict] = []
     rag_ms = (time.time() - rag_start) * 1000
 
     logger.info(
@@ -85,17 +80,13 @@ async def analyst_loop(
         for i, qa in enumerate(similar_qa):
             logger.debug("  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100])
 
-    total_rag_hits = len(similar_qa) + len(relevant_ddl) + len(relevant_docs) + len(relevant_findings)
+    total_rag_hits = len(similar_qa) + len(relevant_findings)
 
     # Collect titles for frontend dropdown display
     rag_titles: list[str] = []
     for qa in similar_qa:
         q = qa.get("metadata", {}).get("question", "")
         rag_titles.append(q or qa.get("document", "")[:80])
-    for ddl_item in relevant_ddl:
-        rag_titles.append(f"DDL: {ddl_item.get('metadata', {}).get('table_name', 'schema')}")
-    for doc_item in relevant_docs:
-        rag_titles.append(f"Doc: {doc_item.get('document', '')[:60]}")
     for finding in relevant_findings:
         rag_titles.append(f"Finding: {finding.get('document', '')[:60]}")
 
@@ -113,8 +104,6 @@ async def analyst_loop(
         ddl=DDL,
         documentation=DOCUMENTATION,
         similar_qa=similar_qa,
-        relevant_ddl=relevant_ddl,
-        relevant_docs=relevant_docs,
         relevant_findings=relevant_findings,
     )
 

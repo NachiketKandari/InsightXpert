@@ -4,11 +4,9 @@ import json
 import logging
 import time
 import uuid
-from typing import AsyncGenerator
-
 import ollama as ollama_sdk
 
-from .base import LLMChunk, LLMResponse, ToolCall
+from .base import LLMResponse, ToolCall
 
 logger = logging.getLogger("insightxpert.llm.ollama")
 
@@ -94,9 +92,9 @@ class OllamaProvider:
         )
         ms = (time.time() - start) * 1000
 
-        msg = response.get("message", {}) if isinstance(response, dict) else response.message
-        content = msg.get("content", "") if isinstance(msg, dict) else msg.content
-        raw_tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, "tool_calls", None)
+        msg = response.message
+        content = msg.content
+        raw_tool_calls = getattr(msg, "tool_calls", None)
         tool_calls = self._parse_tool_calls({"tool_calls": raw_tool_calls}) if raw_tool_calls else []
 
         result = LLMResponse(content=content or None, tool_calls=tool_calls)
@@ -109,20 +107,3 @@ class OllamaProvider:
             preview = (result.content or "")[:100]
             logger.debug("chat() response (%.0fms): text=%s...", ms, preview)
         return result
-
-    async def chat_stream(
-        self, messages: list[dict], tools: list[dict] | None = None
-    ) -> AsyncGenerator[LLMChunk, None]:
-        stream = await self._client.chat(
-            model=self._model,
-            messages=self._convert_messages(messages),
-            tools=self._convert_tools(tools),
-            stream=True,
-        )
-        async for chunk in stream:
-            msg = chunk.get("message", {}) if isinstance(chunk, dict) else chunk.message
-            content = msg.get("content", "") if isinstance(msg, dict) else msg.content
-            done = chunk.get("done", False) if isinstance(chunk, dict) else getattr(chunk, "done", False)
-            raw_tc = msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, "tool_calls", None)
-            tool_calls = self._parse_tool_calls({"tool_calls": raw_tc}) if raw_tc else []
-            yield LLMChunk(content=content or None, tool_calls=tool_calls, done=done)

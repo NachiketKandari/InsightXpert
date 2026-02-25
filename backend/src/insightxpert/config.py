@@ -43,19 +43,3 @@ class Settings(BaseSettings):
 
     # Logging
     log_level: str = "DEBUG"
-
-    # Observability (Day 2+)
-    obs_database_path: str = "./obs.db"
-
-    @property
-    def db_type(self) -> str:
-        url = self.database_url.lower()
-        if "libsql" in url:
-            return "libsql"
-        if url.startswith("sqlite"):
-            return "sqlite"
-        if "postgresql" in url or "postgres" in url:
-            return "postgresql"
-        if "mysql" in url:
-            return "mysql"
-        return "unknown"

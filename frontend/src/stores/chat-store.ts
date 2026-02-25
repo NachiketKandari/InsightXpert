@@ -54,18 +54,14 @@ interface ChatState {
   setPendingInput: (text: string | null) => void;
 }
 
-const getInitialSidebarState = () => {
-  return false;
-};
-
 export const useChatStore = create<ChatState>((set, get) => ({
   conversations: [],
   activeConversationId: null,
   isStreaming: false,
   streamingConversationId: null,
   agentSteps: [],
-  leftSidebarOpen: getInitialSidebarState(),
-  rightSidebarOpen: getInitialSidebarState(),
+  leftSidebarOpen: false,
+  rightSidebarOpen: false,
   sqlExecutorOpen: false,
   datasetViewerOpen: false,
   sampleQuestionsOpen: false,
