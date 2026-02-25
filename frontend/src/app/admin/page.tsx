@@ -697,7 +697,15 @@ export default function AdminPage() {
 
                       {/* Expanded conversation list */}
                       {expandedUserId === u.id && (
-                        <div className="border-t border-border/50 bg-muted/10 px-3 py-2 max-h-[40vh] overflow-y-auto">
+                        <div
+                          ref={(el) => {
+                            if (!el) return;
+                            const rect = el.getBoundingClientRect();
+                            const available = window.innerHeight - rect.top - 16;
+                            el.style.maxHeight = `${Math.max(available, 120)}px`;
+                          }}
+                          className="border-t border-border/50 bg-muted/10 px-3 py-2 overflow-y-auto"
+                        >
                           {isLoadingConversations ? (
                             <div className="flex items-center justify-center py-4">
                               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
