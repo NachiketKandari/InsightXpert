@@ -13,7 +13,7 @@ def read_config(config_path: Path) -> ClientConfig:
     try:
         data = json.loads(config_path.read_text())
         return ClientConfig.model_validate(data)
-    except (FileNotFoundError, json.JSONDecodeError, Exception) as e:
+    except Exception as e:
         logger.warning("Could not read config from %s: %s — using defaults", config_path, e)
         return ClientConfig()
 

@@ -5,3 +5,5 @@ export const SUGGESTED_QUESTIONS = [
 ] as const;
 
 export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "";
+
+export const VALID_CHART_TYPES = new Set(["bar", "pie", "line", "grouped-bar", "table"]);

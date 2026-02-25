@@ -1,4 +1,4 @@
-export interface QuestionCategory {
+interface QuestionCategory {
   category: string;
   questions: string[];
 }

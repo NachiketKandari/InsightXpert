@@ -4,14 +4,12 @@ import { useState, useCallback } from "react";
 import { Play, AlertTriangle, Clock, Rows3, X, Loader2 } from "lucide-react";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sqlLang from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
-import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
-import { github } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { DataTable } from "@/components/chunks/data-table";
 import { apiFetch } from "@/lib/api";
-import { useTheme } from "@/hooks/use-theme";
+import { useSyntaxTheme } from "@/hooks/use-syntax-theme";
 import type { QueryResult, QueryError } from "@/types/api";
 
 SyntaxHighlighter.registerLanguage("sql", sqlLang);
@@ -21,8 +19,7 @@ export function SqlExecutor({ onClose }: { onClose: () => void }) {
   const [result, setResult] = useState<QueryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const { theme } = useTheme();
-  const syntaxTheme = theme === "dark" ? vs2015 : github;
+  const syntaxTheme = useSyntaxTheme();
 
   const execute = useCallback(async () => {
     const trimmed = sql.trim();

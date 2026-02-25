@@ -31,10 +31,12 @@ from insightxpert.api.models import (
     TrainRequest,
     TrainResponse,
 )
+from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
-from insightxpert.llm.factory import create_llm
 from insightxpert.db.schema import get_schema_ddl
+from insightxpert.llm.factory import create_llm
+from insightxpert.memory.conversation_store import ConversationStore
 
 logger = logging.getLogger("insightxpert.api")
 
@@ -101,7 +103,16 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     return llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history
 
 
-def _persist_response(conv_store, persistent_store, store_cid, persistent_cid, user_id, final_answer, executed_sql, chunks_blob):
+def _persist_response(
+    conv_store: ConversationStore,
+    persistent_store: PersistentConversationStore,
+    store_cid: str,
+    persistent_cid: str,
+    user_id: str,
+    final_answer: str,
+    executed_sql: list[str],
+    chunks_blob: str,
+) -> None:
     if store_cid and final_answer:
         history_content = final_answer
         if executed_sql:
@@ -263,17 +274,6 @@ GEMINI_MODELS = [
     "gemini-2.0-flash-lite",
 ]
 
-OLLAMA_MODELS = [
-    "llama3.1",
-    "llama3.2",
-    "qwen2.5",
-    "mistral",
-    "phi3",
-    "deepseek-r1",
-    "codellama",
-]
-
-
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     request: Request,
@@ -298,7 +298,7 @@ async def get_config(
         if ollama_models:
             providers.append(ProviderModels(provider="ollama", models=ollama_models))
     except Exception:
-        pass
+        logger.debug("Ollama not available for model listing", exc_info=True)
 
     return ConfigResponse(
         current_provider=current_provider,

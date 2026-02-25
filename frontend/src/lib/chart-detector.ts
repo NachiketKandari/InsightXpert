@@ -41,7 +41,7 @@ const STATE_CODES: Record<string, string> = {
 };
 
 /** Return RTO code for a state name, or null if not a state */
-export function getStateCode(name: string): string | null {
+function getStateCode(name: string): string | null {
   return STATE_CODES[name.toLowerCase().trim()] ?? null;
 }
 
@@ -111,7 +111,7 @@ export function detectChartType(
   return rows.length > 1 ? "bar" : "none";
 }
 
-export interface ChartConfigResult {
+interface ChartConfigResult {
   categoryKey: string;
   valueKey: string;
   numericCols: string[];

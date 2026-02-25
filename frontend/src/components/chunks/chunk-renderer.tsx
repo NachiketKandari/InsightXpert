@@ -5,7 +5,6 @@ import { motion } from "framer-motion";
 import { CheckCircle, Loader2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 import { parseToolResult } from "@/lib/chunk-parser";
-import { detectChartType } from "@/lib/chart-detector";
 import { StatusChunk } from "./status-chunk";
 import { ToolCallChunk } from "./tool-call-chunk";
 import { SqlChunk } from "./sql-chunk";
@@ -13,8 +12,6 @@ import { ToolResultChunk } from "./tool-result-chunk";
 import { ChartBlock } from "./chart-block";
 import { AnswerChunk } from "./answer-chunk";
 import { ErrorChunk } from "./error-chunk";
-
-const VALID_CHART_TYPES = new Set(["bar", "pie", "line", "grouped-bar", "table"]);
 
 /** Inline progress step: spinner → checkmark after a brief delay during streaming. */
 function ProgressStep({ label, isComplete }: { label: string; isComplete?: boolean }) {
@@ -61,19 +58,10 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
       const parsed = parseToolResult(chunk);
       const suggestedChartType = (chunk.data?.visualization as string) ?? null;
 
-      let willShowChart = false;
-      if (parsed) {
-        const chartType =
-          suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
-            ? suggestedChartType
-            : detectChartType(parsed.columns, parsed.rows);
-        willShowChart = chartType !== "none" && chartType !== "table";
-      }
-
       content = (
         <>
           <ToolResultChunk chunk={chunk} />
-          {willShowChart && (
+          {parsed && (
             <>
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
@@ -88,7 +76,7 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
                 transition={{ duration: 0.3, ease: "easeOut", delay: 0.7 }}
                 className="mt-3"
               >
-                <ChartBlock columns={parsed!.columns} rows={parsed!.rows} suggestedChartType={suggestedChartType} />
+                <ChartBlock columns={parsed.columns} rows={parsed.rows} suggestedChartType={suggestedChartType} />
               </motion.div>
             </>
           )}

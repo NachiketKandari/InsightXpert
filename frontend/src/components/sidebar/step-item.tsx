@@ -18,8 +18,6 @@ import {
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sqlLang from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
 import json from "react-syntax-highlighter/dist/esm/languages/hljs/json";
-import { vs2015 } from "react-syntax-highlighter/dist/esm/styles/hljs";
-import { github } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import {
   Collapsible,
   CollapsibleContent,
@@ -28,6 +26,7 @@ import {
 import type { AgentStep } from "@/types/chat";
 import { cn } from "@/lib/utils";
 import { useTheme } from "@/hooks/use-theme";
+import { useSyntaxTheme } from "@/hooks/use-syntax-theme";
 
 SyntaxHighlighter.registerLanguage("sql", sqlLang);
 SyntaxHighlighter.registerLanguage("json", json);
@@ -116,7 +115,7 @@ function formatResultData(raw: string): string | null {
 export function StepItem({ step }: StepItemProps) {
   const [open, setOpen] = useState(false);
   const { theme } = useTheme();
-  const syntaxTheme = theme === "dark" ? vs2015 : github;
+  const syntaxTheme = useSyntaxTheme();
 
   const hasDetail = !!(
     step.sql ||

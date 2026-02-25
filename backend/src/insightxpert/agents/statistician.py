@@ -19,8 +19,6 @@ from .tool_base import ToolContext, ToolRegistry
 
 logger = logging.getLogger("insightxpert.statistician")
 
-MAX_STATISTICIAN_ITERATIONS = 5
-
 
 def _summarize_results(results: list[dict], max_rows: int = 20) -> str:
     """Create a compact text summary of analyst results for the system prompt."""
@@ -95,7 +93,7 @@ async def statistician_loop(
         },
     ]
 
-    max_iter = config.max_statistician_iterations or MAX_STATISTICIAN_ITERATIONS
+    max_iter = config.max_statistician_iterations
 
     for iteration in range(max_iter):
         logger.info("--- Statistician iteration %d/%d ---", iteration + 1, max_iter)

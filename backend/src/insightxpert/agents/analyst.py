@@ -20,8 +20,6 @@ from .tools import default_registry
 
 logger = logging.getLogger("insightxpert.analyst")
 
-MAX_ITERATIONS = 10
-
 
 def _extract_sql_from_messages(messages: list[dict]) -> str | None:
     for msg in reversed(messages):
@@ -118,7 +116,7 @@ async def analyst_loop(
 
     messages.append({"role": "user", "content": question})
 
-    max_iter = config.max_agent_iterations or MAX_ITERATIONS
+    max_iter = config.max_agent_iterations
 
     tools_executed = False
 
@@ -262,7 +260,7 @@ async def analyst_loop(
                     rag.add_qa_pair(question, sql, {"sql_valid": True})
                     logger.debug("Auto-saved QA pair to RAG (sql_valid=True)")
                 except Exception:
-                    pass
+                    logger.debug("Auto-save QA pair to RAG failed", exc_info=True)
             break
     else:
         total_ms = (time.time() - loop_start) * 1000

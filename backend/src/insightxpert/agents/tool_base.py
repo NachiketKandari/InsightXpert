@@ -11,7 +11,7 @@ from insightxpert.db.connector import DatabaseConnector
 if TYPE_CHECKING:
     from insightxpert.rag.base import VectorStoreBackend
 
-logger = logging.getLogger("insightxpert.tools")
+logger = logging.getLogger("insightxpert.tool_base")
 
 
 @dataclass

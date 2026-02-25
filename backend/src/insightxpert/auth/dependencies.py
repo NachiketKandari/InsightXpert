@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from insightxpert.auth.models import User
 from insightxpert.auth.security import decode_access_token
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("insightxpert.auth")
 
 def get_db_session(request: Request) -> Generator[Session, None, None]:
     engine = request.app.state.auth_engine

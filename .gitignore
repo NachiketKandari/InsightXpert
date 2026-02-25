@@ -57,6 +57,15 @@ data/*.csv
 /*.jpeg
 /*.jpg
 
+# Benchmark results
+backend/benchmark_results/
+
+# Playwright MCP
+.playwright-mcp/
+
+# Claude Code
+**/.claude/
+
 # Distribution
 *.tar.gz
 *.zip
