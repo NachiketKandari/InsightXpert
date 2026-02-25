@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
@@ -171,6 +172,51 @@ async def flush_qa_pairs(
 
 
 # --- Conversation management (admin only) ------------------------------------
+
+
+@router.get("/api/admin/users/{user_id}/conversations")
+async def list_user_conversations(
+    user_id: str,
+    request: Request,
+    _ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """List all conversations for a specific user (admin view)."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    return {"conversations": store.get_conversations(user_id)}
+
+
+@router.get("/api/admin/conversations/{conversation_id}")
+async def get_admin_conversation(
+    conversation_id: str,
+    request: Request,
+    _ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Get full conversation detail with messages (admin view, no ownership check)."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    convo = store.get_conversation_admin(conversation_id)
+    if convo is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    messages = [
+        {
+            "id": m["id"],
+            "role": m["role"],
+            "content": m["content"],
+            "chunks": json.loads(m["chunks_json"]) if m.get("chunks_json") else None,
+            "feedback": m.get("feedback"),
+            "feedback_comment": m.get("feedback_comment"),
+            "created_at": m["created_at"],
+        }
+        for m in convo["messages"]
+    ]
+    return {
+        "id": convo["id"],
+        "title": convo["title"],
+        "is_starred": convo.get("is_starred", False),
+        "messages": messages,
+        "created_at": convo["created_at"],
+        "updated_at": convo["updated_at"],
+    }
 
 
 @router.get("/api/admin/users")

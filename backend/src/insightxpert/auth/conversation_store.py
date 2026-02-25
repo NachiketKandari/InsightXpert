@@ -264,6 +264,35 @@ class PersistentConversationStore:
             session.commit()
             return True
 
+    def get_conversation_admin(self, conversation_id: str) -> dict | None:
+        """Get full conversation detail without ownership check (admin use)."""
+        with Session(self.engine) as session:
+            convo = session.get(ConversationRecord, conversation_id)
+            if convo is None:
+                return None
+
+            messages = (
+                session.query(MessageRecord)
+                .filter(MessageRecord.conversation_id == conversation_id)
+                .order_by(MessageRecord.created_at)
+                .all()
+            )
+            return {
+                **_conv_to_dict(convo),
+                "messages": [
+                    {
+                        "id": m.id,
+                        "role": m.role,
+                        "content": m.content,
+                        "chunks_json": m.chunks_json,
+                        "feedback": m.feedback,
+                        "feedback_comment": m.feedback_comment,
+                        "created_at": _to_ist(m.created_at),
+                    }
+                    for m in messages
+                ],
+            }
+
     def get_all_users_with_stats(self) -> list[dict]:
         """Return all users with conversation/message counts (admin use)."""
         from insightxpert.auth.models import User as UserModel

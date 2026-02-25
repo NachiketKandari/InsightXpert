@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Save, Trash2, Plus, DatabaseZap, FileText, RotateCcw } from "lucide-react";
+import { ArrowLeft, Save, Trash2, Plus, DatabaseZap, FileText, RotateCcw, ChevronRight, Eye, MessageSquare } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import { FeatureTogglesEditor } from "@/components/admin/feature-toggles";
 import { BrandingEditor } from "@/components/admin/branding-editor";
 import { UserOrgMappingsEditor } from "@/components/admin/user-org-mappings";
 import { AdminDomainEditor } from "@/components/admin/admin-domain-editor";
+import { ConversationViewer } from "@/components/admin/conversation-viewer";
 import type {
   ClientConfig,
   OrgConfig,
@@ -59,6 +60,19 @@ export default function AdminPage() {
   }>>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState(false);
   const [isDeletingConvos, setIsDeletingConvos] = useState<string | null>(null);
+  const [expandedUserId, setExpandedUserId] = useState<string | null>(null);
+  const [userConversations, setUserConversations] = useState<Array<{
+    id: string;
+    title: string;
+    is_starred: boolean;
+    created_at: string;
+    updated_at: string;
+    last_message: string | null;
+  }>>([]);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [viewingConversation, setViewingConversation] = useState<any>(null);
+  const [isLoadingConversation, setIsLoadingConversation] = useState(false);
   const [prompts, setPrompts] = useState<Array<{
     id: string;
     name: string;
@@ -260,6 +274,42 @@ export default function AdminPage() {
       showMessage("error", "Network error");
     }
     setIsDeletingConvos(null);
+  };
+
+  const toggleUserExpand = async (userId: string) => {
+    if (expandedUserId === userId) {
+      setExpandedUserId(null);
+      setUserConversations([]);
+      return;
+    }
+    setExpandedUserId(userId);
+    setIsLoadingConversations(true);
+    try {
+      const res = await apiFetch(`/api/admin/users/${userId}/conversations`);
+      if (res.ok) {
+        const data = await res.json();
+        setUserConversations(data.conversations);
+      }
+    } catch {
+      // ignore
+    }
+    setIsLoadingConversations(false);
+  };
+
+  const openConversation = async (conversationId: string) => {
+    setIsLoadingConversation(true);
+    try {
+      const res = await apiFetch(`/api/admin/conversations/${conversationId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setViewingConversation(data);
+      } else {
+        showMessage("error", "Failed to load conversation");
+      }
+    } catch {
+      showMessage("error", "Network error");
+    }
+    setIsLoadingConversation(false);
   };
 
   const flushQaPairs = async () => {
@@ -578,49 +628,112 @@ export default function AdminPage() {
                   Click &quot;Refresh&quot; to load user data
                 </p>
               ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-border text-left">
-                        <th className="py-2 pr-4 font-medium">Email</th>
-                        <th className="py-2 pr-4 font-medium text-center">Conversations</th>
-                        <th className="py-2 pr-4 font-medium text-center">Messages</th>
-                        <th className="py-2 pr-4 font-medium">Last Active</th>
-                        <th className="py-2 font-medium text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {users.map((u) => (
-                        <tr key={u.id} className="border-b border-border/50">
-                          <td className="py-2 pr-4">{u.email}</td>
-                          <td className="py-2 pr-4 text-center">{u.conversation_count}</td>
-                          <td className="py-2 pr-4 text-center">{u.message_count}</td>
-                          <td className="py-2 pr-4 text-muted-foreground">
+                <div className="space-y-1">
+                  {users.map((u) => (
+                    <div key={u.id} className="rounded-md border border-border/50">
+                      {/* User row */}
+                      <div
+                        className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer hover:bg-muted/50 transition-colors ${
+                          expandedUserId === u.id ? "bg-muted/30" : ""
+                        }`}
+                        onClick={() => u.conversation_count > 0 && toggleUserExpand(u.id)}
+                      >
+                        <ChevronRight
+                          className={`size-4 text-muted-foreground shrink-0 transition-transform ${
+                            expandedUserId === u.id ? "rotate-90" : ""
+                          } ${u.conversation_count === 0 ? "invisible" : ""}`}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium">{u.email}</span>
+                        </div>
+                        <div className="flex items-center gap-4 text-xs text-muted-foreground shrink-0">
+                          <span className="flex items-center gap-1">
+                            <MessageSquare className="size-3" />
+                            {u.conversation_count} conv / {u.message_count} msg
+                          </span>
+                          <span>
                             {u.last_active
                               ? new Date(u.last_active).toLocaleDateString()
                               : "Never"}
-                          </td>
-                          <td className="py-2 text-right">
-                            {u.conversation_count > 0 && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => deleteUserConversations(u.id, u.email)}
-                                disabled={isDeletingConvos !== null}
-                                className="text-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="size-3 mr-1" />
-                                Delete
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                          </span>
+                          {u.conversation_count > 0 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                deleteUserConversations(u.id, u.email);
+                              }}
+                              disabled={isDeletingConvos !== null}
+                              className="text-destructive hover:text-destructive h-7 px-2"
+                            >
+                              <Trash2 className="size-3" />
+                            </Button>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Expanded conversation list */}
+                      {expandedUserId === u.id && (
+                        <div className="border-t border-border/50 bg-muted/10 px-3 py-2">
+                          {isLoadingConversations ? (
+                            <div className="flex items-center justify-center py-4">
+                              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                            </div>
+                          ) : userConversations.length === 0 ? (
+                            <p className="text-xs text-muted-foreground py-3 text-center">
+                              No conversations found
+                            </p>
+                          ) : (
+                            <div className="space-y-1">
+                              {userConversations.map((conv) => (
+                                <div
+                                  key={conv.id}
+                                  className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted/50 cursor-pointer transition-colors"
+                                  onClick={() => openConversation(conv.id)}
+                                >
+                                  <Eye className="size-3.5 text-muted-foreground shrink-0" />
+                                  <div className="flex-1 min-w-0">
+                                    <p className="text-sm truncate">{conv.title}</p>
+                                    {conv.last_message && (
+                                      <p className="text-xs text-muted-foreground truncate">
+                                        {conv.last_message}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <span className="text-xs text-muted-foreground shrink-0">
+                                    {new Date(conv.updated_at).toLocaleDateString()}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
+
+            {/* Conversation Viewer Modal */}
+            <ConversationViewer
+              conversation={viewingConversation}
+              open={viewingConversation !== null}
+              onOpenChange={(open) => {
+                if (!open) setViewingConversation(null);
+              }}
+            />
+
+            {/* Loading overlay for conversation fetch */}
+            {isLoadingConversation && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+                <div className="rounded-lg bg-background border border-border p-6 flex items-center gap-3">
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
+                  <span className="text-sm">Loading conversation...</span>
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           {/* Prompts Tab */}
