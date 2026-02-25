@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
 from insightxpert.admin.config_store import (
     delete_org_config,
@@ -26,6 +27,12 @@ from insightxpert.prompts import get_file_content
 logger = logging.getLogger("insightxpert.admin")
 
 router = APIRouter()
+
+
+class PromptUpdateBody(BaseModel):
+    content: str = Field(..., min_length=1)
+    description: str | None = None
+    is_active: bool = True
 
 
 def _config_path(request: Request) -> Path:
@@ -255,7 +262,7 @@ async def get_prompt(
 @router.put("/api/admin/prompts/{name}")
 async def upsert_prompt(
     name: str,
-    body: dict,
+    body: PromptUpdateBody,
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
@@ -264,19 +271,18 @@ async def upsert_prompt(
     with Session(engine) as session:
         prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
         if prompt:
-            prompt.content = body.get("content", prompt.content)
-            prompt.description = body.get("description", prompt.description)
-            if "is_active" in body:
-                prompt.is_active = body["is_active"]
+            prompt.content = body.content
+            prompt.description = body.description
+            prompt.is_active = body.is_active
         else:
             from insightxpert.auth.models import _uuid, _utcnow
 
             prompt = PromptTemplate(
                 id=_uuid(),
                 name=name,
-                content=body.get("content", ""),
-                description=body.get("description"),
-                is_active=body.get("is_active", True),
+                content=body.content,
+                description=body.description,
+                is_active=body.is_active,
                 created_at=_utcnow(),
                 updated_at=_utcnow(),
             )

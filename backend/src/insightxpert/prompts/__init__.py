@@ -61,5 +61,7 @@ def render(template_name: str, *, engine=None, **kwargs: object) -> str:
 
 def get_file_content(template_name: str) -> str:
     """Read the raw content of a file-based template (for seeding/reset)."""
-    path = _PROMPTS_DIR / template_name
+    path = (_PROMPTS_DIR / template_name).resolve()
+    if not path.is_relative_to(_PROMPTS_DIR.resolve()):
+        raise ValueError(f"Invalid template name: {template_name}")
     return path.read_text()
