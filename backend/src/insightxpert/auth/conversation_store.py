@@ -169,6 +169,16 @@ class PersistentConversationStore:
             session.commit()
             return True
 
+    def delete_conversation_admin(self, conversation_id: str) -> bool:
+        """Delete a single conversation without ownership check (admin use)."""
+        with Session(self.engine) as session:
+            convo = session.get(ConversationRecord, conversation_id)
+            if convo is None:
+                return False
+            session.delete(convo)
+            session.commit()
+            return True
+
     def search_conversations(self, user_id: str, query: str, limit: int = 20) -> list[dict]:
         """Search conversations by title and message content."""
         pattern = f"%{query}%"
@@ -263,6 +273,98 @@ class PersistentConversationStore:
             convo.is_starred = starred
             session.commit()
             return True
+
+    def get_conversation_admin(self, conversation_id: str) -> dict | None:
+        """Get full conversation detail without ownership check (admin use)."""
+        with Session(self.engine) as session:
+            convo = session.get(ConversationRecord, conversation_id)
+            if convo is None:
+                return None
+
+            messages = (
+                session.query(MessageRecord)
+                .filter(MessageRecord.conversation_id == conversation_id)
+                .order_by(MessageRecord.created_at)
+                .all()
+            )
+            return {
+                **_conv_to_dict(convo),
+                "messages": [
+                    {
+                        "id": m.id,
+                        "role": m.role,
+                        "content": m.content,
+                        "chunks_json": m.chunks_json,
+                        "feedback": m.feedback,
+                        "feedback_comment": m.feedback_comment,
+                        "created_at": _to_ist(m.created_at),
+                    }
+                    for m in messages
+                ],
+            }
+
+    def get_all_users_with_stats(self) -> list[dict]:
+        """Return all users with conversation/message counts (admin use)."""
+        from insightxpert.auth.models import User as UserModel
+        with Session(self.engine) as session:
+            results = (
+                session.query(
+                    UserModel.id,
+                    UserModel.email,
+                    UserModel.is_active,
+                    func.count(func.distinct(ConversationRecord.id)).label("conversation_count"),
+                    func.count(MessageRecord.id).label("message_count"),
+                    func.max(ConversationRecord.updated_at).label("last_active"),
+                )
+                .outerjoin(ConversationRecord, UserModel.id == ConversationRecord.user_id)
+                .outerjoin(MessageRecord, ConversationRecord.id == MessageRecord.conversation_id)
+                .group_by(UserModel.id)
+                .all()
+            )
+            return [
+                {
+                    "id": r.id,
+                    "email": r.email,
+                    "is_active": r.is_active,
+                    "conversation_count": r.conversation_count,
+                    "message_count": r.message_count,
+                    "last_active": _to_ist(r.last_active) if r.last_active else None,
+                }
+                for r in results
+            ]
+
+    def delete_user_conversations(self, user_id: str) -> int:
+        """Delete ALL conversations for a user. Returns count deleted."""
+        with Session(self.engine) as session:
+            count = (
+                session.query(ConversationRecord)
+                .filter(ConversationRecord.user_id == user_id)
+                .count()
+            )
+            conv_ids = [
+                c.id for c in
+                session.query(ConversationRecord.id)
+                .filter(ConversationRecord.user_id == user_id)
+                .all()
+            ]
+            if conv_ids:
+                session.query(MessageRecord).filter(
+                    MessageRecord.conversation_id.in_(conv_ids)
+                ).delete(synchronize_session=False)
+                session.query(ConversationRecord).filter(
+                    ConversationRecord.user_id == user_id
+                ).delete(synchronize_session=False)
+            session.commit()
+            return count
+
+    def delete_all_conversations(self) -> int:
+        """Delete ALL conversations across all users. Returns count deleted."""
+        with Session(self.engine) as session:
+            count = session.query(ConversationRecord).count()
+            session.query(MessageRecord).delete(synchronize_session=False)
+            session.query(ConversationRecord).delete(synchronize_session=False)
+            session.commit()
+            return count
 
     def update_message_feedback(
         self,

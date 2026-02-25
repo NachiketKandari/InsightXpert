@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Loader2 } from "lucide-react";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
 import { MessageActions } from "@/components/chat/message-actions";
 import { useChatStore } from "@/stores/chat-store";
@@ -37,23 +37,40 @@ export function MessageBubble({
       ) : (
         <div className="w-full space-y-3">
           {message.chunks.length > 0 ? (
-            message.chunks.map((chunk, i) => (
-              <ChunkRenderer
-                key={i}
-                chunk={chunk}
-                isComplete={
-                  chunk.type === "status" || chunk.type === "tool_call" || chunk.type === "answer"
-                    ? i < message.chunks.length - 1 || !isStreaming
-                    : undefined
-                }
-              />
-            ))
-          ) : (
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-3/4" />
-              <Skeleton className="h-4 w-1/2" />
+            <>
+              {message.chunks.map((chunk, i) => (
+                <ChunkRenderer
+                  key={i}
+                  chunk={chunk}
+                  isComplete={
+                    chunk.type === "status" || chunk.type === "tool_call" || chunk.type === "answer"
+                      ? i < message.chunks.length - 1 || !isStreaming
+                      : undefined
+                  }
+                />
+              ))}
+              {isStreaming && isLastAssistant && (() => {
+                const last = message.chunks[message.chunks.length - 1];
+                if (last?.type === "answer" || last?.type === "error") return null;
+                return (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.2 }}
+                    className="flex items-center gap-2 text-sm text-muted-foreground py-1"
+                  >
+                    <Loader2 className="h-3.5 w-3.5 animate-spin text-cyan-accent shrink-0" />
+                    <span>Processing&hellip;</span>
+                  </motion.div>
+                );
+              })()}
+            </>
+          ) : isStreaming && isLastAssistant ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-1">
+              <Loader2 className="h-4 w-4 animate-spin text-cyan-accent" />
+              <span>Thinking&hellip;</span>
             </div>
-          )}
+          ) : null}
         </div>
       )}
 

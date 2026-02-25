@@ -8,6 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import inspect, text
+from sqlalchemy.orm import Session
 
 from insightxpert.admin.config_store import read_config, write_config
 from insightxpert.admin.routes import router as admin_router
@@ -29,33 +30,71 @@ logger = logging.getLogger("insightxpert")
 def _migrate_schema(engine) -> None:
     """Add new columns to existing tables (idempotent, no Alembic needed)."""
     insp = inspect(engine)
+    dialect = engine.dialect.name
+
     with engine.begin() as conn:
-        # users: add last_active
-        user_cols = {c["name"] for c in insp.get_columns("users")}
-        if "last_active" not in user_cols:
-            conn.execute(text("ALTER TABLE users ADD COLUMN last_active DATETIME"))
-            logger.info("Migration: added users.last_active")
+        def _add_column(table: str, column: str, col_def: str) -> None:
+            cols = {c["name"] for c in insp.get_columns(table)}
+            if column in cols:
+                return
+            if dialect == "postgresql":
+                sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_def}"
+            else:
+                sql = f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
+            try:
+                conn.execute(text(sql))
+                logger.info("Migration: added %s.%s", table, column)
+            except Exception:
+                logger.debug("Column %s.%s already exists (dialect=%s)", table, column, dialect)
 
-        # conversations: add is_starred
-        conv_cols = {c["name"] for c in insp.get_columns("conversations")}
-        if "is_starred" not in conv_cols:
-            conn.execute(text("ALTER TABLE conversations ADD COLUMN is_starred BOOLEAN DEFAULT 0 NOT NULL"))
-            logger.info("Migration: added conversations.is_starred")
+        _add_column("users", "last_active", "DATETIME")
+        _add_column("conversations", "is_starred",
+                     "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
+        _add_column("messages", "feedback", "BOOLEAN")
+        _add_column("messages", "feedback_comment", "TEXT")
 
-        # messages: add feedback, feedback_comment
-        msg_cols = {c["name"] for c in insp.get_columns("messages")}
-        if "feedback" not in msg_cols:
-            conn.execute(text("ALTER TABLE messages ADD COLUMN feedback BOOLEAN"))
-            logger.info("Migration: added messages.feedback")
-        if "feedback_comment" not in msg_cols:
-            conn.execute(text("ALTER TABLE messages ADD COLUMN feedback_comment TEXT"))
-            logger.info("Migration: added messages.feedback_comment")
-
-        # Drop old feedback table (feedback now lives on messages)
+        # Drop legacy tables
         existing_tables = set(insp.get_table_names())
         if "feedback" in existing_tables:
             conn.execute(text("DROP TABLE feedback"))
             logger.info("Migration: dropped feedback table")
+        if "alembic_version" in existing_tables:
+            conn.execute(text("DROP TABLE alembic_version"))
+            logger.info("Migration: dropped alembic_version table")
+
+
+def _seed_prompts(engine) -> None:
+    """Seed prompt_templates table with .j2 file contents if empty."""
+    from insightxpert.auth.models import PromptTemplate, _uuid, _utcnow
+    from insightxpert.prompts import get_file_content
+
+    with Session(engine) as session:
+        count = session.query(PromptTemplate).count()
+        if count > 0:
+            logger.debug("Prompt templates already seeded (%d found)", count)
+            return
+
+        templates = [
+            ("analyst_system", "analyst_system.j2", "System prompt for the SQL analyst agent"),
+            ("statistician_system", "statistician_system.j2", "System prompt for the statistician agent"),
+        ]
+        for name, filename, description in templates:
+            try:
+                content = get_file_content(filename)
+                prompt = PromptTemplate(
+                    id=_uuid(),
+                    name=name,
+                    content=content,
+                    description=description,
+                    is_active=True,
+                    created_at=_utcnow(),
+                    updated_at=_utcnow(),
+                )
+                session.add(prompt)
+                logger.info("Seeded prompt template: %s", name)
+            except FileNotFoundError:
+                logger.warning("Template file not found: %s", filename)
+        session.commit()
 
 
 def _setup_logging(level: str) -> None:
@@ -107,6 +146,10 @@ async def lifespan(app: FastAPI):
     _migrate_schema(auth_engine)
     seed_admin(auth_engine, settings)
     logger.info("Auth tables initialized")
+
+    # Seed prompt templates from .j2 files if table is empty
+    _seed_prompts(auth_engine)
+    logger.info("Prompt templates initialized")
 
     # Persistent conversation store (SQLite-backed)
     persistent_conv_store = PersistentConversationStore(auth_engine)

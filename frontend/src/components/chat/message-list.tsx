@@ -4,7 +4,6 @@ import { useCallback } from "react";
 import { useChatStore } from "@/stores/chat-store";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { MessageBubble } from "@/components/chat/message-bubble";
-import { Skeleton } from "@/components/ui/skeleton";
 import { apiFetch } from "@/lib/api";
 
 interface MessageListProps {
@@ -13,7 +12,6 @@ interface MessageListProps {
 
 export function MessageList({ onRetry }: MessageListProps) {
   const conversation = useChatStore((s) => s.activeConversation());
-  const isStreaming = useChatStore((s) => s.isStreaming && s.streamingConversationId === s.activeConversationId);
   const messages = conversation?.messages ?? [];
 
   const { scrollRef, handleScroll } = useAutoScroll([messages]);
@@ -66,16 +64,6 @@ export function MessageList({ onRetry }: MessageListProps) {
           />
         ))}
 
-        {isStreaming &&
-          messages.length > 0 &&
-          messages[messages.length - 1].role === "assistant" &&
-          messages[messages.length - 1].chunks.length === 0 && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Skeleton className="h-2 w-2 rounded-full" />
-              <Skeleton className="h-2 w-2 rounded-full" />
-              <Skeleton className="h-2 w-2 rounded-full" />
-            </div>
-          )}
       </div>
     </div>
   );

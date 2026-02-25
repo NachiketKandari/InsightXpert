@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
 from insightxpert.admin.config_store import (
     delete_org_config,
@@ -16,12 +18,22 @@ from insightxpert.admin.models import (
     OrgConfig,
     ResolvedClientConfig,
 )
+from sqlalchemy.orm import Session
+
+from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
-from insightxpert.auth.models import User
+from insightxpert.auth.models import PromptTemplate, User
+from insightxpert.prompts import get_file_content
 
 logger = logging.getLogger("insightxpert.admin")
 
 router = APIRouter()
+
+
+class PromptUpdateBody(BaseModel):
+    content: str = Field(..., min_length=1)
+    description: str | None = None
+    is_active: bool = True
 
 
 def _config_path(request: Request) -> Path:
@@ -157,6 +169,242 @@ async def flush_qa_pairs(
     count = rag.flush_qa_pairs()
     logger.info("Admin %s flushed %d QA pairs", ctx.user.email, count)
     return {"status": "ok", "deleted_count": count}
+
+
+# --- Conversation management (admin only) ------------------------------------
+
+
+@router.get("/api/admin/users/{user_id}/conversations")
+async def list_user_conversations(
+    user_id: str,
+    request: Request,
+    _ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """List all conversations for a specific user (admin view)."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    return {"conversations": store.get_conversations(user_id)}
+
+
+@router.get("/api/admin/conversations/{conversation_id}")
+async def get_admin_conversation(
+    conversation_id: str,
+    request: Request,
+    _ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Get full conversation detail with messages (admin view, no ownership check)."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    convo = store.get_conversation_admin(conversation_id)
+    if convo is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    messages = [
+        {
+            "id": m["id"],
+            "role": m["role"],
+            "content": m["content"],
+            "chunks": json.loads(m["chunks_json"]) if m.get("chunks_json") else None,
+            "feedback": m.get("feedback"),
+            "feedback_comment": m.get("feedback_comment"),
+            "created_at": m["created_at"],
+        }
+        for m in convo["messages"]
+    ]
+    return {
+        "id": convo["id"],
+        "title": convo["title"],
+        "is_starred": convo.get("is_starred", False),
+        "messages": messages,
+        "created_at": convo["created_at"],
+        "updated_at": convo["updated_at"],
+    }
+
+
+@router.delete("/api/admin/conversations/{conversation_id}")
+async def delete_admin_conversation(
+    conversation_id: str,
+    request: Request,
+    ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Delete a single conversation (admin, no ownership check)."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    deleted = store.delete_conversation_admin(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    logger.info("Admin %s deleted conversation %s", ctx.user.email, conversation_id)
+    return {"status": "ok"}
+
+
+@router.get("/api/admin/users")
+async def list_users_with_stats(
+    request: Request,
+    ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """List all users with conversation and message counts."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    return {"users": store.get_all_users_with_stats()}
+
+
+@router.delete("/api/admin/conversations/user/{user_id}")
+async def delete_user_conversations(
+    user_id: str,
+    request: Request,
+    ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Delete all conversations for a specific user."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    count = store.delete_user_conversations(user_id)
+    logger.info("Admin %s deleted %d conversations for user %s", ctx.user.email, count, user_id)
+    return {"status": "ok", "deleted_count": count}
+
+
+@router.delete("/api/admin/conversations")
+async def delete_all_conversations(
+    request: Request,
+    ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Delete ALL conversations across all users."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    count = store.delete_all_conversations()
+    logger.info("Admin %s deleted ALL conversations (%d total)", ctx.user.email, count)
+    return {"status": "ok", "deleted_count": count}
+
+
+# --- Prompt management (admin only) -------------------------------------------
+
+
+@router.get("/api/admin/prompts")
+async def list_prompts(
+    request: Request,
+    _ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """List all prompt templates."""
+    engine = request.app.state.auth_engine
+    with Session(engine) as session:
+        prompts = session.query(PromptTemplate).order_by(PromptTemplate.name).all()
+        return {
+            "prompts": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "content": p.content,
+                    "description": p.description,
+                    "is_active": p.is_active,
+                    "created_at": p.created_at.isoformat() if p.created_at else None,
+                    "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+                }
+                for p in prompts
+            ]
+        }
+
+
+@router.get("/api/admin/prompts/{name}")
+async def get_prompt(
+    name: str,
+    request: Request,
+    _ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Get a specific prompt template by name."""
+    engine = request.app.state.auth_engine
+    with Session(engine) as session:
+        prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
+        if not prompt:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        return {
+            "id": prompt.id,
+            "name": prompt.name,
+            "content": prompt.content,
+            "description": prompt.description,
+            "is_active": prompt.is_active,
+            "created_at": prompt.created_at.isoformat() if prompt.created_at else None,
+            "updated_at": prompt.updated_at.isoformat() if prompt.updated_at else None,
+        }
+
+
+@router.put("/api/admin/prompts/{name}")
+async def upsert_prompt(
+    name: str,
+    body: PromptUpdateBody,
+    request: Request,
+    ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Create or update a prompt template."""
+    engine = request.app.state.auth_engine
+    with Session(engine) as session:
+        prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
+        if prompt:
+            prompt.content = body.content
+            prompt.description = body.description
+            prompt.is_active = body.is_active
+        else:
+            from insightxpert.auth.models import _uuid, _utcnow
+
+            prompt = PromptTemplate(
+                id=_uuid(),
+                name=name,
+                content=body.content,
+                description=body.description,
+                is_active=body.is_active,
+                created_at=_utcnow(),
+                updated_at=_utcnow(),
+            )
+            session.add(prompt)
+        session.commit()
+        logger.info("Admin %s upserted prompt '%s'", ctx.user.email, name)
+        return {"status": "ok", "name": name}
+
+
+@router.delete("/api/admin/prompts/{name}")
+async def delete_prompt(
+    name: str,
+    request: Request,
+    ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Delete a prompt template (reverts to file fallback)."""
+    engine = request.app.state.auth_engine
+    with Session(engine) as session:
+        prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
+        if not prompt:
+            raise HTTPException(status_code=404, detail="Prompt not found")
+        session.delete(prompt)
+        session.commit()
+        logger.info("Admin %s deleted prompt '%s'", ctx.user.email, name)
+        return {"status": "ok", "name": name}
+
+
+@router.post("/api/admin/prompts/{name}/reset")
+async def reset_prompt(
+    name: str,
+    request: Request,
+    ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Reset a prompt template to its file-based default."""
+    template_file = f"{name}.j2"
+    try:
+        file_content = get_file_content(template_file)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"No file template found for '{name}'")
+
+    engine = request.app.state.auth_engine
+    with Session(engine) as session:
+        prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
+        if prompt:
+            prompt.content = file_content
+        else:
+            from insightxpert.auth.models import _uuid, _utcnow
+
+            prompt = PromptTemplate(
+                id=_uuid(),
+                name=name,
+                content=file_content,
+                description=f"System prompt for {name}",
+                is_active=True,
+                created_at=_utcnow(),
+                updated_at=_utcnow(),
+            )
+            session.add(prompt)
+        session.commit()
+        logger.info("Admin %s reset prompt '%s' to file default", ctx.user.email, name)
+        return {"status": "ok", "name": name}
 
 
 # --- Public endpoint (any authenticated user) --------------------------------

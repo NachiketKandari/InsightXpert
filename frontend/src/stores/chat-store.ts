@@ -89,7 +89,21 @@ export const useChatStore = create<ChatState>((set, get) => ({
           updatedAt: new Date(c.updated_at).getTime(),
         })
       );
-      set({ conversations });
+      set((state) => {
+        // Merge: preserve locally-created conversations that aren't on the server yet
+        const serverIds = new Set(conversations.map((c: Conversation) => c.id));
+        const localOnly = state.conversations.filter((c) => !serverIds.has(c.id));
+        const merged = [...localOnly, ...conversations];
+
+        // If activeConversationId points to a conversation that no longer exists, clear it
+        const activeStillExists = merged.some((c) => c.id === state.activeConversationId);
+        return {
+          conversations: merged,
+          ...(state.activeConversationId && !activeStillExists
+            ? { activeConversationId: null }
+            : {}),
+        };
+      });
     } catch (err) {
       console.error("[chat-store] Error loading conversations:", err);
     }
