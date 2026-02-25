@@ -9,7 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
-import { ThumbsUp, ThumbsDown, MessageSquare, ChevronLeft, ChevronRight } from "lucide-react";
+import { ThumbsUp, ThumbsDown, MessageSquare, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 
 interface ConversationMessage {
@@ -39,6 +39,7 @@ interface ConversationViewerProps {
   totalCount: number;
   onPrev: () => void;
   onNext: () => void;
+  onDelete: () => void;
   isLoading?: boolean;
 }
 
@@ -50,6 +51,7 @@ export function ConversationViewer({
   totalCount,
   onPrev,
   onNext,
+  onDelete,
   isLoading,
 }: ConversationViewerProps) {
   if (!conversation && !open) return null;
@@ -65,19 +67,31 @@ export function ConversationViewer({
             <DialogTitle className="text-base truncate flex-1">
               {conversation?.title ?? "Loading..."}
             </DialogTitle>
-            {totalCount > 1 && (
-              <div className="flex items-center gap-1 shrink-0">
-                <Button variant="ghost" size="icon" className="size-7" onClick={onPrev}>
-                  <ChevronLeft className="size-4" />
+            <div className="flex items-center gap-1 shrink-0">
+              {totalCount > 1 && (
+                <>
+                  <Button variant="ghost" size="icon" className="size-7" onClick={onPrev}>
+                    <ChevronLeft className="size-4" />
+                  </Button>
+                  <span className="text-xs text-muted-foreground tabular-nums min-w-[3ch] text-center">
+                    {currentIndex + 1}/{totalCount}
+                  </span>
+                  <Button variant="ghost" size="icon" className="size-7" onClick={onNext}>
+                    <ChevronRight className="size-4" />
+                  </Button>
+                </>
+              )}
+              {conversation && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="size-7 text-destructive hover:text-destructive"
+                  onClick={onDelete}
+                >
+                  <Trash2 className="size-3.5" />
                 </Button>
-                <span className="text-xs text-muted-foreground tabular-nums min-w-[3ch] text-center">
-                  {currentIndex + 1}/{totalCount}
-                </span>
-                <Button variant="ghost" size="icon" className="size-7" onClick={onNext}>
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
-            )}
+              )}
+            </div>
           </div>
           <DialogDescription className="flex items-center gap-3 text-xs">
             {conversation && (

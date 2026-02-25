@@ -219,6 +219,21 @@ async def get_admin_conversation(
     }
 
 
+@router.delete("/api/admin/conversations/{conversation_id}")
+async def delete_admin_conversation(
+    conversation_id: str,
+    request: Request,
+    ctx: _AdminContext = Depends(_get_admin_context),
+):
+    """Delete a single conversation (admin, no ownership check)."""
+    store: PersistentConversationStore = request.app.state.persistent_conv_store
+    deleted = store.delete_conversation_admin(conversation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    logger.info("Admin %s deleted conversation %s", ctx.user.email, conversation_id)
+    return {"status": "ok"}
+
+
 @router.get("/api/admin/users")
 async def list_users_with_stats(
     request: Request,

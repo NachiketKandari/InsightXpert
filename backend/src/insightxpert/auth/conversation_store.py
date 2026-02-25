@@ -169,6 +169,16 @@ class PersistentConversationStore:
             session.commit()
             return True
 
+    def delete_conversation_admin(self, conversation_id: str) -> bool:
+        """Delete a single conversation without ownership check (admin use)."""
+        with Session(self.engine) as session:
+            convo = session.get(ConversationRecord, conversation_id)
+            if convo is None:
+                return False
+            session.delete(convo)
+            session.commit()
+            return True
+
     def search_conversations(self, user_id: str, query: str, limit: int = 20) -> list[dict]:
         """Search conversations by title and message content."""
         pattern = f"%{query}%"

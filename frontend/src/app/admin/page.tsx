@@ -312,6 +312,28 @@ export default function AdminPage() {
     setIsLoadingConversation(false);
   };
 
+  const deleteConversation = async (conversationId: string, title: string) => {
+    if (!confirm(`Delete conversation "${title}"? This cannot be undone.`)) return;
+    try {
+      const res = await apiFetch(`/api/admin/conversations/${conversationId}`, { method: "DELETE" });
+      if (res.ok) {
+        showMessage("success", "Conversation deleted");
+        // Remove from local list
+        setUserConversations((prev) => prev.filter((c) => c.id !== conversationId));
+        // If viewing this conversation, close modal or navigate
+        if (viewingConversation?.id === conversationId) {
+          setViewingConversation(null);
+        }
+        // Refresh user stats
+        await loadUsers();
+      } else {
+        showMessage("error", "Failed to delete conversation");
+      }
+    } catch {
+      showMessage("error", "Network error");
+    }
+  };
+
   const flushQaPairs = async () => {
     if (!confirm("Are you sure you want to clear all QA pairs from ChromaDB? This cannot be undone.")) return;
     setIsFlushing(true);
@@ -704,6 +726,17 @@ export default function AdminPage() {
                                   <span className="text-xs text-muted-foreground shrink-0">
                                     {new Date(conv.updated_at).toLocaleDateString()}
                                   </span>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      deleteConversation(conv.id, conv.title);
+                                    }}
+                                    className="text-destructive hover:text-destructive h-7 px-2 shrink-0"
+                                  >
+                                    <Trash2 className="size-3" />
+                                  </Button>
                                 </div>
                               ))}
                             </div>
@@ -743,6 +776,11 @@ export default function AdminPage() {
                 const idx = userConversations.findIndex((c) => c.id === viewingConversation?.id);
                 const nextIdx = idx >= userConversations.length - 1 ? 0 : idx + 1;
                 openConversation(userConversations[nextIdx].id);
+              }}
+              onDelete={() => {
+                if (viewingConversation) {
+                  deleteConversation(viewingConversation.id, viewingConversation.title);
+                }
               }}
               isLoading={isLoadingConversation}
             />
