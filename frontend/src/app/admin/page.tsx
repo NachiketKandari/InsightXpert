@@ -675,7 +675,7 @@ export default function AdminPage() {
 
                       {/* Expanded conversation list */}
                       {expandedUserId === u.id && (
-                        <div className="border-t border-border/50 bg-muted/10 px-3 py-2">
+                        <div className="border-t border-border/50 bg-muted/10 px-3 py-2 max-h-[40vh] overflow-y-auto">
                           {isLoadingConversations ? (
                             <div className="flex items-center justify-center py-4">
                               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-primary" />
