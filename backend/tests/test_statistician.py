@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from conftest import MockLLM
+from .conftest import MockLLM
 from insightxpert.agents.stat_tools import (
     ComputeCorrelationTool,
     ComputeDescriptiveStatsTool,
