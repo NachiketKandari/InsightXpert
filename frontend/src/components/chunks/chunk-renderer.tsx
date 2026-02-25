@@ -5,6 +5,8 @@ import { motion } from "framer-motion";
 import { CheckCircle, Loader2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 import { parseToolResult } from "@/lib/chunk-parser";
+import { detectChartType } from "@/lib/chart-detector";
+import { VALID_CHART_TYPES } from "@/lib/constants";
 import { StatusChunk } from "./status-chunk";
 import { ToolCallChunk } from "./tool-call-chunk";
 import { SqlChunk } from "./sql-chunk";
@@ -58,10 +60,19 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
       const parsed = parseToolResult(chunk);
       const suggestedChartType = (chunk.data?.visualization as string) ?? null;
 
+      let willShowChart = false;
+      if (parsed) {
+        const chartType =
+          suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
+            ? suggestedChartType
+            : detectChartType(parsed.columns, parsed.rows);
+        willShowChart = chartType !== "none" && chartType !== "table";
+      }
+
       content = (
         <>
           <ToolResultChunk chunk={chunk} />
-          {parsed && (
+          {willShowChart && parsed && (
             <>
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
