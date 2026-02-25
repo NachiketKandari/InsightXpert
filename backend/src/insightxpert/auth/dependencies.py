@@ -57,5 +57,6 @@ async def get_current_user(request: Request) -> User:
         except OperationalError:
             logger.warning("Could not update last_active for user %s (read-only database)", user_id)
             session.rollback()
+            session.refresh(user)
         session.expunge(user)
         return user
