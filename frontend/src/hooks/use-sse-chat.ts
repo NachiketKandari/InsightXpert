@@ -25,6 +25,7 @@ export function useSSEChat() {
     updateAgentStep,
     clearAgentSteps,
     newConversation,
+    updateLastAssistantTime,
   } = useChatStore();
 
   // isStreaming should reflect whether the *active* conversation is streaming,
@@ -39,6 +40,10 @@ export function useSSEChat() {
       if (!convId) {
         convId = newConversation();
       }
+
+      // Record wall-clock start time before any async work so total latency
+      // (network + auth + server processing) is captured.
+      const sendTime = Date.now();
 
       addUserMessage(message);
       startAssistantMessage();
@@ -186,6 +191,8 @@ export function useSSEChat() {
         onDone: () => {
           // Ensure no step is left in "running" state when the stream ends.
           markLastRunningDone();
+          // Record total wall-clock time from user send to final chunk received.
+          updateLastAssistantTime(Date.now() - sendTime, convId!);
           finishStreaming(convId!);
         },
         onError: (error) => {
@@ -214,6 +221,7 @@ export function useSSEChat() {
       updateAgentStep,
       clearAgentSteps,
       newConversation,
+      updateLastAssistantTime,
     ]
   );
 

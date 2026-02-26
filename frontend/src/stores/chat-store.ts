@@ -48,6 +48,7 @@ interface ChatState {
   addAgentStep: (step: AgentStep) => void;
   updateAgentStep: (id: string, updates: Partial<AgentStep>) => void;
   clearAgentSteps: () => void;
+  updateLastAssistantTime: (wallTimeMs: number, convId?: string) => void;
 
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
@@ -342,6 +343,27 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
 
   clearAgentSteps: () => {
     set({ agentSteps: [] });
+  },
+
+  updateLastAssistantTime: (wallTimeMs, convId) => {
+    set((state) => {
+      const targetId = convId || state.streamingConversationId || state.activeConversationId;
+      if (!targetId) return state;
+
+      const conversations = state.conversations.map((c) => {
+        if (c.id !== targetId) return c;
+        const messages = [...c.messages];
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === "assistant") {
+            messages[i] = { ...messages[i], wallTimeMs };
+            break;
+          }
+        }
+        return { ...c, messages };
+      });
+
+      return { conversations };
+    });
   },
 
   toggleLeftSidebar: () => {

@@ -29,6 +29,8 @@ export interface Message {
   inputTokens?: number | null;
   outputTokens?: number | null;
   generationTimeMs?: number | null;
+  /** Wall-clock ms from when the user hit send to when all chunks arrived. Only set on freshly-streamed messages, not history loads. */
+  wallTimeMs?: number | null;
   timestamp: number;
 }
 

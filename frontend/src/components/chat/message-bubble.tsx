@@ -10,10 +10,13 @@ import { useChatStore } from "@/stores/chat-store";
 import type { Message } from "@/types/chat";
 
 function MessageMetrics({ message }: { message: Message }) {
-  const { generationTimeMs, inputTokens, outputTokens } = message;
-  if (!generationTimeMs && !inputTokens && !outputTokens) return null;
+  const { wallTimeMs, generationTimeMs, inputTokens, outputTokens } = message;
+  if (!wallTimeMs && !generationTimeMs && !inputTokens && !outputTokens) return null;
 
-  const timeSec = generationTimeMs != null ? (generationTimeMs / 1000).toFixed(1) : null;
+  // Prefer wall-clock time (click→done) over server-only generation time.
+  const displayMs = wallTimeMs ?? generationTimeMs;
+  const timeSec = displayMs != null ? (displayMs / 1000).toFixed(1) : null;
+  const timeTooltip = wallTimeMs != null ? "Total response time (click → done)" : "Server generation time";
   const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
   const fmtFull = (n: number) => n.toLocaleString();
 
@@ -25,7 +28,7 @@ function MessageMetrics({ message }: { message: Message }) {
             <span className="cursor-default">{timeSec}s</span>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="text-xs">
-            Generation time: {timeSec}s
+            {timeTooltip}: {timeSec}s
           </TooltipContent>
         </Tooltip>
       )}
