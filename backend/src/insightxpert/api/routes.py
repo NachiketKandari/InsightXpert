@@ -34,6 +34,8 @@ from insightxpert.api.models import (
 )
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
+from insightxpert.admin.config_store import read_config
+from insightxpert.admin.models import FeatureToggles
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
@@ -50,6 +52,24 @@ from insightxpert.memory.conversation_store import ConversationStore
 logger = logging.getLogger("insightxpert.api")
 
 router = APIRouter(prefix="/api")
+
+
+def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
+    """Return the resolved FeatureToggles for the given user based on admin config."""
+    config = read_config(request.app.state.config_path)
+    # Admins bypass all restrictions; return defaults (everything enabled except what's off by default)
+    if user.is_admin:
+        return FeatureToggles()
+    domain = user.email.split("@")[1].lower()
+    if domain in [d.lower() for d in config.admin_domains]:
+        return FeatureToggles()
+    email_lower = user.email.lower()
+    for mapping in config.user_org_mappings:
+        if mapping.email.lower() == email_lower:
+            org = config.organizations.get(mapping.org_id)
+            if org:
+                return org.features
+    return config.defaults.features
 
 
 def _get_deps(request: Request):
@@ -148,6 +168,8 @@ async def chat_sse(
 ):
     logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
     llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    features = _resolve_user_features(request, user)
+    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
     final_answer: list[str] = []
     all_chunks: list[str] = []
@@ -165,7 +187,7 @@ async def chat_sse(
             history=history,
             agent_mode=chat_req.agent_mode,
             dataset_service=dataset_service,
-            skip_clarification=chat_req.skip_clarification,
+            skip_clarification=effective_skip_clarification,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -199,6 +221,8 @@ async def chat_poll(
 ):
     logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
     llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    features = _resolve_user_features(request, user)
+    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
     chunks: list[dict] = []
     final_answer = ""
@@ -213,7 +237,7 @@ async def chat_poll(
         history=history,
         agent_mode=chat_req.agent_mode,
         dataset_service=dataset_service,
-        skip_clarification=chat_req.skip_clarification,
+        skip_clarification=effective_skip_clarification,
     ):
         chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:

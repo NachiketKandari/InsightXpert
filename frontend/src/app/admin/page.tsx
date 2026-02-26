@@ -35,6 +35,7 @@ const DEFAULT_FEATURES: FeatureToggles = {
   chart_rendering: true,
   conversation_export: true,
   agent_process_sidebar: true,
+  clarification_enabled: false,
 };
 
 const DEFAULT_BRANDING: OrgBranding = {

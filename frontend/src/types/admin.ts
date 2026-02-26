@@ -5,6 +5,7 @@ export interface FeatureToggles {
   chart_rendering: boolean;
   conversation_export: boolean;
   agent_process_sidebar: boolean;
+  clarification_enabled: boolean;
 }
 
 export interface OrgBranding {
