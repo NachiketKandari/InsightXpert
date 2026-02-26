@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
@@ -20,6 +22,7 @@ from insightxpert.auth.models import Base as AuthBase
 from insightxpert.auth.routes import router as auth_router
 from insightxpert.auth.seed import seed_admin
 from insightxpert.config import Settings
+from insightxpert.exceptions import InsightXpertError
 from insightxpert.db.connector import DatabaseConnector
 from insightxpert.llm.factory import create_llm
 from insightxpert.memory.conversation_store import ConversationStore
@@ -177,7 +180,7 @@ async def lifespan(app: FastAPI):
     logger.info("Persistent conversation store initialized")
 
     # Conversation memory (in-memory for LLM context)
-    conversation_store = ConversationStore()
+    conversation_store = ConversationStore(ttl_seconds=settings.conversation_ttl_seconds)
     logger.info("Conversation memory initialized (in-memory)")
 
     # Store on app state
@@ -199,10 +202,11 @@ async def lifespan(app: FastAPI):
     logger.info("Admin config loaded: %s", config_path)
 
     # Wait for RAG training to finish (with timeout so server still starts)
+    rag_timeout = settings.rag_bootstrap_timeout_seconds
     try:
-        await asyncio.wait_for(rag_task, timeout=120)
+        await asyncio.wait_for(rag_task, timeout=rag_timeout)
     except asyncio.TimeoutError:
-        logger.warning("RAG training still running after 120s, continuing startup")
+        logger.warning("RAG training still running after %ds, continuing startup", rag_timeout)
     except Exception as e:
         logger.error("RAG training error: %s", e, exc_info=True)
 
@@ -226,6 +230,65 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ---------------------------------------------------------------------------
+# Global exception handlers
+# ---------------------------------------------------------------------------
+
+
+@app.exception_handler(InsightXpertError)
+async def insightxpert_error_handler(_request: Request, exc: InsightXpertError):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": exc.error_code,
+            "detail": exc.message,
+            "status_code": exc.status_code,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_error_handler(_request: Request, exc: RequestValidationError):
+    field_errors = []
+    for err in exc.errors():
+        loc = " -> ".join(str(l) for l in err.get("loc", []))
+        field_errors.append(f"{loc}: {err.get('msg', 'invalid')}")
+    return JSONResponse(
+        status_code=400,
+        content={
+            "error": "VALIDATION_ERROR",
+            "detail": "; ".join(field_errors),
+            "status_code": 400,
+        },
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(_request: Request, exc: HTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "error": "HTTP_ERROR",
+            "detail": exc.detail if isinstance(exc.detail, str) else str(exc.detail),
+            "status_code": exc.status_code,
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(_request: Request, exc: Exception):
+    logger.error("Unhandled exception: %s", exc, exc_info=True)
+    logger.debug("Full traceback:\n%s", traceback.format_exc())
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "INTERNAL_ERROR",
+            "detail": "An unexpected internal error occurred",
+            "status_code": 500,
+        },
+    )
 
 
 @app.get("/health")

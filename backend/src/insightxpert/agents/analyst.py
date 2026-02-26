@@ -1,3 +1,26 @@
+"""Analyst agent -- the core text-to-SQL pipeline.
+
+Implements a 5-step agentic loop that converts a natural-language question
+into an evidence-backed answer:
+
+1. **RAG retrieval** -- Searches the vector store for similar past Q&A pairs
+   and anomaly findings to provide few-shot context to the LLM.
+2. **Prompt assembly** -- Renders the ``analyst_system.j2`` template with DDL,
+   business documentation, and RAG hits, then builds the full message list
+   (system prompt -> conversation history -> user question).
+3. **Agentic loop** -- Iteratively calls the LLM, which may invoke tools
+   (``run_sql``, ``get_schema``, ``search_similar``).  Tool results are
+   appended back into the conversation and the LLM is called again until it
+   produces a final text answer or the iteration limit is reached.
+4. **Guard rail** -- On the first iteration, if the LLM responds without
+   calling any tool, the response is rejected and the LLM is forced to
+   execute a SQL query before answering.  This prevents hallucinated answers
+   that bypass the database.
+5. **Auto-save** -- When the loop completes successfully, the question + SQL
+   pair is persisted into the RAG store, creating a self-improving feedback
+   loop where future similar questions benefit from past successful queries.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -22,6 +45,26 @@ logger = logging.getLogger("insightxpert.analyst")
 
 
 def _extract_sql_from_messages(messages: list[dict]) -> str | None:
+    """Extract the last SQL query from the conversation message history.
+
+    Walks the message list in **reverse** (most-recent-first) looking for SQL
+    in two places:
+
+    1. A ``run_sql`` tool call on an assistant message -- the ``sql`` argument
+       is returned directly.
+    2. A fenced SQL code block (````sql ... `````) in any message's text
+       content -- the first regex match is returned.
+
+    This is used after the agentic loop finishes to find the SQL that produced
+    the answer, so it can be saved as a Q&A pair in the RAG store.
+
+    Args:
+        messages: The full conversation message list (system + history + user
+            + assistant/tool rounds).
+
+    Returns:
+        The SQL string if found, or ``None`` if no SQL was produced.
+    """
     for msg in reversed(messages):
         if msg["role"] == "assistant":
             tool_calls = msg.get("tool_calls", [])
@@ -46,6 +89,37 @@ async def analyst_loop(
     history: list[dict] | None = None,
     tool_registry: ToolRegistry | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
+    """Run the analyst agentic loop for a single user question.
+
+    This is an **async generator** that yields ``ChatChunk`` objects as the
+    pipeline progresses.  The caller (typically the orchestrator or SSE
+    endpoint) iterates over the chunks and streams them to the frontend.
+
+    Yielded ChatChunk types (in typical order):
+        - ``"status"``      -- progress updates for the UI status bar
+        - ``"tool_call"``   -- notification that a tool is being invoked
+        - ``"sql"``         -- the SQL query text (for display)
+        - ``"tool_result"`` -- raw result from tool execution
+        - ``"answer"``      -- the LLM's final natural-language answer
+        - ``"error"``       -- on LLM failure or iteration exhaustion
+
+    Args:
+        question: The user's natural-language question.
+        llm: LLM provider implementing the ``chat()`` protocol.
+        db: Database connector for SQL execution.
+        rag: Vector store for RAG retrieval and auto-save.
+        config: Application settings (iteration limits, row limits, etc.).
+        conversation_id: Optional ID for multi-turn conversation tracking.
+        history: Optional list of prior conversation messages for multi-turn
+            context.  These are injected between the system prompt and the
+            current user question.
+        tool_registry: Optional custom tool registry; defaults to the
+            standard analyst toolset (``run_sql``, ``get_schema``,
+            ``search_similar``).
+
+    Yields:
+        ChatChunk instances representing each stage of the pipeline.
+    """
     cid = conversation_id or ""
     loop_start = time.time()
 
@@ -65,8 +139,17 @@ async def analyst_loop(
         timestamp=time.time(),
     )
 
+    # -- Step 1: RAG retrieval --
+    # Retrieve up to 5 similar Q&A pairs (n=5) that are close enough
+    # (distance <= 1.0) and whose SQL was previously validated (sql_valid_only).
+    # This gives the LLM few-shot examples of correct SQL for similar questions.
+    # The distance threshold of 1.0 filters out weak matches that would add
+    # noise rather than helpful context.
     rag_start = time.time()
     similar_qa = rag.search_qa(question, n=5, max_distance=1.0, sql_valid_only=True)
+    # Note: the findings collection is searched but is currently never populated
+    # by any code path.  It is reserved for a future anomaly-detection pipeline
+    # that would store background analysis results.
     relevant_findings = rag.search_findings(question, n=2)
     rag_ms = (time.time() - rag_start) * 1000
 
@@ -97,6 +180,14 @@ async def analyst_loop(
     )
     await asyncio.sleep(0)
 
+    # -- Step 2: System prompt assembly --
+    # Render the analyst_system.j2 template with these variables:
+    #   ddl            -- CREATE TABLE DDL from training/schema.py
+    #   documentation  -- business-context docs from training/documentation.py
+    #   similar_qa     -- RAG-retrieved Q&A pairs (list of dicts with "document" key)
+    #   relevant_findings -- RAG-retrieved findings (currently always empty)
+    # The engine is passed so the renderer can check for a DB-stored override
+    # before falling back to the file-based template.
     system_prompt = render_prompt(
         "analyst_system.j2",
         engine=db.engine,
@@ -106,6 +197,11 @@ async def analyst_loop(
         relevant_findings=relevant_findings,
     )
 
+    # -- Step 3: Message list assembly --
+    # The ordering matters for LLM context:
+    #   1. System prompt -- sets the persona, schema, rules, and RAG context
+    #   2. Conversation history -- prior user/assistant turns for multi-turn
+    #   3. Current user question -- the new query to answer
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
     ]
@@ -138,8 +234,15 @@ async def analyst_loop(
             return
         llm_ms = (time.time() - llm_start) * 1000
 
-        # Guard: if the LLM tries to answer without ever executing a tool,
-        # reject the response and force it to query the database first.
+        # -- Step 4: Guard rail -- "force tool use" on first iteration --
+        # If the LLM produces a text-only response without ever having
+        # executed a tool in this session, we reject it and inject a
+        # corrective user message demanding a run_sql call.  This prevents
+        # the LLM from hallucinating answers based on its training data or
+        # the few-shot examples in the prompt instead of querying the
+        # actual database.  Once any tool has been executed (tools_executed
+        # becomes True), subsequent text-only responses are accepted as the
+        # final answer.
         if not response.tool_calls and not tools_executed:
             logger.warning(
                 "LLM answered without tool calls on iteration %d — forcing tool use",
@@ -255,6 +358,13 @@ async def analyst_loop(
                 timestamp=time.time(),
             )
 
+            # -- Step 5: Auto-save -- self-improving feedback loop --
+            # After a successful answer, extract the SQL that was executed
+            # and save the (question, sql) pair back to the RAG store with
+            # sql_valid=True.  On future questions, this pair will surface
+            # as a few-shot example, improving the LLM's SQL accuracy over
+            # time.  This creates a flywheel effect: more usage -> more
+            # saved examples -> better future answers.
             sql = _extract_sql_from_messages(messages)
             if sql:
                 try:
