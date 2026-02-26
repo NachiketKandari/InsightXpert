@@ -88,6 +88,8 @@ async def analyst_loop(
     conversation_id: str | None = None,
     history: list[dict] | None = None,
     tool_registry: ToolRegistry | None = None,
+    ddl_override: str | None = None,
+    documentation_override: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst agentic loop for a single user question.
 
@@ -147,33 +149,25 @@ async def analyst_loop(
     # noise rather than helpful context.
     rag_start = time.time()
     similar_qa = rag.search_qa(question, n=5, max_distance=1.0, sql_valid_only=True)
-    # Note: the findings collection is searched but is currently never populated
-    # by any code path.  It is reserved for a future anomaly-detection pipeline
-    # that would store background analysis results.
-    relevant_findings = rag.search_findings(question, n=2)
     rag_ms = (time.time() - rag_start) * 1000
 
     logger.info(
-        "RAG retrieval (%.0fms): qa=%d (threshold=1.0, valid-only) findings=%d",
-        rag_ms, len(similar_qa), len(relevant_findings),
+        "RAG retrieval (%.0fms): qa=%d (threshold=1.0, valid-only)",
+        rag_ms, len(similar_qa),
     )
     if similar_qa:
         for i, qa in enumerate(similar_qa):
             logger.debug("  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100])
-
-    total_rag_hits = len(similar_qa) + len(relevant_findings)
 
     # Collect titles for frontend dropdown display
     rag_titles: list[str] = []
     for qa in similar_qa:
         q = qa.get("metadata", {}).get("question", "")
         rag_titles.append(q or qa.get("document", "")[:80])
-    for finding in relevant_findings:
-        rag_titles.append(f"Finding: {finding.get('document', '')[:60]}")
 
     yield ChatChunk(
         type="status",
-        content=f"Found {total_rag_hits} similar queries. Analyzing with AI...",
+        content=f"Found {len(similar_qa)} similar queries. Analyzing with AI...",
         data={"rag_context": rag_titles} if rag_titles else None,
         conversation_id=cid,
         timestamp=time.time(),
@@ -181,20 +175,18 @@ async def analyst_loop(
     await asyncio.sleep(0)
 
     # -- Step 2: System prompt assembly --
-    # Render the analyst_system.j2 template with these variables:
-    #   ddl            -- CREATE TABLE DDL from training/schema.py
-    #   documentation  -- business-context docs from training/documentation.py
-    #   similar_qa     -- RAG-retrieved Q&A pairs (list of dicts with "document" key)
-    #   relevant_findings -- RAG-retrieved findings (currently always empty)
-    # The engine is passed so the renderer can check for a DB-stored override
-    # before falling back to the file-based template.
+    # Use overrides from the active dataset if provided, else fall back to
+    # the hardcoded training files.
+    active_ddl = ddl_override or DDL
+    active_docs = documentation_override or DOCUMENTATION
+
     system_prompt = render_prompt(
         "analyst_system.j2",
         engine=db.engine,
-        ddl=DDL,
-        documentation=DOCUMENTATION,
+        ddl=active_ddl,
+        documentation=active_docs,
         similar_qa=similar_qa,
-        relevant_findings=relevant_findings,
+        relevant_findings=[],
     )
 
     # -- Step 3: Message list assembly --

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState, useMemo, useRef, useEffect } from "react";
 import {
   BarChart,
   Bar,
@@ -14,7 +14,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { BarChart3, ChevronRight } from "lucide-react";
+import { BarChart3, ChevronRight, Loader2 } from "lucide-react";
 import {
   ChartContainer,
   ChartTooltip,
@@ -48,33 +48,46 @@ interface ChartBlockProps {
   columns: string[];
   rows: Record<string, unknown>[];
   suggestedChartType?: string | null;
+  /** Skip lazy loading (render immediately) for currently-streaming messages. */
+  eager?: boolean;
 }
 
-export function ChartBlock({ columns, rows, suggestedChartType }: ChartBlockProps) {
+function ChartBlockInner({ columns, rows, suggestedChartType }: ChartBlockProps) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(true);
-  const chartType =
-    suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
-      ? suggestedChartType
-      : detectChartType(columns, rows);
+
+  const chartType = useMemo(
+    () =>
+      suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
+        ? suggestedChartType
+        : detectChartType(columns, rows),
+    [columns, rows, suggestedChartType],
+  );
+
+  const { categoryKey, valueKey, groupKey } = useMemo(
+    () => getChartConfig(columns, rows),
+    [columns, rows],
+  );
+
+  const data = useMemo(
+    () => rows.map((row) => ({ ...row, [valueKey]: Number(row[valueKey]) })),
+    [rows, valueKey],
+  );
+
+  const chartConfig: ChartConfig = useMemo(
+    () => ({
+      [valueKey]: { label: valueKey, color: "var(--color-chart-1)" },
+    }),
+    [valueKey],
+  );
+
+  const useStateCodes = useMemo(() => hasStateCategories(data, categoryKey), [data, categoryKey]);
+  const tickFormatter = useMemo(
+    () => (useStateCodes ? (v: string) => abbreviateState(v) : undefined),
+    [useStateCodes],
+  );
+
   if (chartType === "none" || chartType === "table") return null;
-
-  const { categoryKey, valueKey, groupKey } = getChartConfig(columns, rows);
-
-  const data = rows.map((row) => ({
-    ...row,
-    [valueKey]: Number(row[valueKey]),
-  }));
-
-  const chartConfig: ChartConfig = {
-    [valueKey]: {
-      label: valueKey,
-      color: "var(--color-chart-1)",
-    },
-  };
-
-  const useStateCodes = hasStateCategories(data, categoryKey);
-  const tickFormatter = useStateCodes ? (v: string) => abbreviateState(v) : undefined;
 
   let chartContent: React.ReactNode;
 
@@ -233,5 +246,42 @@ export function ChartBlock({ columns, rows, suggestedChartType }: ChartBlockProp
         </CollapsibleContent>
       </Card>
     </Collapsible>
+  );
+}
+
+const MemoizedChartBlock = React.memo(ChartBlockInner);
+
+/**
+ * Lazy-loading wrapper: defers mounting until the element is near the viewport.
+ * For streaming messages (`eager`), renders immediately without the observer.
+ */
+export function ChartBlock({ eager, ...props }: ChartBlockProps) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(!!eager);
+
+  useEffect(() => {
+    if (eager || visible) return;
+    const el = ref.current;
+    if (!el) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [eager, visible]);
+
+  if (visible) return <MemoizedChartBlock {...props} />;
+
+  return (
+    <div ref={ref} className="flex items-center gap-2 text-muted-foreground text-sm py-6 justify-center">
+      <Loader2 className="h-4 w-4 animate-spin" />
+      <span>Chart loading...</span>
+    </div>
   );
 }

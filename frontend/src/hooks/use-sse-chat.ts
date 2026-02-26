@@ -55,6 +55,14 @@ export function useSSEChat() {
         }
       };
 
+      // Check if we should skip clarification (user clicked "Just answer with best guess")
+      const skipClarification = useChatStore.getState().skipClarificationNext;
+      if (skipClarification) {
+        useChatStore.getState().setSkipClarificationNext(false);
+      }
+      // Clear any pending clarification state
+      useChatStore.getState().setPendingClarification(null);
+
       const controller = createSSEStream(message, convId, {
         onChunk: (raw) => {
           const chunk = parseChunk(raw);
@@ -150,6 +158,19 @@ export function useSSEChat() {
               timestamp: chunk.timestamp,
             };
             addAgentStep(step);
+          } else if (chunk.type === "clarification") {
+            markLastRunningDone();
+            const stepId = generateStepId();
+            const step: AgentStep = {
+              id: stepId,
+              label: "Needs clarification",
+              status: "done",
+              detail: chunk.content || undefined,
+              timestamp: chunk.timestamp,
+            };
+            addAgentStep(step);
+            // Store the clarification state so the input can show context
+            useChatStore.getState().setPendingClarification(chunk.content || null);
           } else if (chunk.type === "error") {
             markLastRunningDone();
             const stepId = generateStepId();
@@ -178,7 +199,7 @@ export function useSSEChat() {
           });
           finishStreaming(convId!);
         },
-      }, agentMode);
+      }, agentMode, { skipClarification });
 
       abortRef.current = controller;
     },

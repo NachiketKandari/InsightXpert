@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     conversation_ttl_seconds: int = Field(default=7200, gt=0)
 
     # Logging
-    log_level: str = "DEBUG"
+    log_level: str = "INFO"
 
     @field_validator("log_level")
     @classmethod

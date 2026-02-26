@@ -85,38 +85,81 @@ class Trainer:
 
         return count
 
-    def train_insightxpert(self, db: DatabaseConnector | None = None) -> int:
+    def train_from_dataset(self, dataset_service) -> int:
+        """Load training data from the active dataset in the DB.
+
+        Reads DDL, documentation, and example queries from the DatasetService
+        and adds them to the RAG store. Returns the number of items added,
+        or 0 if no active dataset is found.
+        """
+        active = dataset_service.get_active_dataset()
+        if not active:
+            logger.debug("No active dataset in DB, skipping DB-based training")
+            return 0
+
+        count = 0
+        dataset_id = active["id"]
+
+        # DDL
+        ddl = active.get("ddl", "")
+        if ddl:
+            self._rag.add_ddl(ddl, table_name=active.get("name", ""))
+            count += 1
+            logger.debug("Added DDL from dataset '%s'", active["name"])
+
+        # Documentation (build from columns if available, else use stored docs)
+        docs = dataset_service.build_documentation_markdown(dataset_id)
+        if docs:
+            self._rag.add_documentation(docs, {"source": "dataset_db"})
+            count += 1
+            logger.debug("Added documentation from dataset '%s'", active["name"])
+
+        # Example queries
+        queries = dataset_service.get_example_queries(dataset_id)
+        for q in queries:
+            self._rag.add_qa_pair(
+                q["question"], q["sql"],
+                {"source": "dataset_db", "sql_valid": True},
+            )
+            count += 1
+        if queries:
+            logger.debug("Added %d example Q&A pairs from dataset '%s'", len(queries), active["name"])
+
+        return count
+
+    def train_insightxpert(self, db: DatabaseConnector | None = None, dataset_service=None) -> int:
         """Bootstrap the RAG store with all InsightXpert training data.
 
-        Executes a 4-step loading sequence:
-
-        1. **Static DDL** -- The canonical ``CREATE TABLE transactions``
-           statement from ``training/schema.py``.
-        2. **Business documentation** -- Column descriptions, business rules,
-           and domain context from ``training/documentation.py``.
-        3. **Example Q&A pairs** -- Curated question-to-SQL examples from
-           ``training/queries.py``, each marked ``sql_valid=True``.
-        4. **Live DDL introspection** (optional) -- If a ``db`` connector is
-           provided, introspects every table in the real database via
-           ``train_from_ddl``.
-
-        All items are upserted, making this method **idempotent** -- it can
-        be called on every startup without creating duplicate embeddings.
-
-        Note: The **findings** collection is *not* populated here.  It is
-        reserved for a future anomaly-detection feature.
+        If a ``dataset_service`` is provided, training data is loaded from the
+        DB first. Falls back to hardcoded Python files if the DB returns nothing.
 
         Args:
-            db: Optional database connector.  When provided, live schema
-                introspection is performed in addition to static training
-                data.
+            db: Optional database connector for live schema introspection.
+            dataset_service: Optional DatasetService for DB-based training.
 
         Returns:
-            Total count of items added (including DDL, docs, Q&A pairs, and
-            introspected tables).
+            Total count of items added.
         """
         count = 0
 
+        # Try DB-based training first
+        if dataset_service is not None:
+            db_count = self.train_from_dataset(dataset_service)
+            if db_count > 0:
+                count += db_count
+                logger.info("Loaded %d training items from DB dataset", db_count)
+                # Still do live introspection if DB connector available
+                if db is not None:
+                    try:
+                        ddl_count = self.train_from_ddl(db)
+                        count += ddl_count
+                        logger.debug("Introspected %d tables from DB", ddl_count)
+                    except Exception as e:
+                        logger.warning("DB introspection failed: %s", e)
+                logger.info("Training complete: %d items total", count)
+                return count
+
+        # Fallback: use hardcoded training files
         # Step 1: Add the canonical DDL for the transactions table
         self._rag.add_ddl(DDL, table_name="transactions")
         count += 1

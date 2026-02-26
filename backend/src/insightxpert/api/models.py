@@ -10,6 +10,7 @@ class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
     agent_mode: Literal["auto", "analyst", "statistician"] = "auto"
+    skip_clarification: bool = False
 
 
 class ChatChunk(BaseModel):

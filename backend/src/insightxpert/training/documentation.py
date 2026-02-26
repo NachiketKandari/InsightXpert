@@ -42,5 +42,5 @@ transactions from 2024 with 17 columns.
   320 records -- may not be representative").
 - There are only 10 sender states in the dataset. Do not assume all Indian
   states/UTs are present.
-- Transaction statuses are only SUCCESS or FAILED (no PENDING).
+- Transaction statuses are only SUCCESS or FAILED.
 """.strip()

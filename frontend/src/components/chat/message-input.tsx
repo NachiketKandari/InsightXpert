@@ -20,12 +20,18 @@ export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps)
   useEffect(() => {
     return useChatStore.subscribe((state) => {
       if (state.pendingInput) {
-        setValue(state.pendingInput);
+        const msg = state.pendingInput;
         state.setPendingInput(null);
-        textareaRef.current?.focus();
+        // If skipClarificationNext is set, auto-send immediately
+        if (state.skipClarificationNext) {
+          onSend(msg);
+        } else {
+          setValue(msg);
+          textareaRef.current?.focus();
+        }
       }
     });
-  }, []);
+  }, [onSend]);
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim();
