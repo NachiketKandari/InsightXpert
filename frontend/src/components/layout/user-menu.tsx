@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogOut, Activity, Sun, Moon, Settings, ListChecks } from "lucide-react";
+import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { useChatStore } from "@/stores/chat-store";
@@ -61,23 +61,30 @@ export function UserMenu() {
   };
 
   return (
-    <div className="flex items-center gap-2 px-4 py-3 border-t border-border">
+    <div className="border-t border-border">
       <DropdownMenu>
         <Tooltip>
           <TooltipTrigger asChild>
             <DropdownMenuTrigger asChild>
-              <button className="relative rounded-full outline-none cursor-pointer ring-2 ring-transparent hover:ring-primary/40 dark:hover:ring-cyan-accent/40 transition-all duration-200">
+              <button className="flex items-center gap-2 px-4 py-3 w-full cursor-pointer hover:bg-accent/50 dark:hover:bg-accent/30 transition-colors outline-none">
                 <Avatar size="default">
                   <AvatarFallback className="bg-primary/15 text-primary dark:bg-cyan-accent/15 dark:text-cyan-accent text-xs font-semibold">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
+                <div className="flex-1 min-w-0 text-left">
+                  <p className="text-sm font-medium leading-none truncate">{displayName}</p>
+                  <p className="text-xs text-muted-foreground leading-none mt-1 truncate">
+                    {user.email}
+                  </p>
+                </div>
+                <ChevronsUpDown className="size-4 text-muted-foreground shrink-0" />
               </button>
             </DropdownMenuTrigger>
           </TooltipTrigger>
-          <TooltipContent side="top">Account</TooltipContent>
+          <TooltipContent side="top">Account options</TooltipContent>
         </Tooltip>
-        <DropdownMenuContent side="top" align="start" className="w-56 mb-1">
+        <DropdownMenuContent side="top" align="center" className="w-[284px] mb-1">
           <DropdownMenuLabel className="font-normal">
             <div className="flex flex-col gap-1">
               <p className="text-sm font-medium leading-none">{displayName}</p>
@@ -119,13 +126,6 @@ export function UserMenu() {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-
-      <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium leading-none truncate">{displayName}</p>
-        <p className="text-xs text-muted-foreground leading-none mt-1 truncate">
-          {user.email}
-        </p>
-      </div>
     </div>
   );
 }
