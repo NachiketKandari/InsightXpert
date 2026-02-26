@@ -10,6 +10,7 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 import { AppLogo } from "@/components/ui/app-logo";
+import { DatasetSelector } from "./dataset-selector";
 
 export function Header() {
   const isMobile = useIsMobile();
@@ -40,6 +41,9 @@ export function Header() {
         <span className="text-lg font-semibold tracking-tight hidden md:inline">
           Insight<span className="text-primary dark:text-cyan-accent">Xpert</span>
         </span>
+        <div className="hidden md:flex ml-1 rounded-md bg-black/5 dark:bg-white/5 px-0.5 py-0.5">
+          <DatasetSelector />
+        </div>
       </div>
     </header>
   );

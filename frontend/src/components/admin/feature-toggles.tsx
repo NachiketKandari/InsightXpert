@@ -10,6 +10,7 @@ import {
   BarChart3,
   Download,
   PanelRight,
+  HelpCircle,
 } from "lucide-react";
 
 const FEATURE_DEFS: {
@@ -53,6 +54,12 @@ const FEATURE_DEFS: {
     label: "Agent Process Sidebar",
     description: "Show the agent process timeline sidebar",
     icon: PanelRight,
+  },
+  {
+    key: "clarification_enabled",
+    label: "Question Clarification",
+    description: "Ask for clarification before answering ambiguous questions (adds latency)",
+    icon: HelpCircle,
   },
 ];
 

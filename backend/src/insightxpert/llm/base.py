@@ -16,6 +16,8 @@ class ToolCall:
 class LLMResponse:
     content: str | None = None
     tool_calls: list[ToolCall] = field(default_factory=list)
+    input_tokens: int = 0
+    output_tokens: int = 0
 
 
 def log_llm_response(logger: logging.Logger, ms: float, response: LLMResponse) -> None:

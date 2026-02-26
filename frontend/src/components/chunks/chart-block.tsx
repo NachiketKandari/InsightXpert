@@ -224,7 +224,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType }: ChartBlockProps)
 
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
-      <Card className="glass overflow-hidden">
+      <Card className="glass overflow-hidden py-0 gap-0">
         <CollapsibleTrigger asChild>
           <button className="flex items-center gap-2 w-full px-4 pt-3 pb-2 hover:bg-accent/30 transition-colors text-left">
             <ChevronRight
@@ -240,7 +240,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType }: ChartBlockProps)
           </button>
         </CollapsibleTrigger>
         <CollapsibleContent>
-          <CardContent className="pt-1 pb-2">
+          <CardContent className="px-2 pt-1 pb-2">
             {chartContent}
           </CardContent>
         </CollapsibleContent>

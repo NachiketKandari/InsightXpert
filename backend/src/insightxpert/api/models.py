@@ -98,6 +98,9 @@ class MessageResponse(BaseModel):
     chunks: list[dict] | None = None
     feedback: bool | None = None
     feedback_comment: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    generation_time_ms: int | None = None
     created_at: str
 
 

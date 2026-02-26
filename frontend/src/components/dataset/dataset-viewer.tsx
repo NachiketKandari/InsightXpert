@@ -25,9 +25,11 @@ const PAGE_SIZE = 100;
 interface DatasetViewerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  tableName?: string;
+  datasetName?: string;
 }
 
-export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
+export function DatasetViewer({ open, onOpenChange, tableName = "transactions", datasetName = "Dataset Viewer" }: DatasetViewerProps) {
   const [data, setData] = useState<QueryResult | null>(null);
   const [totalRows, setTotalRows] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +45,7 @@ export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
       const res = await apiFetch("/api/sql/execute", {
         method: "POST",
         body: JSON.stringify({
-          sql: `SELECT * FROM transactions LIMIT ${PAGE_SIZE} OFFSET ${pageOffset}`,
+          sql: `SELECT * FROM ${tableName} LIMIT ${PAGE_SIZE} OFFSET ${pageOffset}`,
         }),
       });
 
@@ -61,29 +63,30 @@ export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [tableName]);
 
   const fetchTotalCount = useCallback(async () => {
     const result = await apiCall<QueryResult>("/api/sql/execute", {
       method: "POST",
       body: JSON.stringify({
-        sql: "SELECT COUNT(*) as total FROM transactions",
+        sql: `SELECT COUNT(*) as total FROM ${tableName}`,
       }),
     });
     if (result && result.rows.length > 0) {
       setTotalRows(Number(result.rows[0].total));
     }
-  }, []);
+  }, [tableName]);
 
   useEffect(() => {
     if (open) {
       setOffset(0);
       setData(null);
+      setTotalRows(null);
       setError(null);
       fetchPage(0);
       fetchTotalCount();
     }
-  }, [open, fetchPage, fetchTotalCount]);
+  }, [open, tableName, fetchPage, fetchTotalCount]);
 
   const goNext = () => {
     const next = offset + PAGE_SIZE;
@@ -115,7 +118,7 @@ export function DatasetViewer({ open, onOpenChange }: DatasetViewerProps) {
               <Database className="size-3.5 text-primary dark:text-cyan-accent" />
             </div>
             <DialogTitle className="text-sm font-semibold tracking-wide">
-              Dataset Viewer
+              {datasetName}
             </DialogTitle>
             <Badge variant="secondary" className="text-[10px] font-medium">
               Read-only

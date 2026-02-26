@@ -102,6 +102,10 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
         </div>
       </motion.div>
 
+      <p className="mt-2 text-center text-[11px] text-muted-foreground/60">
+        AI can make mistakes. Please double-check responses.
+      </p>
+
       {/* Suggestion chips */}
       <motion.div
         variants={container}

@@ -5,8 +5,62 @@ import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
 import { MessageActions } from "@/components/chat/message-actions";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/stores/chat-store";
 import type { Message } from "@/types/chat";
+
+function MessageMetrics({ message }: { message: Message }) {
+  const { wallTimeMs, generationTimeMs, inputTokens, outputTokens } = message;
+  if (!wallTimeMs && !generationTimeMs && !inputTokens && !outputTokens) return null;
+
+  // Prefer wall-clock time (click→done) over server-only generation time.
+  const displayMs = wallTimeMs ?? generationTimeMs;
+  const timeSec = displayMs != null ? (displayMs / 1000).toFixed(1) : null;
+  const timeTooltip = wallTimeMs != null ? "Total response time (click → done)" : "Server generation time";
+  const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+  const fmtFull = (n: number) => n.toLocaleString();
+
+  return (
+    <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/75 select-none mt-0.5">
+      {timeSec && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-default">{timeSec}s</span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            {timeTooltip}: {timeSec}s
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {(inputTokens != null || outputTokens != null) && timeSec && (
+        <span className="opacity-60">·</span>
+      )}
+      {inputTokens != null && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-default">↑{fmt(inputTokens)}</span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            Input tokens: {fmtFull(inputTokens)}
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {inputTokens != null && outputTokens != null && (
+        <span className="opacity-60">·</span>
+      )}
+      {outputTokens != null && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="cursor-default">↓{fmt(outputTokens)}</span>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="text-xs">
+            Output tokens: {fmtFull(outputTokens)}
+          </TooltipContent>
+        </Tooltip>
+      )}
+    </div>
+  );
+}
 
 interface MessageBubbleProps {
   message: Message;
@@ -75,6 +129,8 @@ function MessageBubbleInner({
           ) : null}
         </div>
       )}
+
+      {!isUser && !isStreaming && <MessageMetrics message={message} />}
 
       {message.content && (
         <MessageActions

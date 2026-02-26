@@ -59,6 +59,9 @@ def _migrate_schema(engine) -> None:
                      "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
         _add_column("messages", "feedback", "BOOLEAN")
         _add_column("messages", "feedback_comment", "TEXT")
+        _add_column("messages", "input_tokens", "INTEGER")
+        _add_column("messages", "output_tokens", "INTEGER")
+        _add_column("messages", "generation_time_ms", "INTEGER")
 
         # Indexes for frequently-queried foreign keys
         for idx_sql in [

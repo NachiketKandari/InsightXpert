@@ -27,6 +27,8 @@ interface ChatState {
   pendingClarification: string | null;
   skipClarificationNext: boolean;
 
+  isLoadingConversation: boolean;
+
   // Derived
   activeConversation: () => Conversation | null;
 
@@ -46,6 +48,7 @@ interface ChatState {
   addAgentStep: (step: AgentStep) => void;
   updateAgentStep: (id: string, updates: Partial<AgentStep>) => void;
   clearAgentSteps: () => void;
+  updateLastAssistantTime: (wallTimeMs: number, convId?: string) => void;
 
   toggleLeftSidebar: () => void;
   toggleRightSidebar: () => void;
@@ -73,6 +76,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
   pendingInput: null,
   pendingClarification: null,
   skipClarificationNext: false,
+  isLoadingConversation: false,
 
   activeConversation: () => {
     const { conversations, activeConversationId } = get();
@@ -143,6 +147,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
     if (conv && conv.messages.length === 0) {
       const isRecentlyCreated = Date.now() - conv.createdAt < 5000;
       if (!isRecentlyCreated) {
+        set({ isLoadingConversation: true });
         get().loadConversationMessages(id);
       }
     }
@@ -153,17 +158,21 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
       const res = await apiFetch(`/api/conversations/${id}`);
       if (!res.ok) {
         console.error("[chat-store] Failed to load messages for", id, ":", res.status, res.statusText);
+        set({ isLoadingConversation: false });
         return;
       }
       const data = await res.json();
       const messages: Message[] = (data.messages || []).map(
-        (m: { id: string; role: "user" | "assistant"; content: string; chunks?: ChatChunk[]; feedback?: boolean | null; feedback_comment?: string | null; created_at: string }) => ({
+        (m: { id: string; role: "user" | "assistant"; content: string; chunks?: ChatChunk[]; feedback?: boolean | null; feedback_comment?: string | null; input_tokens?: number | null; output_tokens?: number | null; generation_time_ms?: number | null; created_at: string }) => ({
           id: m.id,
           role: m.role,
           content: m.content,
           chunks: m.chunks || [],
           feedback: m.feedback ?? null,
           feedbackComment: m.feedback_comment ?? null,
+          inputTokens: m.input_tokens ?? null,
+          outputTokens: m.output_tokens ?? null,
+          generationTimeMs: m.generation_time_ms ?? null,
           timestamp: new Date(m.created_at).getTime(),
         })
       );
@@ -171,9 +180,11 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
         conversations: state.conversations.map((c) =>
           c.id === id ? { ...c, messages } : c
         ),
+        isLoadingConversation: false,
       }));
     } catch (err) {
       console.error("[chat-store] Error loading messages for", id, ":", err);
+      set({ isLoadingConversation: false });
     }
   },
 
@@ -276,6 +287,19 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
         const lastMsg = messages[messages.length - 1];
         if (!lastMsg || lastMsg.role !== "assistant") return c;
 
+        // Metrics chunk: update observability fields, don't add to chunks array
+        if (chunk.type === "metrics" && chunk.data) {
+          const d = chunk.data as { input_tokens?: number; output_tokens?: number; generation_time_ms?: number };
+          const updated: Message = {
+            ...lastMsg,
+            inputTokens: d.input_tokens ?? lastMsg.inputTokens,
+            outputTokens: d.output_tokens ?? lastMsg.outputTokens,
+            generationTimeMs: d.generation_time_ms ?? lastMsg.generationTimeMs,
+          };
+          messages[messages.length - 1] = updated;
+          return { ...c, messages };
+        }
+
         const updated: Message = {
           ...lastMsg,
           chunks: [...lastMsg.chunks, chunk],
@@ -319,6 +343,27 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
 
   clearAgentSteps: () => {
     set({ agentSteps: [] });
+  },
+
+  updateLastAssistantTime: (wallTimeMs, convId) => {
+    set((state) => {
+      const targetId = convId || state.streamingConversationId || state.activeConversationId;
+      if (!targetId) return state;
+
+      const conversations = state.conversations.map((c) => {
+        if (c.id !== targetId) return c;
+        const messages = [...c.messages];
+        for (let i = messages.length - 1; i >= 0; i--) {
+          if (messages[i].role === "assistant") {
+            messages[i] = { ...messages[i], wallTimeMs };
+            break;
+          }
+        }
+        return { ...c, messages };
+      });
+
+      return { conversations };
+    });
   },
 
   toggleLeftSidebar: () => {

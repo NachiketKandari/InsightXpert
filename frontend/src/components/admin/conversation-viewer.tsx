@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ThumbsUp, ThumbsDown, MessageSquare, ChevronLeft, ChevronRight, Trash2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 
@@ -19,6 +20,9 @@ interface ConversationMessage {
   chunks: ChatChunk[] | null;
   feedback?: boolean | null;
   feedback_comment?: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  generation_time_ms?: number | null;
   created_at: string;
 }
 
@@ -144,6 +148,43 @@ export function ConversationViewer({
                       )}
                     </div>
                   )}
+
+                  {/* Observability metrics */}
+                  {msg.role === "assistant" && (msg.generation_time_ms != null || msg.input_tokens != null || msg.output_tokens != null) && (() => {
+                    const timeSec = msg.generation_time_ms != null ? (msg.generation_time_ms / 1000).toFixed(1) : null;
+                    const fmt = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
+                    const fmtFull = (n: number) => n.toLocaleString();
+                    return (
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-muted-foreground/60 select-none">
+                        {timeSec && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default">{timeSec}s</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="text-xs">Generation time: {timeSec}s</TooltipContent>
+                          </Tooltip>
+                        )}
+                        {timeSec && (msg.input_tokens != null || msg.output_tokens != null) && <span className="opacity-40">·</span>}
+                        {msg.input_tokens != null && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default">↑{fmt(msg.input_tokens)}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="text-xs">Input tokens: {fmtFull(msg.input_tokens)}</TooltipContent>
+                          </Tooltip>
+                        )}
+                        {msg.input_tokens != null && msg.output_tokens != null && <span className="opacity-40">·</span>}
+                        {msg.output_tokens != null && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="cursor-default">↓{fmt(msg.output_tokens)}</span>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className="text-xs">Output tokens: {fmtFull(msg.output_tokens)}</TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               ))}
 

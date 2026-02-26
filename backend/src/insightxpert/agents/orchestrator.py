@@ -73,6 +73,16 @@ async def orchestrator_loop(
     if not skip_clarification:
         from insightxpert.agents.clarifier import clarification_check
 
+        # Emit an immediate status chunk so the browser receives the first SSE
+        # event right away and the "Thinking…" spinner is replaced before the
+        # (slow) clarification LLM call starts.
+        yield ChatChunk(
+            type="status",
+            content="Analyzing your question...",
+            conversation_id=conversation_id or "",
+            timestamp=time.time(),
+        )
+
         clarify_ddl = ddl_override or DDL
         clarify_docs = docs_override or DOCUMENTATION
         try:

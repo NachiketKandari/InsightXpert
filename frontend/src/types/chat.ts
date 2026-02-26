@@ -5,7 +5,8 @@ export type ChunkType =
   | "tool_result"
   | "answer"
   | "error"
-  | "clarification";
+  | "clarification"
+  | "metrics";
 
 export interface ChatChunk {
   type: ChunkType;
@@ -25,6 +26,11 @@ export interface Message {
   chunks: ChatChunk[];
   feedback?: boolean | null;
   feedbackComment?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  generationTimeMs?: number | null;
+  /** Wall-clock ms from when the user hit send to when all chunks arrived. Only set on freshly-streamed messages, not history loads. */
+  wallTimeMs?: number | null;
   timestamp: number;
 }
 

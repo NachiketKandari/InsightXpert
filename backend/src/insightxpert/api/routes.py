@@ -10,6 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from insightxpert.agents.orchestrator import orchestrator_loop
 from insightxpert.api.models import (
+    ChatChunk,
     ChatRequest,
     ConfigResponse,
     ConversationDetail,
@@ -34,6 +35,8 @@ from insightxpert.api.models import (
 )
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
+from insightxpert.admin.config_store import read_config
+from insightxpert.admin.models import FeatureToggles
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
@@ -50,6 +53,43 @@ from insightxpert.memory.conversation_store import ConversationStore
 logger = logging.getLogger("insightxpert.api")
 
 router = APIRouter(prefix="/api")
+
+
+class _TokenCountingLLM:
+    """Thin wrapper around any LLMProvider that accumulates token usage."""
+
+    def __init__(self, llm) -> None:
+        self._llm = llm
+        self.input_tokens: int = 0
+        self.output_tokens: int = 0
+
+    @property
+    def model(self) -> str:
+        return self._llm.model
+
+    async def chat(self, messages: list[dict], tools: list[dict] | None = None):
+        resp = await self._llm.chat(messages, tools)
+        self.input_tokens += resp.input_tokens
+        self.output_tokens += resp.output_tokens
+        return resp
+
+
+def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
+    """Return the resolved FeatureToggles for the given user based on admin config."""
+    config = read_config(request.app.state.config_path)
+    # Admins bypass all restrictions; return defaults (everything enabled except what's off by default)
+    if user.is_admin:
+        return FeatureToggles()
+    domain = user.email.split("@")[1].lower()
+    if domain in [d.lower() for d in config.admin_domains]:
+        return FeatureToggles()
+    email_lower = user.email.lower()
+    for mapping in config.user_org_mappings:
+        if mapping.email.lower() == email_lower:
+            org = config.organizations.get(mapping.org_id)
+            if org:
+                return org.features
+    return config.defaults.features
 
 
 def _get_deps(request: Request):
@@ -123,6 +163,9 @@ def _persist_response(
     final_answer: str,
     executed_sql: list[str],
     chunks_blob: str,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
+    generation_time_ms: int | None = None,
 ) -> None:
     if store_cid and final_answer:
         history_content = final_answer
@@ -135,6 +178,9 @@ def _persist_response(
         try:
             persistent_store.save_message(
                 persistent_cid, user_id, "assistant", final_answer, chunks_blob,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                generation_time_ms=generation_time_ms,
             )
         except Exception as e:
             logger.error("Failed to persist assistant message: %s", e, exc_info=True)
@@ -148,16 +194,20 @@ async def chat_sse(
 ):
     logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
     llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    features = _resolve_user_features(request, user)
+    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
     final_answer: list[str] = []
     all_chunks: list[str] = []
     executed_sql: list[str] = []
+    counting_llm = _TokenCountingLLM(llm)
 
     async def event_generator():
         actual_cid = ""
+        start_time = time.time()
         async for chunk in orchestrator_loop(
             question=chat_req.message,
-            llm=llm,
+            llm=counting_llm,
             db=db,
             rag=rag,
             config=settings,
@@ -165,7 +215,7 @@ async def chat_sse(
             history=history,
             agent_mode=chat_req.agent_mode,
             dataset_service=dataset_service,
-            skip_clarification=chat_req.skip_clarification,
+            skip_clarification=effective_skip_clarification,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -176,6 +226,20 @@ async def chat_sse(
                 final_answer.append(chunk.content)
             yield {"data": chunk_json}
 
+        generation_time_ms = int((time.time() - start_time) * 1000)
+
+        # Emit observability metrics as a final chunk before [DONE]
+        metrics_chunk = ChatChunk(
+            type="metrics",
+            data={
+                "input_tokens": counting_llm.input_tokens,
+                "output_tokens": counting_llm.output_tokens,
+                "generation_time_ms": generation_time_ms,
+            },
+            conversation_id=cid or persistent_cid,
+        )
+        yield {"data": metrics_chunk.model_dump_json()}
+
         # Persist BEFORE yielding [DONE] so that data is saved even if the
         # client disconnects immediately after receiving the sentinel.
         store_cid = cid or actual_cid
@@ -184,6 +248,9 @@ async def chat_sse(
             final_answer[-1] if final_answer else "",
             executed_sql,
             "[" + ",".join(all_chunks) + "]",
+            input_tokens=counting_llm.input_tokens or None,
+            output_tokens=counting_llm.output_tokens or None,
+            generation_time_ms=generation_time_ms,
         )
 
         yield {"data": "[DONE]"}
@@ -199,13 +266,17 @@ async def chat_poll(
 ):
     logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
     llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    features = _resolve_user_features(request, user)
+    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
     chunks: list[dict] = []
     final_answer = ""
     poll_executed_sql: list[str] = []
+    poll_counting_llm = _TokenCountingLLM(llm)
+    start_time = time.time()
     async for chunk in orchestrator_loop(
         question=chat_req.message,
-        llm=llm,
+        llm=poll_counting_llm,
         db=db,
         rag=rag,
         config=settings,
@@ -213,7 +284,7 @@ async def chat_poll(
         history=history,
         agent_mode=chat_req.agent_mode,
         dataset_service=dataset_service,
-        skip_clarification=chat_req.skip_clarification,
+        skip_clarification=effective_skip_clarification,
     ):
         chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:
@@ -221,10 +292,14 @@ async def chat_poll(
         if chunk.type == "answer" and chunk.content:
             final_answer = chunk.content
 
+    generation_time_ms = int((time.time() - start_time) * 1000)
     store_cid = cid or (chunks[0]["conversation_id"] if chunks else "")
     _persist_response(
         conv_store, persistent_store, store_cid, persistent_cid, user.id,
         final_answer, poll_executed_sql, json.dumps(chunks),
+        input_tokens=poll_counting_llm.input_tokens or None,
+        output_tokens=poll_counting_llm.output_tokens or None,
+        generation_time_ms=generation_time_ms,
     )
 
     logger.info("POST /chat/poll done: %d chunks", len(chunks))
@@ -508,6 +583,9 @@ async def get_conversation(
             chunks=chunks,
             feedback=m.get("feedback"),
             feedback_comment=m.get("feedback_comment"),
+            input_tokens=m.get("input_tokens"),
+            output_tokens=m.get("output_tokens"),
+            generation_time_ms=m.get("generation_time_ms"),
             created_at=m["created_at"],
         ))
 

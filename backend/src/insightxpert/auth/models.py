@@ -57,6 +57,9 @@ class MessageRecord(Base):
     chunks_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     feedback: Mapped[bool | None] = mapped_column(Boolean, nullable=True, default=None)
     feedback_comment: Mapped[str | None] = mapped_column(Text, nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    generation_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
 
 
