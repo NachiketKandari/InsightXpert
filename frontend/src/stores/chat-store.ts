@@ -27,6 +27,8 @@ interface ChatState {
   pendingClarification: string | null;
   skipClarificationNext: boolean;
 
+  isLoadingConversation: boolean;
+
   // Derived
   activeConversation: () => Conversation | null;
 
@@ -73,6 +75,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
   pendingInput: null,
   pendingClarification: null,
   skipClarificationNext: false,
+  isLoadingConversation: false,
 
   activeConversation: () => {
     const { conversations, activeConversationId } = get();
@@ -143,6 +146,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
     if (conv && conv.messages.length === 0) {
       const isRecentlyCreated = Date.now() - conv.createdAt < 5000;
       if (!isRecentlyCreated) {
+        set({ isLoadingConversation: true });
         get().loadConversationMessages(id);
       }
     }
@@ -153,6 +157,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
       const res = await apiFetch(`/api/conversations/${id}`);
       if (!res.ok) {
         console.error("[chat-store] Failed to load messages for", id, ":", res.status, res.statusText);
+        set({ isLoadingConversation: false });
         return;
       }
       const data = await res.json();
@@ -174,9 +179,11 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
         conversations: state.conversations.map((c) =>
           c.id === id ? { ...c, messages } : c
         ),
+        isLoadingConversation: false,
       }));
     } catch (err) {
       console.error("[chat-store] Error loading messages for", id, ":", err);
+      set({ isLoadingConversation: false });
     }
   },
 

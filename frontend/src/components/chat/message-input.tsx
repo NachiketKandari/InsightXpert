@@ -72,7 +72,7 @@ export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps)
           canSend={!!value.trim()}
         />
       </div>
-      <p className="mx-auto mt-2 max-w-2xl text-center text-[11px] text-muted-foreground/60">
+      <p className="mx-auto mt-2 max-w-2xl text-center text-[11px] text-muted-foreground/75">
         AI can make mistakes. Please double-check responses.
       </p>
     </div>

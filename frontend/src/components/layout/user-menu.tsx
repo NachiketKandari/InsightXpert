@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogOut, Activity, Sun, Moon, Settings, Table2, ListChecks } from "lucide-react";
+import { LogOut, Activity, Sun, Moon, Settings, ListChecks } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { useChatStore } from "@/stores/chat-store";
@@ -48,7 +48,6 @@ export function UserMenu() {
   const isMobile = useIsMobile();
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
   const { theme, toggle: toggleTheme } = useTheme();
-  const setDatasetViewerOpen = useChatStore((s) => s.setDatasetViewerOpen);
   const setSampleQuestionsOpen = useChatStore((s) => s.setSampleQuestionsOpen);
 
   if (!user) return null;
@@ -105,11 +104,7 @@ export function UserMenu() {
               </Link>
             </DropdownMenuItem>
           )}
-          <DropdownMenuItem onClick={() => setDatasetViewerOpen(true)}>
-            <Table2 className="size-4" />
-            Dataset Viewer
-          </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setSampleQuestionsOpen(true)}>
+<DropdownMenuItem onClick={() => setSampleQuestionsOpen(true)}>
             <ListChecks className="size-4" />
             Sample Questions
           </DropdownMenuItem>

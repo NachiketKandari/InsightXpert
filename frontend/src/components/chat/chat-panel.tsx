@@ -12,6 +12,7 @@ export function ChatPanel() {
   const { sendMessage, stopStreaming, isStreaming } = useSSEChat();
   const agentMode = useSettingsStore((s) => s.agentMode);
   const conversation = useChatStore((s) => s.activeConversation());
+  const isLoadingConversation = useChatStore((s) => s.isLoadingConversation);
   const hasMessages = conversation && conversation.messages.length > 0;
 
   const handleSend = useCallback(
@@ -21,7 +22,11 @@ export function ChatPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      {hasMessages ? (
+      {isLoadingConversation ? (
+        <div className="flex flex-1 items-center justify-center">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-border border-t-foreground" />
+        </div>
+      ) : hasMessages ? (
         <>
           <MessageList onRetry={handleSend} />
           <MessageInput

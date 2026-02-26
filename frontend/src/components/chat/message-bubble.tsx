@@ -18,7 +18,7 @@ function MessageMetrics({ message }: { message: Message }) {
   const fmtFull = (n: number) => n.toLocaleString();
 
   return (
-    <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/60 select-none mt-0.5">
+    <div className="flex items-center gap-2.5 text-[11px] text-muted-foreground/75 select-none mt-0.5">
       {timeSec && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -30,7 +30,7 @@ function MessageMetrics({ message }: { message: Message }) {
         </Tooltip>
       )}
       {(inputTokens != null || outputTokens != null) && timeSec && (
-        <span className="opacity-40">·</span>
+        <span className="opacity-60">·</span>
       )}
       {inputTokens != null && (
         <Tooltip>
@@ -43,7 +43,7 @@ function MessageMetrics({ message }: { message: Message }) {
         </Tooltip>
       )}
       {inputTokens != null && outputTokens != null && (
-        <span className="opacity-40">·</span>
+        <span className="opacity-60">·</span>
       )}
       {outputTokens != null && (
         <Tooltip>

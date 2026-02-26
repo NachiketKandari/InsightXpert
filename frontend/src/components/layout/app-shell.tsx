@@ -17,7 +17,6 @@ import {
   SheetContent,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { useClientConfig } from "@/hooks/use-client-config";
 import {
   Tooltip,
   TooltipTrigger,
@@ -40,8 +39,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const sampleQuestionsOpen = useChatStore((s) => s.sampleQuestionsOpen);
   const setSampleQuestionsOpen = useChatStore((s) => s.setSampleQuestionsOpen);
   const isMobile = useIsMobile();
-  const { isFeatureEnabled } = useClientConfig();
-  const showRightSidebar = isFeatureEnabled("agent_process_sidebar");
+  // Right sidebar (Agent Process) was discontinued — agent steps are shown inline in the chat.
+  // The feature toggle, RightSidebar component, and store state are kept for potential reuse.
+  // const showRightSidebar = useClientConfig().isFeatureEnabled("agent_process_sidebar");
+  const showRightSidebar = false;
 
   // Desktop: both sidebars open by default; Mobile: both collapsed
   useEffect(() => {
@@ -83,7 +84,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <motion.aside
                 key="left-sidebar"
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 280, opacity: 1 }}
+                animate={{ width: 308, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={sidebarTransition}
                 className="shrink-0 overflow-hidden border-r border-border"
@@ -140,7 +141,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <motion.aside
                 key="right-sidebar"
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 300, opacity: 1 }}
+                animate={{ width: 330, opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={sidebarTransition}
                 className="shrink-0 overflow-hidden border-l border-border"

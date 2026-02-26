@@ -34,7 +34,7 @@ const DEFAULT_FEATURES: FeatureToggles = {
   rag_training: true,
   chart_rendering: true,
   conversation_export: true,
-  agent_process_sidebar: true,
+  agent_process_sidebar: false,
   clarification_enabled: false,
 };
 
