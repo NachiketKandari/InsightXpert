@@ -77,19 +77,25 @@ class _TokenCountingLLM:
 def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
     """Return the resolved FeatureToggles for the given user based on admin config."""
     config = read_config(request.app.state.config_path)
-    # Admins bypass all restrictions; return defaults (everything enabled except what's off by default)
     if user.is_admin:
-        return FeatureToggles()
-    domain = user.email.split("@")[1].lower()
-    if domain in [d.lower() for d in config.admin_domains]:
-        return FeatureToggles()
-    email_lower = user.email.lower()
-    for mapping in config.user_org_mappings:
-        if mapping.email.lower() == email_lower:
-            org = config.organizations.get(mapping.org_id)
-            if org:
-                return org.features
-    return config.defaults.features
+        features = FeatureToggles()
+    else:
+        domain = user.email.split("@")[1].lower()
+        if domain in [d.lower() for d in config.admin_domains]:
+            features = FeatureToggles()
+        else:
+            email_lower = user.email.lower()
+            features = config.defaults.features
+            for mapping in config.user_org_mappings:
+                if mapping.email.lower() == email_lower:
+                    org = config.organizations.get(mapping.org_id)
+                    if org:
+                        features = org.features
+                    break
+
+    # Clarification is disabled for everyone until it's production-ready.
+    # Override regardless of admin config or org settings.
+    return features.model_copy(update={"clarification_enabled": False})
 
 
 def _get_deps(request: Request):
