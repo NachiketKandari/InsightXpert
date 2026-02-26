@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { API_BASE_URL } from "@/lib/constants";
 
 const TIMEOUT_MS      = 3_000;
 const HEALTHY_POLL_MS = 30_000;
@@ -13,7 +14,7 @@ export function useHealthCheck() {
 
     const check = async () => {
       try {
-        const res = await fetch("/api/health", {
+        const res = await fetch(`${API_BASE_URL}/api/health`, {
           signal: AbortSignal.timeout(TIMEOUT_MS),
           cache: "no-store",
         });
