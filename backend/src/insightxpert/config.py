@@ -51,7 +51,11 @@ class Settings(BaseSettings):
     secret_key: str = "CHANGE-ME-in-production-use-a-random-secret-key-here"
     access_token_expire_minutes: int = Field(default=1440, gt=0)
     admin_seed_email: str = "admin@insightxpert.ai"
-    admin_seed_password: str = "admin123"
+    admin_seed_password: str = "changeme"
+
+    # Startup / runtime tuning
+    rag_bootstrap_timeout_seconds: int = Field(default=120, gt=0)
+    conversation_ttl_seconds: int = Field(default=7200, gt=0)
 
     # Logging
     log_level: str = "DEBUG"
@@ -68,6 +72,8 @@ class Settings(BaseSettings):
     def _check_runtime_config(self) -> Settings:
         if "CHANGE-ME" in self.secret_key or len(self.secret_key) < 32:
             _logger.warning("secret_key is insecure — set a random string of 32+ characters for production")
+        if self.admin_seed_password in {"changeme", "admin123", ""} or len(self.admin_seed_password) < 8:
+            _logger.warning("admin_seed_password is insecure — set ADMIN_SEED_PASSWORD to a strong password for production")
         if self.llm_provider == LLMProvider.GEMINI and not self.gemini_api_key:
             _logger.warning("llm_provider is 'gemini' but gemini_api_key is empty")
         return self

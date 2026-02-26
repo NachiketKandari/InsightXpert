@@ -26,15 +26,24 @@ from insightxpert.api.models import (
     SearchResultItem,
     SqlExecuteRequest,
     SqlExecuteResponse,
+    StarRequest,
     SwitchModelRequest,
     SwitchModelResponse,
     TrainRequest,
     TrainResponse,
 )
+from sqlalchemy.exc import OperationalError, ProgrammingError
+
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
 from insightxpert.db.schema import get_schema_ddl
+from insightxpert.exceptions import (
+    DatabaseConnectionError,
+    DatabaseError,
+    QuerySyntaxError,
+    QueryTimeoutError,
+)
 from insightxpert.llm.factory import create_llm
 from insightxpert.memory.conversation_store import ConversationStore
 
@@ -79,7 +88,7 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
                 history = conv_store.get_history(cid)
                 logger.info("Hydrated %d history messages from persistent store for %s", len(history), cid)
         except Exception as e:
-            logger.warning("Failed to hydrate history from persistent store: %s", e)
+            logger.warning("Failed to hydrate history from persistent store: %s", e, exc_info=True)
 
     if cid:
         conv_store.add_user_message(cid, chat_req.message)
@@ -90,7 +99,8 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
         try:
             persistent_store.get_or_create_conversation(cid, user.id, title)
         except Exception as e:
-            logger.warning("Failed to ensure persistent conversation: %s", e)
+            logger.error("Failed to ensure persistent conversation: %s", e, exc_info=True)
+            raise DatabaseError(f"Failed to create conversation: {e}")
     else:
         convo = persistent_store.create_conversation(user.id, title)
         persistent_cid = convo["id"]
@@ -98,7 +108,7 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     try:
         persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
     except Exception as e:
-        logger.warning("Failed to persist user message: %s", e)
+        logger.error("Failed to persist user message: %s", e, exc_info=True)
 
     return llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history
 
@@ -126,7 +136,7 @@ def _persist_response(
                 persistent_cid, user_id, "assistant", final_answer, chunks_blob,
             )
         except Exception as e:
-            logger.warning("Failed to persist assistant message: %s", e)
+            logger.error("Failed to persist assistant message: %s", e, exc_info=True)
 
 
 @router.post("/chat")
@@ -381,8 +391,17 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
     try:
         rows = db.execute(sql_text, row_limit=settings.sql_row_limit, timeout=settings.sql_timeout_seconds, read_only=True)
         ms = (time.time() - start) * 1000
+    except ProgrammingError as e:
+        raise QuerySyntaxError(f"SQL syntax error: {e}")
+    except OperationalError as e:
+        msg = str(e).lower()
+        if "timeout" in msg or "timed out" in msg:
+            raise QueryTimeoutError(f"Query timed out: {e}")
+        if "connect" in msg or "connection" in msg:
+            raise DatabaseConnectionError(f"Database connection error: {e}")
+        raise DatabaseError(f"Database operational error: {e}")
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise DatabaseError(f"Database error: {e}")
 
     columns = list(rows[0].keys()) if rows else []
     return SqlExecuteResponse(
@@ -488,16 +507,15 @@ async def rename_conversation(
 @router.patch("/conversations/{conversation_id}/star")
 async def star_conversation(
     conversation_id: str,
+    body: StarRequest,
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    body = await request.json()
-    starred = body.get("starred", True)
     store = request.app.state.persistent_conv_store
-    ok = store.star_conversation(conversation_id, user.id, starred)
+    ok = store.star_conversation(conversation_id, user.id, body.starred)
     if not ok:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return {"status": "ok", "starred": starred}
+    return {"status": "ok", "starred": body.starred}
 
 
 # --- Ollama model management --------------------------------------------

@@ -125,7 +125,8 @@ class RunPythonTool(Tool):
                 exec(compile(code, "<statistician>", "exec"), namespace)  # noqa: S102
         except TimeoutError:
             return json.dumps({"error": f"Code execution timed out after {self._timeout}s"})
-        except Exception:
+        except Exception as e:
+            logger.warning("RunPython execution failed: %s", e, exc_info=True)
             return json.dumps({"error": traceback.format_exc()[-1500:]})
 
         output = "".join(captured).strip()
@@ -501,7 +502,8 @@ class FitDistributionTool(Tool):
                     "ks_p_value": round(float(ks_p), 6),
                     "params": [round(float(p), 4) for p in params],
                 })
-            except Exception:
+            except Exception as e:
+                logger.debug("Distribution fit failed for %s: %s", dist_name, e)
                 continue
 
         fits.sort(key=lambda x: x["ks_p_value"], reverse=True)

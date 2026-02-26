@@ -159,3 +159,16 @@ class OllamaModelInfo(BaseModel):
 
 class OllamaModelsResponse(BaseModel):
     models: list[OllamaModelInfo]
+
+
+# --- Error / request models ------------------------------------------------
+
+
+class ErrorResponse(BaseModel):
+    error: str
+    detail: str
+    status_code: int
+
+
+class StarRequest(BaseModel):
+    starred: bool = True

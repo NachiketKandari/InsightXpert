@@ -66,6 +66,10 @@ backend/benchmark_results/
 # Claude Code
 **/.claude/
 
+# Alembic (not used — migrations handled in-code)
+backend/alembic/
+alembic/
+
 # Distribution
 *.tar.gz
 *.zip
