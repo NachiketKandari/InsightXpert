@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { HealthCheckGate } from "@/components/health/health-check-gate";
 import "./globals.css";
 
 const inter = Inter({
@@ -46,7 +47,9 @@ export default function RootLayout({
       <body
         className={`${inter.variable} ${jetbrainsMono.variable} font-sans antialiased`}
       >
-        <TooltipProvider delayDuration={300}>{children}</TooltipProvider>
+        <TooltipProvider delayDuration={300}>
+          <HealthCheckGate>{children}</HealthCheckGate>
+        </TooltipProvider>
       </body>
     </html>
   );

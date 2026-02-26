@@ -379,6 +379,7 @@ async def generic_exception_handler(_request: Request, exc: Exception):
 
 
 @app.get("/health")
+@app.get("/api/health")
 async def health_check():
     return JSONResponse({"status": "ok"})
 
