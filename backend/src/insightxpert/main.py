@@ -47,6 +47,7 @@ def _migrate_schema(engine) -> None:
             except Exception:
                 logger.debug("Column %s.%s already exists (dialect=%s)", table, column, dialect)
 
+        _add_column("users", "is_admin", "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
         _add_column("users", "last_active", "DATETIME")
         _add_column("conversations", "is_starred",
                      "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
@@ -64,21 +65,20 @@ def _migrate_schema(engine) -> None:
 
 
 def _seed_prompts(engine) -> None:
-    """Seed prompt_templates table with .j2 file contents if empty."""
+    """Seed missing prompt templates from .j2 files (per-template, idempotent)."""
     from insightxpert.auth.models import PromptTemplate, _uuid, _utcnow
     from insightxpert.prompts import get_file_content
 
+    templates = [
+        ("analyst_system", "analyst_system.j2", "System prompt for the SQL analyst agent"),
+        ("statistician_system", "statistician_system.j2", "System prompt for the statistician agent"),
+    ]
     with Session(engine) as session:
-        count = session.query(PromptTemplate).count()
-        if count > 0:
-            logger.debug("Prompt templates already seeded (%d found)", count)
-            return
-
-        templates = [
-            ("analyst_system", "analyst_system.j2", "System prompt for the SQL analyst agent"),
-            ("statistician_system", "statistician_system.j2", "System prompt for the statistician agent"),
-        ]
+        seeded = 0
         for name, filename, description in templates:
+            existing = session.query(PromptTemplate).filter_by(name=name).first()
+            if existing:
+                continue
             try:
                 content = get_file_content(filename)
                 prompt = PromptTemplate(
@@ -91,10 +91,13 @@ def _seed_prompts(engine) -> None:
                     updated_at=_utcnow(),
                 )
                 session.add(prompt)
+                seeded += 1
                 logger.info("Seeded prompt template: %s", name)
             except FileNotFoundError:
                 logger.warning("Template file not found: %s", filename)
         session.commit()
+        if seeded == 0:
+            logger.debug("All prompt templates already seeded")
 
 
 def _setup_logging(level: str) -> None:
@@ -122,7 +125,8 @@ async def lifespan(app: FastAPI):
     # Database
     db = DatabaseConnector()
     db.connect(settings.database_url, auth_token=settings.turso_auth_token)
-    logger.info("Database connected: %s", settings.database_url)
+    safe_url = db.engine.url.render_as_string(hide_password=True)
+    logger.info("Database connected: %s", safe_url)
 
     # RAG vector store
     rag = VectorStore(persist_dir=settings.chroma_persist_dir)

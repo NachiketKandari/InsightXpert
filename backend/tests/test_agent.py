@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from conftest import MockLLM
+from .conftest import MockLLM
 from insightxpert.agents.analyst import analyst_loop
 from insightxpert.llm.base import LLMResponse, ToolCall
 

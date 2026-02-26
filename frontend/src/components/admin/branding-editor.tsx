@@ -72,6 +72,7 @@ export function BrandingEditor({ branding, onChange }: BrandingEditorProps) {
           />
           {branding.logo_url && (
             <div className="mt-2 flex items-center gap-2 rounded border border-border p-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
                 src={branding.logo_url}
                 alt="Logo preview"
