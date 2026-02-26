@@ -47,6 +47,7 @@ def _migrate_schema(engine) -> None:
             except Exception:
                 logger.debug("Column %s.%s already exists (dialect=%s)", table, column, dialect)
 
+        _add_column("users", "is_admin", "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
         _add_column("users", "last_active", "DATETIME")
         _add_column("conversations", "is_starred",
                      "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
@@ -122,7 +123,8 @@ async def lifespan(app: FastAPI):
     # Database
     db = DatabaseConnector()
     db.connect(settings.database_url, auth_token=settings.turso_auth_token)
-    logger.info("Database connected: %s", settings.database_url)
+    safe_url = db.engine.url.render_as_string(hide_password=True)
+    logger.info("Database connected: %s", safe_url)
 
     # RAG vector store
     rag = VectorStore(persist_dir=settings.chroma_persist_dir)

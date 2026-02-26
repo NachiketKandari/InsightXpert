@@ -47,7 +47,8 @@ class DatabaseConnector:
         if url.startswith("sqlite"):
             event.listen(self._engine, "connect", _enable_sqlite_fks)
 
-        logger.debug("Engine created for %s (dialect=%s)", url, self._engine.dialect.name)
+        safe_url = self._engine.url.render_as_string(hide_password=True)
+        logger.debug("Engine created for %s (dialect=%s)", safe_url, self._engine.dialect.name)
 
     def disconnect(self) -> None:
         if self._engine is not None:

@@ -6,6 +6,8 @@ import logging
 from pathlib import Path
 
 from jinja2 import Environment, FileSystemLoader
+from jinja2.sandbox import SandboxedEnvironment
+from sqlalchemy.exc import OperationalError, ProgrammingError
 from sqlalchemy.orm import Session
 
 _PROMPTS_DIR = Path(__file__).parent
@@ -13,6 +15,13 @@ _PROMPTS_DIR = Path(__file__).parent
 _env = Environment(
     loader=FileSystemLoader(_PROMPTS_DIR),
     autoescape=False,  # Plain-text prompts, not HTML
+    keep_trailing_newline=False,
+    trim_blocks=True,
+    lstrip_blocks=True,
+)
+
+_sandbox_env = SandboxedEnvironment(
+    autoescape=False,
     keep_trailing_newline=False,
     trim_blocks=True,
     lstrip_blocks=True,
@@ -34,9 +43,11 @@ def _get_from_db(engine, prompt_name: str) -> str | None:
             )
             if template:
                 return template.content
-    except Exception:
+    except (OperationalError, ProgrammingError):
         # Table may not exist yet during startup
         logger.debug("DB prompt lookup failed for '%s', falling back to file", prompt_name)
+    except Exception:
+        logger.warning("Unexpected error loading prompt '%s' from DB", prompt_name, exc_info=True)
     return None
 
 
@@ -52,7 +63,7 @@ def render(template_name: str, *, engine=None, **kwargs: object) -> str:
         db_content = _get_from_db(engine, prompt_name)
         if db_content:
             logger.debug("Using DB template for '%s'", prompt_name)
-            tmpl = _env.from_string(db_content)
+            tmpl = _sandbox_env.from_string(db_content)
             return tmpl.render(**kwargs).strip()
 
     template = _env.get_template(template_name)

@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field
 
 from insightxpert.admin.config_store import (
@@ -297,9 +297,13 @@ async def list_prompts(
         }
 
 
+_PROMPT_NAME = Path(..., pattern=r"^[a-z][a-z0-9_]{0,99}$", description="Prompt template name")
+
+
 @router.get("/api/admin/prompts/{name}")
 async def get_prompt(
-    name: str,
+    name: str = _PROMPT_NAME,
+    *,
     request: Request,
     _ctx: _AdminContext = Depends(_get_admin_context),
 ):
@@ -322,7 +326,8 @@ async def get_prompt(
 
 @router.put("/api/admin/prompts/{name}")
 async def upsert_prompt(
-    name: str,
+    name: str = _PROMPT_NAME,
+    *,
     body: PromptUpdateBody,
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
@@ -355,7 +360,8 @@ async def upsert_prompt(
 
 @router.delete("/api/admin/prompts/{name}")
 async def delete_prompt(
-    name: str,
+    name: str = _PROMPT_NAME,
+    *,
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
@@ -373,7 +379,8 @@ async def delete_prompt(
 
 @router.post("/api/admin/prompts/{name}/reset")
 async def reset_prompt(
-    name: str,
+    name: str = _PROMPT_NAME,
+    *,
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
