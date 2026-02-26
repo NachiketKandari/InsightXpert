@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from contextlib import asynccontextmanager
@@ -7,6 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
@@ -115,6 +117,16 @@ def _setup_logging(level: str) -> None:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
+def _run_rag_training(rag: VectorStore, db: DatabaseConnector) -> None:
+    """Run RAG training in a background thread (called via asyncio.to_thread)."""
+    trainer = Trainer(rag)
+    try:
+        count = trainer.train_insightxpert(db)
+        logger.info("RAG bootstrap complete: %d training items loaded", count)
+    except Exception as e:
+        logger.error("RAG bootstrap failed: %s", e, exc_info=True)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = _settings
@@ -124,21 +136,20 @@ async def lifespan(app: FastAPI):
 
     # Database
     db = DatabaseConnector()
-    db.connect(settings.database_url, auth_token=settings.turso_auth_token)
-    safe_url = db.engine.url.render_as_string(hide_password=True)
-    logger.info("Database connected: %s", safe_url)
+    try:
+        db.connect(settings.database_url, auth_token=settings.turso_auth_token)
+        safe_url = db.engine.url.render_as_string(hide_password=True)
+        logger.info("Database connected: %s", safe_url)
+    except Exception as e:
+        logger.error("Database connection failed: %s", e, exc_info=True)
+        raise
 
     # RAG vector store
     rag = VectorStore(persist_dir=settings.chroma_persist_dir)
     logger.info("ChromaDB initialized: %s", settings.chroma_persist_dir)
 
-    # Bootstrap RAG with InsightXpert training data
-    trainer = Trainer(rag)
-    try:
-        count = trainer.train_insightxpert(db)
-        logger.info("RAG bootstrap complete: %d training items loaded", count)
-    except Exception as e:
-        logger.error("RAG bootstrap failed: %s", e, exc_info=True)
+    # Bootstrap RAG in a background thread so it doesn't block server startup
+    rag_task = asyncio.create_task(asyncio.to_thread(_run_rag_training, rag, db))
 
     # LLM provider
     llm = create_llm(settings.llm_provider.value, settings)
@@ -146,14 +157,20 @@ async def lifespan(app: FastAPI):
 
     # Auth tables (same database as transactions)
     auth_engine = db.engine
-    AuthBase.metadata.create_all(auth_engine)
-    _migrate_schema(auth_engine)
-    seed_admin(auth_engine, settings)
-    logger.info("Auth tables initialized")
+    try:
+        AuthBase.metadata.create_all(auth_engine)
+        _migrate_schema(auth_engine)
+        seed_admin(auth_engine, settings)
+        logger.info("Auth tables initialized")
+    except Exception as e:
+        logger.error("Auth table setup failed: %s", e, exc_info=True)
 
     # Seed prompt templates from .j2 files if table is empty
-    _seed_prompts(auth_engine)
-    logger.info("Prompt templates initialized")
+    try:
+        _seed_prompts(auth_engine)
+        logger.info("Prompt templates initialized")
+    except Exception as e:
+        logger.error("Prompt seeding failed: %s", e, exc_info=True)
 
     # Persistent conversation store (SQLite-backed)
     persistent_conv_store = PersistentConversationStore(auth_engine)
@@ -181,9 +198,20 @@ async def lifespan(app: FastAPI):
     app.state.config_path = config_path
     logger.info("Admin config loaded: %s", config_path)
 
-    logger.info("InsightXpert ready — http://0.0.0.0:8000")
+    # Wait for RAG training to finish (with timeout so server still starts)
+    try:
+        await asyncio.wait_for(rag_task, timeout=120)
+    except asyncio.TimeoutError:
+        logger.warning("RAG training still running after 120s, continuing startup")
+    except Exception as e:
+        logger.error("RAG training error: %s", e, exc_info=True)
+
+    logger.info("InsightXpert ready")
     yield
 
+    # Cancel RAG task if still running during shutdown
+    if not rag_task.done():
+        rag_task.cancel()
     db.disconnect()
     logger.info("Shutdown complete")
 
@@ -198,6 +226,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/health")
+async def health_check():
+    return JSONResponse({"status": "ok"})
+
 
 app.include_router(router)
 app.include_router(auth_router)

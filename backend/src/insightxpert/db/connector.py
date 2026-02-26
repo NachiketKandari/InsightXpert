@@ -19,6 +19,7 @@ def _enable_sqlite_fks(dbapi_conn, connection_record):
 class DatabaseConnector:
     def __init__(self) -> None:
         self._engine: Engine | None = None
+        self._is_libsql_remote: bool = False
 
     @property
     def engine(self) -> Engine:
@@ -34,6 +35,16 @@ class DatabaseConnector:
         connect_args: dict = {}
         kwargs: dict = {"pool_pre_ping": True}
 
+        # Normalize libsql:// → sqlite+libsql:// for SQLAlchemy dialect resolution
+        # and add ?secure=true for remote Turso connections (required for HTTPS)
+        if url.startswith("libsql://"):
+            host_part = url[len("libsql://"):]
+            url = f"sqlite+libsql://{host_part}?secure=true"
+            self._is_libsql_remote = True
+        elif "libsql" in url and "://" in url and "///" not in url:
+            # Already sqlite+libsql:// with remote host
+            self._is_libsql_remote = True
+
         if "libsql" in url and auth_token:
             connect_args = {"auth_token": auth_token}
         elif url.startswith("postgresql"):
@@ -44,7 +55,8 @@ class DatabaseConnector:
 
         self._engine = create_engine(url, connect_args=connect_args, **kwargs)
 
-        if url.startswith("sqlite"):
+        # Only enable PRAGMA foreign_keys for local SQLite (PRAGMAs fail on remote Turso)
+        if url.startswith("sqlite") and not self._is_libsql_remote:
             event.listen(self._engine, "connect", _enable_sqlite_fks)
 
         safe_url = self._engine.url.render_as_string(hide_password=True)
@@ -61,7 +73,7 @@ class DatabaseConnector:
     ) -> list[dict]:
         start = time.time()
         with self.engine.connect() as conn:
-            if read_only and self.dialect in ("sqlite",):
+            if read_only and self.dialect in ("sqlite",) and not self._is_libsql_remote:
                 conn.execute(text("PRAGMA query_only = ON"))
             result = conn.execute(text(sql))
             if result.returns_rows:

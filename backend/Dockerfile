@@ -14,8 +14,13 @@ RUN uv sync --frozen --no-dev
 # Copy application source
 COPY src/ src/
 
-# Pre-download ChromaDB's ONNX embedding model so it doesn't download at runtime
-RUN uv run python -c "import chromadb; chromadb.Client()"
+# Pre-download ChromaDB's ONNX embedding model and warm the embedding function
+# so it doesn't download/compile at runtime (which can cause startup timeouts)
+RUN uv run python -c "\
+from chromadb.utils.embedding_functions import DefaultEmbeddingFunction; \
+ef = DefaultEmbeddingFunction(); \
+ef(['warmup']); \
+print('ONNX embedding model warmed up')"
 
 ENV PORT=8080
 EXPOSE 8080

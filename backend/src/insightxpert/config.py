@@ -24,9 +24,15 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.1"
     ollama_base_url: str = "http://localhost:11434"
 
-    # Database
+    # Database (empty env var falls back to default SQLite)
     database_url: str = "sqlite:///./insightxpert.db"
     turso_auth_token: str = ""
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def _default_database_url(cls, v: str) -> str:
+        """Treat empty DATABASE_URL env var as unset (use default)."""
+        return v if v else "sqlite:///./insightxpert.db"
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_data"
