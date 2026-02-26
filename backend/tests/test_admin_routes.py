@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
 from insightxpert.admin.config_store import write_config
 from insightxpert.admin.models import ClientConfig
@@ -58,8 +59,17 @@ def _make_admin_user() -> User:
 
 @pytest.fixture()
 def auth_engine(tmp_path):
-    """In-memory SQLAlchemy engine with auth tables created."""
-    engine = create_engine("sqlite://", echo=False)
+    """In-memory SQLAlchemy engine with auth tables created.
+
+    Uses StaticPool + check_same_thread=False so that sync endpoints
+    (which FastAPI runs in a thread pool) share the same connection.
+    """
+    engine = create_engine(
+        "sqlite://",
+        echo=False,
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
+    )
     AuthBase.metadata.create_all(engine)
     return engine
 

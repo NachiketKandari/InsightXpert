@@ -65,21 +65,20 @@ def _migrate_schema(engine) -> None:
 
 
 def _seed_prompts(engine) -> None:
-    """Seed prompt_templates table with .j2 file contents if empty."""
+    """Seed missing prompt templates from .j2 files (per-template, idempotent)."""
     from insightxpert.auth.models import PromptTemplate, _uuid, _utcnow
     from insightxpert.prompts import get_file_content
 
+    templates = [
+        ("analyst_system", "analyst_system.j2", "System prompt for the SQL analyst agent"),
+        ("statistician_system", "statistician_system.j2", "System prompt for the statistician agent"),
+    ]
     with Session(engine) as session:
-        count = session.query(PromptTemplate).count()
-        if count > 0:
-            logger.debug("Prompt templates already seeded (%d found)", count)
-            return
-
-        templates = [
-            ("analyst_system", "analyst_system.j2", "System prompt for the SQL analyst agent"),
-            ("statistician_system", "statistician_system.j2", "System prompt for the statistician agent"),
-        ]
+        seeded = 0
         for name, filename, description in templates:
+            existing = session.query(PromptTemplate).filter_by(name=name).first()
+            if existing:
+                continue
             try:
                 content = get_file_content(filename)
                 prompt = PromptTemplate(
@@ -92,10 +91,13 @@ def _seed_prompts(engine) -> None:
                     updated_at=_utcnow(),
                 )
                 session.add(prompt)
+                seeded += 1
                 logger.info("Seeded prompt template: %s", name)
             except FileNotFoundError:
                 logger.warning("Template file not found: %s", filename)
         session.commit()
+        if seeded == 0:
+            logger.debug("All prompt templates already seeded")
 
 
 def _setup_logging(level: str) -> None:

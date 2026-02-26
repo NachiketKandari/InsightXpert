@@ -86,14 +86,10 @@ def _create_indexes(engine, table: str) -> None:
     """Create indexes for known tables."""
     if table != "transactions":
         return
-    dialect = engine.dialect.name
     with engine.begin() as conn:
         for idx_name, tbl, col in TRANSACTION_INDEXES:
             try:
-                if dialect == "postgresql":
-                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {tbl}({col})"))
-                else:
-                    conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {tbl}({col})"))
+                conn.execute(text(f"CREATE INDEX IF NOT EXISTS {idx_name} ON {tbl}({col})"))
                 logger.info("Created index %s on %s(%s)", idx_name, tbl, col)
             except Exception:
                 logger.debug("Index %s already exists", idx_name)
@@ -105,6 +101,7 @@ def load_data(
     db_url: str,
     if_exists: str = "replace",
     batch_size: int = 10_000,
+    auth_token: str | None = None,
 ) -> int:
     """Load data from CSV/Excel into any SQLAlchemy-supported database."""
     start = time.time()
@@ -117,7 +114,10 @@ def load_data(
     df = _apply_column_map(df, table)
 
     # Create engine
-    engine = create_engine(db_url)
+    connect_args: dict = {}
+    if "libsql" in db_url and auth_token:
+        connect_args["auth_token"] = auth_token
+    engine = create_engine(db_url, connect_args=connect_args)
 
     # Load data in batches using pandas to_sql
     logger.info("Loading into table '%s' (if_exists=%s)...", table, if_exists)
@@ -151,6 +151,10 @@ def main() -> None:
         help="Database URL (defaults to DATABASE_URL env var)",
     )
     parser.add_argument(
+        "--auth-token", default=None,
+        help="Auth token for Turso/libsql databases",
+    )
+    parser.add_argument(
         "--if-exists", choices=["replace", "append", "fail"], default="replace",
         help="Behavior if table exists (default: replace)",
     )
@@ -176,6 +180,7 @@ def main() -> None:
         db_url=db_url,
         if_exists=args.if_exists,
         batch_size=args.batch_size,
+        auth_token=args.auth_token or os.environ.get("TURSO_AUTH_TOKEN"),
     )
 
 

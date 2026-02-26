@@ -272,8 +272,20 @@ async def delete_all_conversations(
 # --- Prompt management (admin only) -------------------------------------------
 
 
+def _prompt_to_dict(p: PromptTemplate) -> dict:
+    return {
+        "id": p.id,
+        "name": p.name,
+        "content": p.content,
+        "description": p.description,
+        "is_active": p.is_active,
+        "created_at": p.created_at.isoformat() if p.created_at else None,
+        "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+    }
+
+
 @router.get("/api/admin/prompts")
-async def list_prompts(
+def list_prompts(
     request: Request,
     _ctx: _AdminContext = Depends(_get_admin_context),
 ):
@@ -281,27 +293,14 @@ async def list_prompts(
     engine = request.app.state.auth_engine
     with Session(engine) as session:
         prompts = session.query(PromptTemplate).order_by(PromptTemplate.name).all()
-        return {
-            "prompts": [
-                {
-                    "id": p.id,
-                    "name": p.name,
-                    "content": p.content,
-                    "description": p.description,
-                    "is_active": p.is_active,
-                    "created_at": p.created_at.isoformat() if p.created_at else None,
-                    "updated_at": p.updated_at.isoformat() if p.updated_at else None,
-                }
-                for p in prompts
-            ]
-        }
+        return {"prompts": [_prompt_to_dict(p) for p in prompts]}
 
 
 _PROMPT_NAME = Path(..., pattern=r"^[a-z][a-z0-9_]{0,99}$", description="Prompt template name")
 
 
 @router.get("/api/admin/prompts/{name}")
-async def get_prompt(
+def get_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
@@ -313,19 +312,11 @@ async def get_prompt(
         prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
         if not prompt:
             raise HTTPException(status_code=404, detail="Prompt not found")
-        return {
-            "id": prompt.id,
-            "name": prompt.name,
-            "content": prompt.content,
-            "description": prompt.description,
-            "is_active": prompt.is_active,
-            "created_at": prompt.created_at.isoformat() if prompt.created_at else None,
-            "updated_at": prompt.updated_at.isoformat() if prompt.updated_at else None,
-        }
+        return _prompt_to_dict(prompt)
 
 
 @router.put("/api/admin/prompts/{name}")
-async def upsert_prompt(
+def upsert_prompt(
     name: str = _PROMPT_NAME,
     *,
     body: PromptUpdateBody,
@@ -359,7 +350,7 @@ async def upsert_prompt(
 
 
 @router.delete("/api/admin/prompts/{name}")
-async def delete_prompt(
+def delete_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
@@ -378,7 +369,7 @@ async def delete_prompt(
 
 
 @router.post("/api/admin/prompts/{name}/reset")
-async def reset_prompt(
+def reset_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,

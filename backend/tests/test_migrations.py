@@ -152,7 +152,8 @@ def test_seed_prompts_idempotent(seed_engine):
 
 
 def test_seed_prompts_preserves_existing(seed_engine):
-    """If templates already exist with different content, they are not overwritten."""
+    """If a template already exists with different content, it is not overwritten,
+    but missing templates are still seeded."""
     from insightxpert.auth.models import _uuid, _utcnow
 
     custom_content = "This is custom user-edited content."
@@ -171,7 +172,9 @@ def test_seed_prompts_preserves_existing(seed_engine):
     _seed_prompts(seed_engine)
 
     with Session(seed_engine) as session:
-        # Count should still be 1 (the pre-existing row) since count > 0 triggers early return
-        assert session.query(PromptTemplate).count() == 1
+        # Custom analyst_system preserved, missing statistician_system seeded
+        assert session.query(PromptTemplate).count() == 2
         existing = session.query(PromptTemplate).filter_by(name="analyst_system").one()
         assert existing.content == custom_content
+        seeded = session.query(PromptTemplate).filter_by(name="statistician_system").one()
+        assert seeded.content  # non-empty, from file
