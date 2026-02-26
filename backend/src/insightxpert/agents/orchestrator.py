@@ -34,6 +34,8 @@ from insightxpert.config import Settings
 from insightxpert.db.connector import DatabaseConnector
 from insightxpert.llm.base import LLMProvider
 from insightxpert.rag.store import VectorStore
+from insightxpert.training.documentation import DOCUMENTATION
+from insightxpert.training.schema import DDL
 
 logger = logging.getLogger("insightxpert.orchestrator")
 
@@ -71,28 +73,27 @@ async def orchestrator_loop(
     if not skip_clarification:
         from insightxpert.agents.clarifier import clarification_check
 
-        clarify_ddl = ddl_override or ""
-        clarify_docs = docs_override or ""
-        if clarify_ddl and clarify_docs:
-            try:
-                result = await clarification_check(
-                    question=question,
-                    ddl=clarify_ddl,
-                    documentation=clarify_docs,
-                    llm=llm,
-                    history=history,
+        clarify_ddl = ddl_override or DDL
+        clarify_docs = docs_override or DOCUMENTATION
+        try:
+            result = await clarification_check(
+                question=question,
+                ddl=clarify_ddl,
+                documentation=clarify_docs,
+                llm=llm,
+                history=history,
+            )
+            if result.action == "clarify" and result.question:
+                yield ChatChunk(
+                    type="clarification",
+                    content=result.question,
+                    data={"skip_allowed": True},
+                    conversation_id=conversation_id or "",
+                    timestamp=time.time(),
                 )
-                if result.action == "clarify" and result.question:
-                    yield ChatChunk(
-                        type="clarification",
-                        content=result.question,
-                        data={"skip_allowed": True},
-                        conversation_id=conversation_id or "",
-                        timestamp=time.time(),
-                    )
-                    return
-            except Exception as e:
-                logger.warning("Clarification check failed, proceeding: %s", e)
+                return
+        except Exception as e:
+            logger.warning("Clarification check failed, proceeding: %s", e)
 
     # --- Phase 1: Analyst ---
     # collected_sql holds the *last* SQL statement executed by the analyst.

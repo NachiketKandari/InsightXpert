@@ -209,11 +209,15 @@ class DatasetService:
                 "ordinal_position": col.ordinal_position,
             }
 
-    def update_column(self, col_id: str, **fields) -> dict | None:
-        """Update a column metadata entry."""
+    def update_column(self, dataset_id: str, col_id: str, **fields) -> dict | None:
+        """Update a column metadata entry.
+
+        Returns None if the column does not exist or does not belong to the
+        specified dataset.
+        """
         with Session(self._engine) as session:
             col = session.get(DatasetColumn, col_id)
-            if not col:
+            if not col or col.dataset_id != dataset_id:
                 return None
             for key, value in fields.items():
                 if hasattr(col, key) and key not in ("id", "dataset_id", "created_at"):
@@ -257,11 +261,15 @@ class DatasetService:
                 "is_active": eq.is_active,
             }
 
-    def delete_example_query(self, query_id: str) -> bool:
-        """Delete an example query."""
+    def delete_example_query(self, dataset_id: str, query_id: str) -> bool:
+        """Delete an example query.
+
+        Returns False if the query does not exist or does not belong to the
+        specified dataset.
+        """
         with Session(self._engine) as session:
             eq = session.get(ExampleQuery, query_id)
-            if not eq:
+            if not eq or eq.dataset_id != dataset_id:
                 return False
             session.delete(eq)
             session.commit()

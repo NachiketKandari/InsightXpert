@@ -230,7 +230,7 @@ class TestDatasetService:
         queries = ds_service.get_example_queries(seeded_dataset)
         assert len(queries) == 2
 
-        deleted = ds_service.delete_example_query(result["id"])
+        deleted = ds_service.delete_example_query(seeded_dataset, result["id"])
         assert deleted is True
 
         queries = ds_service.get_example_queries(seeded_dataset)
@@ -247,7 +247,7 @@ class TestDatasetService:
         assert col is not None
         assert col["column_name"] == "status"
 
-        updated = ds_service.update_column(col["id"], description="Updated status desc")
+        updated = ds_service.update_column(seeded_dataset, col["id"], description="Updated status desc")
         assert updated is not None
         assert updated["description"] == "Updated status desc"
 

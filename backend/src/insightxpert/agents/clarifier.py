@@ -73,9 +73,9 @@ async def clarification_check(
         # Strip markdown code fences if present
         if raw.startswith("```"):
             raw = raw.split("\n", 1)[-1]
-            if raw.endswith("```"):
-                raw = raw[:-3]
             raw = raw.strip()
+            if raw.endswith("```"):
+                raw = raw[:-3].strip()
 
         result = json.loads(raw)
         action = result.get("action", "execute")

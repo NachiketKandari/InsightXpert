@@ -124,7 +124,7 @@ async def update_column(
 ):
     _require_admin(user)
     svc = _get_dataset_service(request)
-    result = svc.update_column(col_id, **body.model_dump())
+    result = svc.update_column(dataset_id, col_id, **body.model_dump())
     if not result:
         raise HTTPException(status_code=404, detail="Column not found")
     return result
@@ -154,7 +154,7 @@ async def delete_example_query(
 ):
     _require_admin(user)
     svc = _get_dataset_service(request)
-    deleted = svc.delete_example_query(query_id)
+    deleted = svc.delete_example_query(dataset_id, query_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Example query not found")
     return {"status": "ok"}
