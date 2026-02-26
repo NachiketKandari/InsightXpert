@@ -21,6 +21,8 @@ from insightxpert.llm.base import LLMResponse, ToolCall
 async def test_chat_poll_returns_json_chunks(test_app, async_client):
     """POST /api/chat/poll should return a JSON response with chunks."""
     test_app.state.llm = MockLLM([
+        # Clarifier pre-check consumes the first LLM response
+        LLMResponse(content='{"action": "execute"}', tool_calls=[]),
         LLMResponse(
             content=None,
             tool_calls=[ToolCall(id="tc1", name="run_sql", arguments={"sql": "SELECT COUNT(*) as cnt FROM users"})],

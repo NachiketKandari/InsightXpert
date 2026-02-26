@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
@@ -14,7 +15,7 @@ interface MessageBubbleProps {
   onFeedback?: (type: "up" | "down", comment?: string) => void;
 }
 
-export function MessageBubble({
+function MessageBubbleInner({
   message,
   isLastAssistant,
   onRetry,
@@ -47,6 +48,7 @@ export function MessageBubble({
                       ? i < message.chunks.length - 1 || !isStreaming
                       : undefined
                   }
+                  isStreaming={isStreaming && !!isLastAssistant}
                 />
               ))}
               {isStreaming && isLastAssistant && (() => {
@@ -86,3 +88,15 @@ export function MessageBubble({
     </motion.div>
   );
 }
+
+// Note: isStreaming comes from useChatStore inside the component, so Zustand's
+// subscription can trigger re-renders independently of this comparator.
+// The memo prevents re-renders from parent list changes (sibling messages).
+export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
+  return (
+    prev.message === next.message &&
+    prev.isLastAssistant === next.isLastAssistant &&
+    prev.onRetry === next.onRetry &&
+    prev.onFeedback === next.onFeedback
+  );
+});

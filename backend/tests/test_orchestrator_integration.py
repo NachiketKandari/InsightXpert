@@ -20,6 +20,8 @@ from insightxpert.llm.base import LLMResponse, ToolCall
 async def test_orchestrator_analyst_only_mode(db_connector, rag_store, settings):
     """In analyst-only mode the orchestrator should NOT produce statistician chunks."""
     mock_llm = MockLLM([
+        # Clarifier pre-check consumes the first LLM response
+        LLMResponse(content='{"action": "execute"}', tool_calls=[]),
         LLMResponse(
             content=None,
             tool_calls=[ToolCall(id="tc1", name="run_sql", arguments={"sql": "SELECT COUNT(*) as cnt FROM users"})],
@@ -60,6 +62,8 @@ async def test_orchestrator_auto_mode_chains_statistician(db_connector, rag_stor
     # which gets its own LLM calls.
     # MockLLM delivers responses in order across both loops.
     mock_llm = MockLLM([
+        # Clarifier pre-check consumes the first LLM response
+        LLMResponse(content='{"action": "execute"}', tool_calls=[]),
         # Analyst: run SQL
         LLMResponse(
             content=None,
@@ -101,6 +105,8 @@ async def test_orchestrator_auto_mode_chains_statistician(db_connector, rag_stor
 async def test_orchestrator_auto_mode_skips_statistician_when_no_results(db_connector, rag_store, settings):
     """When the analyst returns no SQL result rows, the statistician should be skipped."""
     mock_llm = MockLLM([
+        # Clarifier pre-check consumes the first LLM response
+        LLMResponse(content='{"action": "execute"}', tool_calls=[]),
         # Analyst: run SQL that returns empty results
         LLMResponse(
             content=None,
@@ -140,6 +146,8 @@ async def test_orchestrator_auto_mode_skips_statistician_when_no_results(db_conn
 async def test_orchestrator_chunk_types_and_ordering(db_connector, rag_store, settings):
     """Verify that status comes first, sql before tool_result, and answer last."""
     mock_llm = MockLLM([
+        # Clarifier pre-check consumes the first LLM response
+        LLMResponse(content='{"action": "execute"}', tool_calls=[]),
         LLMResponse(
             content=None,
             tool_calls=[ToolCall(id="tc1", name="run_sql", arguments={"sql": "SELECT COUNT(*) as cnt FROM orders"})],

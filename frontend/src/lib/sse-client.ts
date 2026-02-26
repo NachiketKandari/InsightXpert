@@ -10,11 +10,16 @@ const CHUNK_STAGGER_MS = 16;
 
 export type AgentMode = "auto" | "analyst";
 
+export interface SSEOptions {
+  skipClarification?: boolean;
+}
+
 export function createSSEStream(
   message: string,
   conversationId: string | null,
   callbacks: SSECallbacks,
-  agentMode: AgentMode = "auto"
+  agentMode: AgentMode = "auto",
+  options: SSEOptions = {},
 ): AbortController {
   const controller = new AbortController();
 
@@ -64,6 +69,7 @@ export function createSSEStream(
           message,
           conversation_id: conversationId,
           agent_mode: agentMode,
+          ...(options.skipClarification ? { skip_clarification: true } : {}),
         }),
         signal: controller.signal,
       });

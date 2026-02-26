@@ -4,7 +4,8 @@ export type ChunkType =
   | "sql"
   | "tool_result"
   | "answer"
-  | "error";
+  | "error"
+  | "clarification";
 
 export interface ChatChunk {
   type: ChunkType;

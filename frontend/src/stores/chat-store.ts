@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import { apiFetch } from "@/lib/api";
 import type {
   ChatChunk,
@@ -23,6 +24,8 @@ interface ChatState {
   datasetViewerOpen: boolean;
   sampleQuestionsOpen: boolean;
   pendingInput: string | null;
+  pendingClarification: string | null;
+  skipClarificationNext: boolean;
 
   // Derived
   activeConversation: () => Conversation | null;
@@ -52,9 +55,11 @@ interface ChatState {
   setDatasetViewerOpen: (open: boolean) => void;
   setSampleQuestionsOpen: (open: boolean) => void;
   setPendingInput: (text: string | null) => void;
+  setPendingClarification: (text: string | null) => void;
+  setSkipClarificationNext: (skip: boolean) => void;
 }
 
-export const useChatStore = create<ChatState>((set, get) => ({
+export const useChatStore = create<ChatState>()(persist((set, get) => ({
   conversations: [],
   activeConversationId: null,
   isStreaming: false,
@@ -66,6 +71,8 @@ export const useChatStore = create<ChatState>((set, get) => ({
   datasetViewerOpen: false,
   sampleQuestionsOpen: false,
   pendingInput: null,
+  pendingClarification: null,
+  skipClarificationNext: false,
 
   activeConversation: () => {
     const { conversations, activeConversationId } = get();
@@ -345,4 +352,37 @@ export const useChatStore = create<ChatState>((set, get) => ({
   setPendingInput: (text) => {
     set({ pendingInput: text });
   },
+
+  setPendingClarification: (text) => {
+    set({ pendingClarification: text });
+  },
+
+  setSkipClarificationNext: (skip) => {
+    set({ skipClarificationNext: skip });
+  },
+}), {
+  name: "insightxpert-chat",
+  storage: {
+    getItem: (name) => {
+      try {
+        const raw = sessionStorage.getItem(name);
+        return raw ? JSON.parse(raw) : null;
+      } catch {
+        return null;
+      }
+    },
+    setItem: (name, value) => {
+      try { sessionStorage.setItem(name, JSON.stringify(value)); } catch { /* storage full or unavailable */ }
+    },
+    removeItem: (name) => {
+      try { sessionStorage.removeItem(name); } catch { /* unavailable */ }
+    },
+  },
+  partialize: (state) => ({
+    conversations: state.conversations.map((c) => ({
+      ...c,
+      messages: [] as Message[],
+    })),
+    activeConversationId: state.activeConversationId,
+  }) as unknown as ChatState,
 }));

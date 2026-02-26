@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { ChevronRight, Table2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
 import { parseToolResult } from "@/lib/chunk-parser";
@@ -15,10 +15,15 @@ import { cn } from "@/lib/utils";
 
 interface ToolResultChunkProps {
   chunk: ChatChunk;
+  /** Pre-parsed result from parent to avoid double JSON.parse. */
+  parsedData?: { columns: string[]; rows: Record<string, unknown>[]; rowCount: number } | null;
 }
 
-export function ToolResultChunk({ chunk }: ToolResultChunkProps) {
-  const parsed = parseToolResult(chunk);
+const ToolResultChunkInner = function ToolResultChunk({ chunk, parsedData }: ToolResultChunkProps) {
+  const parsed = useMemo(
+    () => parsedData !== undefined ? parsedData : parseToolResult(chunk),
+    [chunk, parsedData],
+  );
   const [open, setOpen] = useState(true);
 
   if (!parsed) {
@@ -62,4 +67,6 @@ export function ToolResultChunk({ chunk }: ToolResultChunkProps) {
       </div>
     </Collapsible>
   );
-}
+};
+
+export const ToolResultChunk = React.memo(ToolResultChunkInner);

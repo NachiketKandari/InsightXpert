@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 from typing import AsyncGenerator
 
 from insightxpert.agents.analyst import analyst_loop
@@ -33,6 +34,8 @@ from insightxpert.config import Settings
 from insightxpert.db.connector import DatabaseConnector
 from insightxpert.llm.base import LLMProvider
 from insightxpert.rag.store import VectorStore
+from insightxpert.training.documentation import DOCUMENTATION
+from insightxpert.training.schema import DDL
 
 logger = logging.getLogger("insightxpert.orchestrator")
 
@@ -46,6 +49,8 @@ async def orchestrator_loop(
     conversation_id: str | None = None,
     history: list[dict] | None = None,
     agent_mode: str = "auto",
+    dataset_service=None,
+    skip_clarification: bool = False,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst -> statistician pipeline.
 
@@ -54,6 +59,42 @@ async def orchestrator_loop(
         "auto"         -- analyst, then statistician if results are available
         "statistician" -- analyst, then statistician (same as auto)
     """
+    # Resolve active dataset DDL and documentation
+    ddl_override: str | None = None
+    docs_override: str | None = None
+
+    if dataset_service is not None:
+        active_ds = dataset_service.get_active_dataset()
+        if active_ds:
+            ddl_override = active_ds.get("ddl")
+            docs_override = dataset_service.build_documentation_markdown(active_ds["id"])
+
+    # --- Clarification pre-check ---
+    if not skip_clarification:
+        from insightxpert.agents.clarifier import clarification_check
+
+        clarify_ddl = ddl_override or DDL
+        clarify_docs = docs_override or DOCUMENTATION
+        try:
+            result = await clarification_check(
+                question=question,
+                ddl=clarify_ddl,
+                documentation=clarify_docs,
+                llm=llm,
+                history=history,
+            )
+            if result.action == "clarify" and result.question:
+                yield ChatChunk(
+                    type="clarification",
+                    content=result.question,
+                    data={"skip_allowed": True},
+                    conversation_id=conversation_id or "",
+                    timestamp=time.time(),
+                )
+                return
+        except Exception as e:
+            logger.warning("Clarification check failed, proceeding: %s", e)
+
     # --- Phase 1: Analyst ---
     # collected_sql holds the *last* SQL statement executed by the analyst.
     # collected_results holds the parsed row dicts from the last run_sql
@@ -70,6 +111,8 @@ async def orchestrator_loop(
         config=config,
         conversation_id=conversation_id,
         history=history,
+        ddl_override=ddl_override,
+        documentation_override=docs_override,
     ):
         # Intercept SQL and result chunks for Phase 2 hand-off.
         # We keep the *last* SQL and result set because the analyst may

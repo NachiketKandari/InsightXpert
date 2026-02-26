@@ -5,7 +5,7 @@ import logging
 import re
 import time
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sse_starlette.sse import EventSourceResponse
 
 from insightxpert.agents.orchestrator import orchestrator_loop
@@ -59,15 +59,16 @@ def _get_deps(request: Request):
         request.app.state.rag,
         request.app.state.settings,
         request.app.state.conversation_store,
+        getattr(request.app.state, "dataset_service", None),
     )
 
 
 def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     """Shared setup for both SSE and poll chat endpoints.
 
-    Returns (llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history).
+    Returns (llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history).
     """
-    llm, db, rag, settings, conv_store = _get_deps(request)
+    llm, db, rag, settings, conv_store, dataset_service = _get_deps(request)
     persistent_store = request.app.state.persistent_conv_store
 
     cid = chat_req.conversation_id or ""
@@ -110,7 +111,7 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     except Exception as e:
         logger.error("Failed to persist user message: %s", e, exc_info=True)
 
-    return llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history
+    return llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history
 
 
 def _persist_response(
@@ -146,7 +147,7 @@ async def chat_sse(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
 
     final_answer: list[str] = []
     all_chunks: list[str] = []
@@ -163,6 +164,8 @@ async def chat_sse(
             conversation_id=cid or persistent_cid,
             history=history,
             agent_mode=chat_req.agent_mode,
+            dataset_service=dataset_service,
+            skip_clarification=chat_req.skip_clarification,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -195,7 +198,7 @@ async def chat_poll(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
 
     chunks: list[dict] = []
     final_answer = ""
@@ -209,6 +212,8 @@ async def chat_poll(
         conversation_id=cid or persistent_cid,
         history=history,
         agent_mode=chat_req.agent_mode,
+        dataset_service=dataset_service,
+        skip_clarification=chat_req.skip_clarification,
     ):
         chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:
@@ -233,7 +238,7 @@ async def train(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /train type=%s", req.type)
-    _, _, rag, _, _ = _get_deps(request)
+    _, _, rag, _, _, _ = _get_deps(request)
 
     if req.type == "qa_pair":
         sql = req.metadata.get("sql", "")
@@ -259,7 +264,7 @@ async def delete_rag(
 ):
     """Delete all RAG embeddings from all collections (qa_pairs, ddl, docs, findings)."""
     logger.info("DELETE /rag requested by user=%s", user.email)
-    _, _, rag, _, _ = _get_deps(request)
+    _, _, rag, _, _, _ = _get_deps(request)
     counts = rag.delete_all()
     logger.info("RAG embeddings deleted: %s", counts)
     return RagDeleteResponse(status="ok", deleted=counts)
@@ -268,11 +273,13 @@ async def delete_rag(
 @router.get("/schema", response_model=SchemaResponse)
 async def schema(
     request: Request,
+    response: Response,
     user: User = Depends(get_current_user),
 ):
-    _, db, _, _, _ = _get_deps(request)
+    _, db, _, _, _, _ = _get_deps(request)
     ddl = get_schema_ddl(db.engine)
     tables = db.get_tables()
+    response.headers["Cache-Control"] = "private, max-age=3600"
     return SchemaResponse(ddl=ddl, tables=tables)
 
 
@@ -287,6 +294,7 @@ GEMINI_MODELS = [
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     request: Request,
+    response: Response,
     user: User = Depends(get_current_user),
 ):
     settings = request.app.state.settings
@@ -303,13 +311,14 @@ async def get_config(
     try:
         import ollama as ollama_sdk
         client = ollama_sdk.Client(host=settings.ollama_base_url)
-        response = client.list()
-        ollama_models = [m.model.replace(":latest", "") for m in response.models]
+        ollama_resp = client.list()
+        ollama_models = [m.model.replace(":latest", "") for m in ollama_resp.models]
         if ollama_models:
             providers.append(ProviderModels(provider="ollama", models=ollama_models))
     except Exception:
         logger.debug("Ollama not available for model listing", exc_info=True)
 
+    response.headers["Cache-Control"] = "private, max-age=60"
     return ConfigResponse(
         current_provider=current_provider,
         current_model=current_model,
@@ -385,7 +394,7 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
                    "INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked.",
         )
 
-    _, db, _, settings, _ = _get_deps(request)
+    _, db, _, settings, _, _ = _get_deps(request)
 
     start = time.time()
     try:
@@ -423,10 +432,12 @@ async def health():
 @router.get("/conversations", response_model=list[ConversationSummary])
 async def list_conversations(
     request: Request,
+    response: Response,
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
     convos = persistent_store.get_conversations(user.id)
+    response.headers["Cache-Control"] = "private, max-age=5"
     return [ConversationSummary(**c) for c in convos]
 
 
@@ -444,6 +455,33 @@ async def search_conversations(
     return [SearchResultItem(**r) for r in results]
 
 
+_HISTORY_ROW_LIMIT = 50
+
+
+def _truncate_chunks(chunks: list[dict]) -> list[dict]:
+    """Truncate large tool_result rows in historical chunks to reduce payload size."""
+    out = []
+    for chunk in chunks:
+        if chunk.get("type") == "tool_result" and isinstance(chunk.get("data"), dict):
+            data = chunk["data"]
+            result_str = data.get("result")
+            if isinstance(result_str, str):
+                try:
+                    result_obj = json.loads(result_str)
+                    if isinstance(result_obj, dict) and isinstance(result_obj.get("rows"), list):
+                        original_count = len(result_obj["rows"])
+                        if original_count > _HISTORY_ROW_LIMIT:
+                            result_obj["rows"] = result_obj["rows"][:_HISTORY_ROW_LIMIT]
+                            result_obj["truncated"] = True
+                            result_obj["original_row_count"] = original_count
+                            data = {**data, "result": json.dumps(result_obj)}
+                            chunk = {**chunk, "data": data}
+                except (json.JSONDecodeError, TypeError):
+                    logger.debug("Could not parse tool_result for truncation, skipping chunk")
+        out.append(chunk)
+    return out
+
+
 @router.get("/conversations/{conversation_id}", response_model=ConversationDetail)
 async def get_conversation(
     conversation_id: str,
@@ -455,18 +493,24 @@ async def get_conversation(
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
-    messages = [
-        MessageResponse(
+    messages = []
+    for m in convo["messages"]:
+        chunks = None
+        if m.get("chunks_json"):
+            try:
+                chunks = _truncate_chunks(json.loads(m["chunks_json"]))
+            except (json.JSONDecodeError, TypeError):
+                chunks = None
+        messages.append(MessageResponse(
             id=m["id"],
             role=m["role"],
             content=m["content"],
-            chunks=json.loads(m["chunks_json"]) if m.get("chunks_json") else None,
+            chunks=chunks,
             feedback=m.get("feedback"),
             feedback_comment=m.get("feedback_comment"),
             created_at=m["created_at"],
-        )
-        for m in convo["messages"]
-    ]
+        ))
+
     return ConversationDetail(
         id=convo["id"],
         title=convo["title"],

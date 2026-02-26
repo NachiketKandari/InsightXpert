@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle, Loader2 } from "lucide-react";
 import type { ChatChunk } from "@/types/chat";
@@ -14,6 +14,7 @@ import { ToolResultChunk } from "./tool-result-chunk";
 import { ChartBlock } from "./chart-block";
 import { AnswerChunk } from "./answer-chunk";
 import { ErrorChunk } from "./error-chunk";
+import { ClarificationChunk } from "./clarification-chunk";
 
 /** Inline progress step: spinner → checkmark after a brief delay during streaming. */
 function ProgressStep({ label, isComplete }: { label: string; isComplete?: boolean }) {
@@ -41,9 +42,28 @@ function ProgressStep({ label, isComplete }: { label: string; isComplete?: boole
 interface ChunkRendererProps {
   chunk: ChatChunk;
   isComplete?: boolean;
+  /** When true, charts render eagerly (no IntersectionObserver). */
+  isStreaming?: boolean;
 }
 
-export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
+function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererProps) {
+  const parsed = useMemo(
+    () => (chunk.type === "tool_result" ? parseToolResult(chunk) : null),
+    [chunk],
+  );
+  const suggestedChartType = chunk.type === "tool_result"
+    ? ((chunk.data?.visualization as string) ?? null)
+    : null;
+
+  const willShowChart = useMemo(() => {
+    if (!parsed) return false;
+    const ct =
+      suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
+        ? suggestedChartType
+        : detectChartType(parsed.columns, parsed.rows);
+    return ct !== "none" && ct !== "table";
+  }, [parsed, suggestedChartType]);
+
   let content: React.ReactNode;
 
   switch (chunk.type) {
@@ -56,22 +76,10 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
     case "sql":
       content = chunk.sql ? <SqlChunk sql={chunk.sql} /> : null;
       break;
-    case "tool_result": {
-      const parsed = parseToolResult(chunk);
-      const suggestedChartType = (chunk.data?.visualization as string) ?? null;
-
-      let willShowChart = false;
-      if (parsed) {
-        const chartType =
-          suggestedChartType && VALID_CHART_TYPES.has(suggestedChartType)
-            ? suggestedChartType
-            : detectChartType(parsed.columns, parsed.rows);
-        willShowChart = chartType !== "none" && chartType !== "table";
-      }
-
+    case "tool_result":
       content = (
         <>
-          <ToolResultChunk chunk={chunk} />
+          <ToolResultChunk chunk={chunk} parsedData={parsed} />
           {willShowChart && parsed && (
             <>
               <motion.div
@@ -87,14 +95,18 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
                 transition={{ duration: 0.3, ease: "easeOut", delay: 0.7 }}
                 className="mt-3"
               >
-                <ChartBlock columns={parsed.columns} rows={parsed.rows} suggestedChartType={suggestedChartType} />
+                <ChartBlock
+                  columns={parsed.columns}
+                  rows={parsed.rows}
+                  suggestedChartType={suggestedChartType}
+                  eager={isStreaming}
+                />
               </motion.div>
             </>
           )}
         </>
       );
       break;
-    }
     case "answer":
       content = (
         <>
@@ -105,6 +117,14 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
       break;
     case "error":
       content = <ErrorChunk content={chunk.content ?? "An error occurred"} />;
+      break;
+    case "clarification":
+      content = (
+        <ClarificationChunk
+          content={chunk.content ?? "Could you clarify your question?"}
+          skipAllowed={!!(chunk.data?.skip_allowed)}
+        />
+      );
       break;
     default:
       content = null;
@@ -122,3 +142,5 @@ export function ChunkRenderer({ chunk, isComplete }: ChunkRendererProps) {
     </motion.div>
   );
 }
+
+export const ChunkRenderer = React.memo(ChunkRendererInner);

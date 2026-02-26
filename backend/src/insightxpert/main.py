@@ -10,6 +10,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
@@ -59,6 +60,17 @@ def _migrate_schema(engine) -> None:
         _add_column("messages", "feedback", "BOOLEAN")
         _add_column("messages", "feedback_comment", "TEXT")
 
+        # Indexes for frequently-queried foreign keys
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS ix_conversations_user_id ON conversations (user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_messages_conversation_id ON messages (conversation_id)",
+            "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at)",
+        ]:
+            try:
+                conn.execute(text(idx_sql))
+            except Exception as e:
+                logger.debug("Index creation skipped: %s", e)
+
         # Drop legacy tables
         existing_tables = set(insp.get_table_names())
         if "feedback" in existing_tables:
@@ -67,6 +79,66 @@ def _migrate_schema(engine) -> None:
         if "alembic_version" in existing_tables:
             conn.execute(text("DROP TABLE alembic_version"))
             logger.info("Migration: dropped alembic_version table")
+
+
+def _seed_datasets(engine) -> None:
+    """Seed the datasets, dataset_columns, and example_queries tables from hardcoded training data."""
+    from insightxpert.auth.models import Dataset, DatasetColumn, ExampleQuery, _uuid, _utcnow
+    from insightxpert.training.documentation import DOCUMENTATION
+    from insightxpert.training.queries import EXAMPLE_QUERIES
+    from insightxpert.training.schema import DDL
+    from insightxpert.training.seed_data import COLUMNS_META
+
+    with Session(engine) as session:
+        existing = session.query(Dataset).first()
+        if existing:
+            logger.debug("Datasets already seeded, skipping")
+            return
+
+        now = _utcnow()
+        dataset_id = _uuid()
+
+        dataset = Dataset(
+            id=dataset_id,
+            name="transactions",
+            description="250,000 Indian UPI digital payment transactions from 2024",
+            ddl=DDL,
+            documentation=DOCUMENTATION,
+            is_active=True,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(dataset)
+
+        for i, col in enumerate(COLUMNS_META):
+            session.add(DatasetColumn(
+                id=_uuid(),
+                dataset_id=dataset_id,
+                column_name=col["column_name"],
+                column_type=col["column_type"],
+                description=col["description"],
+                domain_values=col["domain_values"],
+                domain_rules=col["domain_rules"],
+                ordinal_position=i,
+                created_at=now,
+            ))
+
+        for qa in EXAMPLE_QUERIES:
+            session.add(ExampleQuery(
+                id=_uuid(),
+                dataset_id=dataset_id,
+                question=qa["question"],
+                sql=qa["sql"],
+                category=qa.get("category"),
+                is_active=True,
+                created_at=now,
+            ))
+
+        session.commit()
+        logger.info(
+            "Seeded dataset '%s': %d columns, %d example queries",
+            "transactions", len(COLUMNS_META), len(EXAMPLE_QUERIES),
+        )
 
 
 def _seed_prompts(engine) -> None:
@@ -120,11 +192,11 @@ def _setup_logging(level: str) -> None:
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
-def _run_rag_training(rag: VectorStore, db: DatabaseConnector) -> None:
+def _run_rag_training(rag: VectorStore, db: DatabaseConnector, dataset_service=None) -> None:
     """Run RAG training in a background thread (called via asyncio.to_thread)."""
     trainer = Trainer(rag)
     try:
-        count = trainer.train_insightxpert(db)
+        count = trainer.train_insightxpert(db, dataset_service=dataset_service)
         logger.info("RAG bootstrap complete: %d training items loaded", count)
     except Exception as e:
         logger.error("RAG bootstrap failed: %s", e, exc_info=True)
@@ -151,9 +223,6 @@ async def lifespan(app: FastAPI):
     rag = VectorStore(persist_dir=settings.chroma_persist_dir)
     logger.info("ChromaDB initialized: %s", settings.chroma_persist_dir)
 
-    # Bootstrap RAG in a background thread so it doesn't block server startup
-    rag_task = asyncio.create_task(asyncio.to_thread(_run_rag_training, rag, db))
-
     # LLM provider
     llm = create_llm(settings.llm_provider.value, settings)
     logger.info("LLM provider: %s", settings.llm_provider.value)
@@ -175,6 +244,22 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Prompt seeding failed: %s", e, exc_info=True)
 
+    # Seed datasets from hardcoded training files
+    try:
+        _seed_datasets(auth_engine)
+        logger.info("Dataset tables initialized")
+    except Exception as e:
+        logger.error("Dataset seeding failed: %s", e, exc_info=True)
+
+    # Dataset service
+    from insightxpert.datasets.service import DatasetService
+    dataset_service = DatasetService(auth_engine)
+
+    # Bootstrap RAG in a background thread (after dataset tables are seeded)
+    rag_task = asyncio.create_task(
+        asyncio.to_thread(_run_rag_training, rag, db, dataset_service)
+    )
+
     # Persistent conversation store (SQLite-backed)
     persistent_conv_store = PersistentConversationStore(auth_engine)
     logger.info("Persistent conversation store initialized")
@@ -191,6 +276,7 @@ async def lifespan(app: FastAPI):
     app.state.conversation_store = conversation_store
     app.state.auth_engine = auth_engine
     app.state.persistent_conv_store = persistent_conv_store
+    app.state.dataset_service = dataset_service
 
     # Admin config (JSON file)
     config_path = Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
@@ -223,6 +309,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="InsightXpert", version="0.1.0", lifespan=lifespan)
 
 _settings = Settings()
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[o.strip() for o in _settings.cors_origins.split(",")],
@@ -292,13 +379,17 @@ async def generic_exception_handler(_request: Request, exc: Exception):
 
 
 @app.get("/health")
+@app.get("/api/health")
 async def health_check():
     return JSONResponse({"status": "ok"})
 
 
+from insightxpert.datasets.routes import router as datasets_router
+
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(admin_router)
+app.include_router(datasets_router)
 
 if __name__ == "__main__":
     import os
