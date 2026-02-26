@@ -157,13 +157,16 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
       }
       const data = await res.json();
       const messages: Message[] = (data.messages || []).map(
-        (m: { id: string; role: "user" | "assistant"; content: string; chunks?: ChatChunk[]; feedback?: boolean | null; feedback_comment?: string | null; created_at: string }) => ({
+        (m: { id: string; role: "user" | "assistant"; content: string; chunks?: ChatChunk[]; feedback?: boolean | null; feedback_comment?: string | null; input_tokens?: number | null; output_tokens?: number | null; generation_time_ms?: number | null; created_at: string }) => ({
           id: m.id,
           role: m.role,
           content: m.content,
           chunks: m.chunks || [],
           feedback: m.feedback ?? null,
           feedbackComment: m.feedback_comment ?? null,
+          inputTokens: m.input_tokens ?? null,
+          outputTokens: m.output_tokens ?? null,
+          generationTimeMs: m.generation_time_ms ?? null,
           timestamp: new Date(m.created_at).getTime(),
         })
       );
@@ -275,6 +278,19 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
         const messages = [...c.messages];
         const lastMsg = messages[messages.length - 1];
         if (!lastMsg || lastMsg.role !== "assistant") return c;
+
+        // Metrics chunk: update observability fields, don't add to chunks array
+        if (chunk.type === "metrics" && chunk.data) {
+          const d = chunk.data as { input_tokens?: number; output_tokens?: number; generation_time_ms?: number };
+          const updated: Message = {
+            ...lastMsg,
+            inputTokens: d.input_tokens ?? lastMsg.inputTokens,
+            outputTokens: d.output_tokens ?? lastMsg.outputTokens,
+            generationTimeMs: d.generation_time_ms ?? lastMsg.generationTimeMs,
+          };
+          messages[messages.length - 1] = updated;
+          return { ...c, messages };
+        }
 
         const updated: Message = {
           ...lastMsg,

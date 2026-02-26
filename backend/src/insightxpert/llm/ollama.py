@@ -98,6 +98,9 @@ class OllamaProvider:
         raw_tool_calls = getattr(msg, "tool_calls", None)
         tool_calls = self._parse_tool_calls({"tool_calls": raw_tool_calls}) if raw_tool_calls else []
 
-        result = LLMResponse(content=content or None, tool_calls=tool_calls)
+        input_tokens = getattr(response, "prompt_eval_count", None) or 0
+        output_tokens = getattr(response, "eval_count", None) or 0
+
+        result = LLMResponse(content=content or None, tool_calls=tool_calls, input_tokens=input_tokens, output_tokens=output_tokens)
         log_llm_response(logger, ms, result)
         return result

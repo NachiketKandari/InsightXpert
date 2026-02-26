@@ -205,6 +205,9 @@ async def get_admin_conversation(
             "chunks": json.loads(m["chunks_json"]) if m.get("chunks_json") else None,
             "feedback": m.get("feedback"),
             "feedback_comment": m.get("feedback_comment"),
+            "input_tokens": m.get("input_tokens"),
+            "output_tokens": m.get("output_tokens"),
+            "generation_time_ms": m.get("generation_time_ms"),
             "created_at": m["created_at"],
         }
         for m in convo["messages"]

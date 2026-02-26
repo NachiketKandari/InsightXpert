@@ -67,9 +67,12 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererPro
   let content: React.ReactNode;
 
   switch (chunk.type) {
-    case "status":
-      content = <StatusChunk content={chunk.content ?? ""} isComplete={isComplete} />;
+    case "status": {
+      const rawRag = chunk.data?.rag_context;
+      const ragContext = Array.isArray(rawRag) ? (rawRag as string[]) : undefined;
+      content = <StatusChunk content={chunk.content ?? ""} isComplete={isComplete} ragContext={ragContext} />;
       break;
+    }
     case "tool_call":
       content = <ToolCallChunk content={chunk.content ?? ""} isComplete={isComplete} />;
       break;

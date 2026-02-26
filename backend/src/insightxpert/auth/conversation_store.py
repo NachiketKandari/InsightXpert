@@ -94,6 +94,9 @@ class PersistentConversationStore:
                         "chunks_json": m.chunks_json,
                         "feedback": m.feedback,
                         "feedback_comment": m.feedback_comment,
+                        "input_tokens": m.input_tokens,
+                        "output_tokens": m.output_tokens,
+                        "generation_time_ms": m.generation_time_ms,
                         "created_at": _to_ist(m.created_at),
                     }
                     for m in messages
@@ -141,6 +144,9 @@ class PersistentConversationStore:
         role: str,
         content: str,
         chunks_json: str | None = None,
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        generation_time_ms: int | None = None,
     ) -> str:
         with Session(self.engine) as session:
             convo = session.get(ConversationRecord, conversation_id)
@@ -153,6 +159,9 @@ class PersistentConversationStore:
                 role=role,
                 content=content,
                 chunks_json=chunks_json,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                generation_time_ms=generation_time_ms,
                 created_at=datetime.now(timezone.utc),
             )
             convo.updated_at = datetime.now(timezone.utc)
@@ -297,6 +306,9 @@ class PersistentConversationStore:
                         "chunks_json": m.chunks_json,
                         "feedback": m.feedback,
                         "feedback_comment": m.feedback_comment,
+                        "input_tokens": m.input_tokens,
+                        "output_tokens": m.output_tokens,
+                        "generation_time_ms": m.generation_time_ms,
                         "created_at": _to_ist(m.created_at),
                     }
                     for m in messages
