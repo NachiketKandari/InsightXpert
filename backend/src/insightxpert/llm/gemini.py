@@ -173,7 +173,13 @@ class GeminiProvider:
                         arguments=dict(fc.args) if fc.args else {},
                     ))
 
-        return LLMResponse(content=content, tool_calls=tool_calls)
+        input_tokens = 0
+        output_tokens = 0
+        if response.usage_metadata:
+            input_tokens = response.usage_metadata.prompt_token_count or 0
+            output_tokens = response.usage_metadata.candidates_token_count or 0
+
+        return LLMResponse(content=content, tool_calls=tool_calls, input_tokens=input_tokens, output_tokens=output_tokens)
 
     async def chat(
         self, messages: list[dict], tools: list[dict] | None = None

@@ -5,7 +5,8 @@ export type ChunkType =
   | "tool_result"
   | "answer"
   | "error"
-  | "clarification";
+  | "clarification"
+  | "metrics";
 
 export interface ChatChunk {
   type: ChunkType;
@@ -25,6 +26,9 @@ export interface Message {
   chunks: ChatChunk[];
   feedback?: boolean | null;
   feedbackComment?: string | null;
+  inputTokens?: number | null;
+  outputTokens?: number | null;
+  generationTimeMs?: number | null;
   timestamp: number;
 }
 

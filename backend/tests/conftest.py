@@ -164,7 +164,7 @@ def persistent_conv_store(auth_engine):
 
 
 @pytest.fixture()
-def test_app(auth_engine, test_user, persistent_conv_store, db_connector, rag_store, settings):
+def test_app(auth_engine, test_user, persistent_conv_store, db_connector, rag_store, settings, tmp_path):
     """Full FastAPI app with all app.state.* wired to test doubles."""
     application = FastAPI()
     application.include_router(api_router)
@@ -176,6 +176,7 @@ def test_app(auth_engine, test_user, persistent_conv_store, db_connector, rag_st
     application.state.settings = settings
     application.state.conversation_store = ConversationStore()
     application.state.persistent_conv_store = persistent_conv_store
+    application.state.config_path = tmp_path / "admin_config.json"
 
     # Override auth to return our test user
     application.dependency_overrides[get_current_user] = lambda: test_user

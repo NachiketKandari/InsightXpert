@@ -49,8 +49,6 @@ chroma_data/
 # Agent data (generated at runtime)
 agent_data/
 
-# Decision documentation (generated, not for version control)
-docs/project-decisions.md
 docs/section*.md
 
 # Dataset (populated after shortlist — CSV files can be large)

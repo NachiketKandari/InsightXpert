@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
@@ -13,6 +14,15 @@ from insightxpert.auth.models import User
 from insightxpert.datasets.service import DatasetService
 
 logger = logging.getLogger("insightxpert.datasets")
+
+
+def _extract_table_name(ddl: str) -> str | None:
+    m = re.search(
+        r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?(\w+)["`]?',
+        ddl,
+        re.IGNORECASE,
+    )
+    return m.group(1) if m else None
 
 router = APIRouter(prefix="/api/datasets", tags=["datasets"])
 
@@ -63,6 +73,26 @@ async def list_datasets(
     _require_admin(user)
     svc = _get_dataset_service(request)
     return svc.list_datasets()
+
+
+@router.get("/public")
+async def list_datasets_public(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """List datasets for any authenticated user (minimal info, no admin required)."""
+    svc = _get_dataset_service(request)
+    datasets = svc.list_datasets()
+    return [
+        {
+            "id": ds["id"],
+            "name": ds["name"],
+            "description": ds.get("description"),
+            "is_active": ds["is_active"],
+            "table_name": _extract_table_name(ds.get("ddl", "")),
+        }
+        for ds in datasets
+    ]
 
 
 @router.get("/{dataset_id}")

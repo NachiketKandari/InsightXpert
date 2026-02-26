@@ -10,6 +10,7 @@ class FeatureToggles(BaseModel):
     chart_rendering: bool = True
     conversation_export: bool = True
     agent_process_sidebar: bool = True
+    clarification_enabled: bool = False
 
 
 class OrgBranding(BaseModel):
