@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -199,7 +200,7 @@ async def chat_sse(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await asyncio.to_thread(_prepare_chat, request, chat_req, user)
     features = _resolve_user_features(request, user)
     effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
@@ -249,14 +250,15 @@ async def chat_sse(
         # Persist BEFORE yielding [DONE] so that data is saved even if the
         # client disconnects immediately after receiving the sentinel.
         store_cid = cid or actual_cid
-        _persist_response(
+        await asyncio.to_thread(
+            _persist_response,
             conv_store, persistent_store, store_cid, persistent_cid, user.id,
             final_answer[-1] if final_answer else "",
             executed_sql,
             "[" + ",".join(all_chunks) + "]",
-            input_tokens=counting_llm.input_tokens or None,
-            output_tokens=counting_llm.output_tokens or None,
-            generation_time_ms=generation_time_ms,
+            counting_llm.input_tokens or None,
+            counting_llm.output_tokens or None,
+            generation_time_ms,
         )
 
         yield {"data": "[DONE]"}
@@ -271,7 +273,7 @@ async def chat_poll(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await asyncio.to_thread(_prepare_chat, request, chat_req, user)
     features = _resolve_user_features(request, user)
     effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
@@ -300,12 +302,13 @@ async def chat_poll(
 
     generation_time_ms = int((time.time() - start_time) * 1000)
     store_cid = cid or (chunks[0]["conversation_id"] if chunks else "")
-    _persist_response(
+    await asyncio.to_thread(
+        _persist_response,
         conv_store, persistent_store, store_cid, persistent_cid, user.id,
         final_answer, poll_executed_sql, json.dumps(chunks),
-        input_tokens=poll_counting_llm.input_tokens or None,
-        output_tokens=poll_counting_llm.output_tokens or None,
-        generation_time_ms=generation_time_ms,
+        poll_counting_llm.input_tokens or None,
+        poll_counting_llm.output_tokens or None,
+        generation_time_ms,
     )
 
     logger.info("POST /chat/poll done: %d chunks", len(chunks))
@@ -517,7 +520,7 @@ async def list_conversations(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    convos = persistent_store.get_conversations(user.id)
+    convos = await asyncio.to_thread(persistent_store.get_conversations, user.id)
     response.headers["Cache-Control"] = "private, max-age=5"
     return [ConversationSummary(**c) for c in convos]
 
@@ -532,7 +535,7 @@ async def search_conversations(
     if len(q) < 2:
         return []
     persistent_store = request.app.state.persistent_conv_store
-    results = persistent_store.search_conversations(user.id, q)
+    results = await asyncio.to_thread(persistent_store.search_conversations, user.id, q)
     return [SearchResultItem(**r) for r in results]
 
 
@@ -570,7 +573,7 @@ async def get_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    convo = persistent_store.get_conversation(conversation_id, user.id)
+    convo = await asyncio.to_thread(persistent_store.get_conversation, conversation_id, user.id)
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -612,7 +615,7 @@ async def delete_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    deleted = persistent_store.delete_conversation(conversation_id, user.id)
+    deleted = await asyncio.to_thread(persistent_store.delete_conversation, conversation_id, user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok"}
@@ -626,7 +629,7 @@ async def rename_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    renamed = persistent_store.rename_conversation(conversation_id, user.id, body.title)
+    renamed = await asyncio.to_thread(persistent_store.rename_conversation, conversation_id, user.id, body.title)
     if not renamed:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok"}
@@ -640,7 +643,7 @@ async def star_conversation(
     user: User = Depends(get_current_user),
 ):
     store = request.app.state.persistent_conv_store
-    ok = store.star_conversation(conversation_id, user.id, body.starred)
+    ok = await asyncio.to_thread(store.star_conversation, conversation_id, user.id, body.starred)
     if not ok:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok", "starred": body.starred}
@@ -753,11 +756,9 @@ async def submit_feedback(
     user: User = Depends(get_current_user),
 ):
     store = request.app.state.persistent_conv_store
-    ok = store.update_message_feedback(
-        message_id=body.message_id,
-        user_id=user.id,
-        feedback=body.feedback,
-        comment=body.comment,
+    ok = await asyncio.to_thread(
+        store.update_message_feedback,
+        body.message_id, user.id, body.feedback, body.comment,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Message not found")
