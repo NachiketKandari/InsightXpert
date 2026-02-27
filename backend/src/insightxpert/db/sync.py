@@ -20,6 +20,8 @@ logger = logging.getLogger("insightxpert.sync")
 # Auth tables in FK-safe insertion order (parents before children).
 # `transactions` is CSV-loaded locally and never synced.
 SYNC_TABLES = [
+    "organizations",   # must precede users (users.org_id FK)
+    "app_settings",
     "users",
     "datasets",
     "prompt_templates",
