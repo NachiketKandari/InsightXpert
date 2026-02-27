@@ -24,9 +24,14 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.1"
     ollama_base_url: str = "http://localhost:11434"
 
-    # Database (empty env var falls back to default SQLite)
+    # Local SQLite (primary runtime DB — sub-ms queries)
     database_url: str = "sqlite:///./insightxpert.db"
+
+    # Turso remote sync (background backup)
+    turso_url: str = ""
     turso_auth_token: str = ""
+    sync_interval_seconds: int = Field(default=30, gt=0)
+    sync_on_startup: bool = True
 
     @field_validator("database_url", mode="before")
     @classmethod

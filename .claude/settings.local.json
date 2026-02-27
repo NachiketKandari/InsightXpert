@@ -54,7 +54,29 @@
       "Bash(git -C /Users/nachiket/workspace/github.com/Private/InsightXpert diff)",
       "Bash(git -C /Users/nachiket/workspace/github.com/Private/InsightXpert log --oneline -5)",
       "Bash(git -C /Users/nachiket/workspace/github.com/Private/InsightXpert add .mcp.json frontend/playwright.config.ts frontend/e2e/app.spec.ts frontend/package.json frontend/package-lock.json)",
-      "Bash(git -C:*)"
+      "Bash(git -C:*)",
+      "Bash(gh pr:*)",
+      "Bash(.venv/bin/pytest:*)",
+      "Bash(gh run:*)",
+      "Bash(gh secret:*)",
+      "Bash(gh workflow:*)",
+      "Bash(head:*)",
+      "WebFetch(domain:docs.turso.tech)",
+      "Bash(git fetch origin && git checkout phase-zero 2>&1 || git checkout -b phase-zero origin/phase-zero 2>&1)",
+      "Bash(wc:*)",
+      "Bash(git pull:*)",
+      "Bash(git check-ignore:*)",
+      "WebFetch(domain:akashhamirwasia.com)",
+      "Bash(git:*)",
+      "Bash(gcloud run:*)",
+      "Bash(gcloud logging:*)",
+      "Bash(export:*)",
+      "Bash(/Users/nachiket/google-cloud-sdk/bin/gcloud logging:*)",
+      "Bash(source:*)"
     ]
-  }
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "playwright"
+  ]
 }
