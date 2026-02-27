@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { cn, relativeTime } from "@/lib/utils";
+import { cn, relativeTime, formatDate } from "@/lib/utils";
 
 interface MessageActionsProps {
   role: "user" | "assistant";
@@ -109,7 +109,13 @@ export function MessageActions({
 
         {role === "user" && timestamp && (
           <span className="text-[10px] text-muted-foreground/60 select-none ml-0.5">
-            {relativeTime(timestamp)}
+            {(() => {
+              const startOfToday = new Date();
+              startOfToday.setHours(0, 0, 0, 0);
+              return timestamp >= startOfToday.getTime()
+                ? relativeTime(timestamp)
+                : formatDate(timestamp);
+            })()}
           </span>
         )}
 

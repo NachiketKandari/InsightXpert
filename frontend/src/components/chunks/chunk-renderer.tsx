@@ -79,9 +79,14 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererPro
       content = <StatusChunk content={chunk.content ?? ""} isComplete={isComplete} ragContext={ragContext} />;
       break;
     }
-    case "tool_call":
-      content = <ToolCallChunk content={chunk.content ?? ""} isComplete={isComplete} />;
+    case "tool_call": {
+      const toolLabel =
+        chunk.tool_name === "run_sql"
+          ? "Generating SQL query"
+          : chunk.content ?? "";
+      content = <ToolCallChunk content={toolLabel} isComplete={isComplete} />;
       break;
+    }
     case "sql":
       content = chunk.sql ? <SqlChunk sql={chunk.sql} /> : null;
       break;
