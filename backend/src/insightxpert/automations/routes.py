@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
 from insightxpert.automations.models import (
+    CompileTriggerRequest,
     CreateAutomationRequest,
     GenerateSQLRequest,
     UpdateAutomationRequest,
@@ -139,6 +141,34 @@ async def generate_sql(
 
 
 # ---------------------------------------------------------------------------
+# NL Trigger Compilation
+# ---------------------------------------------------------------------------
+
+
+@router.post("/compile-trigger")
+async def compile_trigger(
+    body: CompileTriggerRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Compile a natural-language trigger description into a structured condition."""
+    _require_admin(user)
+
+    from insightxpert.automations.nl_trigger import compile_nl_trigger
+
+    llm = request.app.state.llm
+    try:
+        result = await compile_nl_trigger(
+            llm=llm,
+            nl_text=body.nl_text,
+            available_columns=body.available_columns,
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+
+# ---------------------------------------------------------------------------
 # Automation CRUD
 # ---------------------------------------------------------------------------
 
@@ -182,6 +212,7 @@ async def create_automation(
         trigger_conditions=trigger_conditions,
         source_conversation_id=body.source_conversation_id,
         source_message_id=body.source_message_id,
+        workflow_graph=body.workflow_graph,
     )
 
     await scheduler.add_automation(auto)
@@ -233,8 +264,17 @@ async def update_automation(
         fields["name"] = body.name
     if body.description is not None:
         fields["description"] = body.description
+    if body.nl_query is not None:
+        fields["nl_query"] = body.nl_query
+    if body.sql_queries is not None:
+        # Validate and store the updated SQL chain
+        db = request.app.state.db
+        await asyncio.to_thread(_validate_sql_queries, body.sql_queries, db.engine)
+        fields["sql_query"] = json.dumps(body.sql_queries)
     if body.trigger_conditions is not None:
         fields["trigger_conditions"] = [tc.model_dump() for tc in body.trigger_conditions]
+    if body.workflow_graph is not None:
+        fields["workflow_graph"] = body.workflow_graph
 
     # Resolve cron
     new_cron = None

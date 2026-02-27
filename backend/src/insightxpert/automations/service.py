@@ -5,6 +5,7 @@ import logging
 
 from sqlalchemy.orm import Session
 
+from insightxpert.auth.conversation_store import _record_delete
 from insightxpert.auth.models import (
     Automation,
     AutomationRun,
@@ -38,6 +39,11 @@ class AutomationService:
                 sql_queries = [fields["sql_query"]]
             sql_query_json = json.dumps(sql_queries)
 
+            # Serialize workflow graph if provided
+            workflow_json = None
+            if fields.get("workflow_graph"):
+                workflow_json = json.dumps(fields["workflow_graph"])
+
             auto = Automation(
                 id=_uuid(),
                 name=fields["name"],
@@ -50,6 +56,7 @@ class AutomationService:
                 created_by=user_id,
                 source_conversation_id=fields.get("source_conversation_id"),
                 source_message_id=fields.get("source_message_id"),
+                workflow_json=workflow_json,
                 created_at=_utcnow(),
                 updated_at=_utcnow(),
             )
@@ -82,6 +89,10 @@ class AutomationService:
                 if key == "trigger_conditions":
                     if isinstance(value, list):
                         value = json.dumps(value)
+                if key == "workflow_graph":
+                    # Map workflow_graph dict to workflow_json column
+                    auto.workflow_json = json.dumps(value) if value else None
+                    continue
                 if hasattr(auto, key) and key not in ("id", "created_by", "created_at"):
                     setattr(auto, key, value)
             auto.updated_at = _utcnow()
@@ -94,6 +105,24 @@ class AutomationService:
             auto = session.get(Automation, automation_id)
             if not auto:
                 return False
+
+            # Record cascading deletes for Turso sync
+            run_ids = [
+                r.id for r in
+                session.query(AutomationRun.id)
+                .filter(AutomationRun.automation_id == automation_id)
+                .all()
+            ]
+            notif_ids = [
+                n.id for n in
+                session.query(Notification.id)
+                .filter(Notification.automation_id == automation_id)
+                .all()
+            ]
+            _record_delete(session, "automation_runs", run_ids)
+            _record_delete(session, "notifications", notif_ids)
+            _record_delete(session, "automations", [automation_id])
+
             session.delete(auto)
             session.commit()
             return True
@@ -281,6 +310,14 @@ class AutomationService:
 
         sql_queries = AutomationService._parse_sql_queries(auto.sql_query)
 
+        # Deserialize workflow_json
+        workflow_graph = None
+        if auto.workflow_json:
+            try:
+                workflow_graph = json.loads(auto.workflow_json)
+            except json.JSONDecodeError:
+                pass
+
         return {
             "id": auto.id,
             "name": auto.name,
@@ -296,6 +333,7 @@ class AutomationService:
             "created_by": auto.created_by,
             "source_conversation_id": auto.source_conversation_id,
             "source_message_id": auto.source_message_id,
+            "workflow_graph": workflow_graph,
             "created_at": str(auto.created_at),
             "updated_at": str(auto.updated_at),
         }

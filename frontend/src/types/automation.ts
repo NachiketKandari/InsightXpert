@@ -6,6 +6,7 @@ export interface TriggerCondition {
   change_percent?: number | null;
   scope?: "any_row" | "all_rows" | null;
   slope_window?: number | null;  // number of previous runs for slope calculation
+  nl_text?: string | null;  // original natural language description (if compiled from NL)
 }
 
 export interface TriggerResult {
@@ -30,6 +31,7 @@ export interface Automation {
   created_by: string;
   source_conversation_id: string | null;
   source_message_id: string | null;
+  workflow_graph: { blocks: WorkflowBlock[]; edges: WorkflowEdge[] } | null;
   created_at: string;
   updated_at: string;
 }
@@ -71,7 +73,8 @@ export interface WorkflowBlock {
   sourceMessagePreview: string | null;
   isActive: boolean;
   isEndpoint: boolean;
-  resultPreview: { rowCount: number; columnCount: number } | null;
+  resultPreview: { rowCount: number; columnCount: number; columnNames: string[] } | null;
+  tables: string[];
   position: { x: number; y: number };
 }
 
@@ -105,4 +108,5 @@ export interface CreateAutomationPayload {
   trigger_conditions: TriggerCondition[];
   source_conversation_id?: string;
   source_message_id?: string;
+  workflow_graph?: { blocks: WorkflowBlock[]; edges: WorkflowEdge[] };
 }

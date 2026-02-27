@@ -1,14 +1,21 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
-import { ChevronDown, ChevronRight, Plus } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
+import {
+  ChevronDown,
+  ChevronRight,
+  Plus,
+  Database,
+  Sparkles,
+  Calendar,
+  Library,
+} from "lucide-react";
 import { SchedulePicker } from "./schedule-picker";
 import { TriggerConditionBuilder } from "./trigger-condition-builder";
 import { AiSqlGenerator } from "./ai-sql-generator";
 import { useAutomationStore } from "@/stores/automation-store";
 import type { Message } from "@/types/chat";
+import { extractTablesFromSQL } from "@/lib/sql-utils";
 import type { TriggerCondition, SchedulePreset, WorkflowBlock } from "@/types/automation";
 
 interface WorkflowSidebarProps {
@@ -22,22 +29,32 @@ interface WorkflowSidebarProps {
 
 interface CollapsibleProps {
   title: string;
+  icon: React.ReactNode;
   defaultOpen?: boolean;
+  badge?: string | number;
   children: React.ReactNode;
 }
 
-function Collapsible({ title, defaultOpen = true, children }: CollapsibleProps) {
+function Collapsible({ title, icon, defaultOpen = true, badge, children }: CollapsibleProps) {
   const [open, setOpen] = useState(defaultOpen);
   return (
-    <div className="border-b border-border">
+    <div className="border-b border-border/60">
       <button
         onClick={() => setOpen(!open)}
-        className="flex items-center gap-2 w-full px-4 py-2.5 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
+        className="flex items-center gap-2 w-full px-3 py-2.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground/70 hover:text-muted-foreground hover:bg-muted/30 transition-colors"
       >
-        {open ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />}
-        {title}
+        <span className="size-4 flex items-center justify-center text-muted-foreground/50">
+          {icon}
+        </span>
+        <span className="flex-1 text-left">{title}</span>
+        {badge != null && (
+          <span className="text-[9px] font-medium bg-primary/10 text-primary px-1.5 py-0.5 rounded-full">
+            {badge}
+          </span>
+        )}
+        {open ? <ChevronDown className="size-3" /> : <ChevronRight className="size-3" />}
       </button>
-      {open && <div className="px-4 pb-3">{children}</div>}
+      {open && <div className="px-3 pb-3">{children}</div>}
     </div>
   );
 }
@@ -48,6 +65,7 @@ function groupByMessage(messages: Message[]) {
     messageId: string;
     userQuestion: string;
     sqlEntries: Array<{ sql: string; index: number }>;
+    tables: string[];
   }> = [];
 
   for (let i = 0; i < messages.length; i++) {
@@ -65,6 +83,14 @@ function groupByMessage(messages: Message[]) {
     const sqlChunks = msg.chunks.filter((c) => c.type === "sql" && c.sql);
     if (sqlChunks.length === 0) continue;
 
+    // Collect all tables referenced across this message's SQL
+    const allTables = new Set<string>();
+    for (const c of sqlChunks) {
+      for (const t of extractTablesFromSQL(c.sql!)) {
+        allTables.add(t);
+      }
+    }
+
     groups.push({
       messageId: msg.id,
       userQuestion,
@@ -72,6 +98,7 @@ function groupByMessage(messages: Message[]) {
         sql: c.sql!,
         index: idx,
       })),
+      tables: Array.from(allTables),
     });
   }
   return groups;
@@ -102,12 +129,13 @@ export function WorkflowSidebar({
       const newBlock: WorkflowBlock = {
         id: `block-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         sql,
-        label: label.slice(0, 60) + (label.length > 60 ? "..." : ""),
+        label: `SQL Query ${blocks.length + 1}`,
         sourceMessageId: messageId,
         sourceMessagePreview: label,
         isActive: true,
         isEndpoint: false,
         resultPreview: null,
+        tables: extractTablesFromSQL(sql),
         position: { x: 300, y: maxY + 200 },
       };
       addBlock(newBlock);
@@ -117,52 +145,88 @@ export function WorkflowSidebar({
 
   // Columns from endpoint block for trigger condition builder
   const endpointBlock = blocks.find((b) => b.isEndpoint);
-  const endpointColumns = endpointBlock?.resultPreview
-    ? Array.from({ length: endpointBlock.resultPreview.columnCount }, (_, i) => `col_${i}`)
-    : [];
+  const endpointColumns = endpointBlock?.resultPreview?.columnNames ?? [];
+
+  const totalQueries = groups.reduce((sum, g) => sum + g.sqlEntries.length, 0);
 
   return (
-    <div className="h-full w-[280px] border-r border-border overflow-y-auto bg-card flex-shrink-0">
-      <Collapsible title="Query Library" defaultOpen>
-        <div className="space-y-3">
+    <div className="h-full w-[280px] border-r border-border overflow-y-auto bg-card/50 flex-shrink-0 flex flex-col">
+      {/* Query Library */}
+      <Collapsible
+        title="Query Library"
+        icon={<Library className="size-3.5" />}
+        badge={totalQueries > 0 ? totalQueries : undefined}
+        defaultOpen
+      >
+        <div className="space-y-2.5">
           {groups.length === 0 && (
-            <p className="text-xs text-muted-foreground">No SQL queries found in this conversation.</p>
+            <div className="text-center py-4">
+              <Database className="size-5 text-muted-foreground/30 mx-auto mb-1.5" />
+              <p className="text-[11px] text-muted-foreground/60">
+                No SQL queries found in this conversation.
+              </p>
+            </div>
           )}
           {groups.map((group) => (
             <div key={group.messageId} className="space-y-1.5">
-              <Label className="text-[11px] text-muted-foreground truncate block">
+              {/* User question label */}
+              <p className="text-[11px] text-muted-foreground font-medium truncate leading-tight">
                 {group.userQuestion || "Query"}
-              </Label>
+              </p>
+
+              {/* Table tags */}
+              {group.tables.length > 0 && (
+                <div className="flex flex-wrap gap-1">
+                  {group.tables.map((table) => (
+                    <span
+                      key={table}
+                      className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono bg-primary/8 text-primary/70 border border-primary/15"
+                    >
+                      {table}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* SQL entries */}
               {group.sqlEntries.map((entry) => {
                 const alreadyAdded = canvasSqlSet.has(entry.sql);
                 return (
-                  <div
+                  <button
                     key={`${group.messageId}-${entry.index}`}
-                    className={`rounded-md border border-border p-2 ${
-                      alreadyAdded ? "opacity-50" : ""
+                    className={`w-full text-left rounded-md border overflow-hidden transition-all ${
+                      alreadyAdded
+                        ? "border-primary/20 bg-primary/[0.03] opacity-50 cursor-default"
+                        : "border-border/60 bg-muted/10 hover:border-primary/40 hover:bg-muted/30 cursor-pointer"
                     }`}
+                    disabled={alreadyAdded}
+                    onClick={() =>
+                      !alreadyAdded &&
+                      handleAddToCanvas(
+                        entry.sql,
+                        group.userQuestion || `SQL Query`,
+                        group.messageId,
+                      )
+                    }
                   >
-                    <pre className="text-[10px] font-mono text-muted-foreground overflow-hidden max-h-[60px] leading-relaxed">
-                      {entry.sql.slice(0, 150)}
-                      {entry.sql.length > 150 ? "..." : ""}
+                    <pre className="px-2.5 py-2 text-[10px] font-mono text-muted-foreground overflow-hidden max-h-[48px] leading-relaxed">
+                      {entry.sql.slice(0, 120)}
+                      {entry.sql.length > 120 ? "..." : ""}
                     </pre>
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      className="w-full mt-1.5 h-7 text-xs"
-                      disabled={alreadyAdded}
-                      onClick={() =>
-                        handleAddToCanvas(
-                          entry.sql,
-                          group.userQuestion || `SQL Query`,
-                          group.messageId,
-                        )
-                      }
-                    >
-                      <Plus className="size-3 mr-1" />
-                      {alreadyAdded ? "Added" : "Add to Canvas"}
-                    </Button>
-                  </div>
+                    <div className="border-t border-border/40 px-2.5 py-1 flex items-center gap-1.5">
+                      {alreadyAdded ? (
+                        <>
+                          <span className="text-[10px] text-primary">&#10003;</span>
+                          <span className="text-[10px] text-muted-foreground/60">On canvas</span>
+                        </>
+                      ) : (
+                        <>
+                          <Plus className="size-2.5 text-muted-foreground/50" />
+                          <span className="text-[10px] text-muted-foreground/60">Add to canvas</span>
+                        </>
+                      )}
+                    </div>
+                  </button>
                 );
               })}
             </div>
@@ -170,23 +234,35 @@ export function WorkflowSidebar({
         </div>
       </Collapsible>
 
-      <Collapsible title="Generate with AI">
+      {/* Generate with AI */}
+      <Collapsible
+        title="AI Generator"
+        icon={<Sparkles className="size-3.5" />}
+        defaultOpen={false}
+      >
         <AiSqlGenerator />
       </Collapsible>
 
-      <Collapsible title="Settings" defaultOpen={false}>
+      {/* Schedule & Triggers */}
+      <Collapsible
+        title="Schedule"
+        icon={<Calendar className="size-3.5" />}
+        defaultOpen
+      >
         <div className="space-y-4">
           <SchedulePicker
             preset={preset}
             customCron={customCron}
             onChange={onScheduleChange}
           />
-          <TriggerConditionBuilder
-            conditions={conditions}
-            onChange={onConditionsChange}
-            columns={endpointColumns}
-            resultShape="tabular"
-          />
+          <div className="border-t border-border/40 pt-3">
+            <TriggerConditionBuilder
+              conditions={conditions}
+              onChange={onConditionsChange}
+              columns={endpointColumns}
+              resultShape="tabular"
+            />
+          </div>
         </div>
       </Collapsible>
     </div>

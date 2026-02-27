@@ -19,6 +19,7 @@ class TriggerCondition(BaseModel):
     change_percent: float | None = None  # for change_detection
     scope: str | None = None  # any_row, all_rows (for column_expression)
     slope_window: int | None = None  # number of previous runs for slope calculation (default 5)
+    nl_text: str | None = None  # original natural language description (if compiled from NL)
 
 
 class TriggerResult(BaseModel):
@@ -39,14 +40,23 @@ class CreateAutomationRequest(BaseModel):
     trigger_conditions: list[TriggerCondition] = []
     source_conversation_id: str | None = None
     source_message_id: str | None = None
+    workflow_graph: dict | None = None  # { blocks, edges } for workflow builder
 
 
 class UpdateAutomationRequest(BaseModel):
     name: str | None = None
     description: str | None = None
+    nl_query: str | None = None
+    sql_queries: list[str] | None = None
     cron_expression: str | None = None
     schedule_preset: str | None = None
     trigger_conditions: list[TriggerCondition] | None = None
+    workflow_graph: dict | None = None
+
+
+class CompileTriggerRequest(BaseModel):
+    nl_text: str
+    available_columns: list[str] | None = None
 
 
 class GenerateSQLRequest(BaseModel):
@@ -73,6 +83,7 @@ class AutomationResponse(BaseModel):
     created_by: str
     source_conversation_id: str | None
     source_message_id: str | None
+    workflow_graph: dict | None = None
     created_at: str
     updated_at: str
 

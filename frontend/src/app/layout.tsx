@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
 import { HealthCheckGate } from "@/components/health/health-check-gate";
 import "./globals.css";
 
@@ -49,6 +50,7 @@ export default function RootLayout({
       >
         <TooltipProvider delayDuration={300}>
           <HealthCheckGate>{children}</HealthCheckGate>
+          <Toaster />
         </TooltipProvider>
       </body>
     </html>

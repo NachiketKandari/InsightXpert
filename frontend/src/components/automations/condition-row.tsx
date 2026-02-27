@@ -39,6 +39,12 @@ export function ConditionRow({ condition, onChange, onRemove, columns, resultSha
   return (
     <div className="flex items-start gap-2 rounded-md border border-border p-3">
       <div className="flex-1 space-y-2">
+        {/* Show NL source text if compiled from natural language */}
+        {condition.nl_text && (
+          <p className="text-[10px] italic text-primary/70 leading-tight">
+            &ldquo;{condition.nl_text}&rdquo;
+          </p>
+        )}
         <div className="flex flex-wrap gap-2">
           {/* Condition type */}
           <Select

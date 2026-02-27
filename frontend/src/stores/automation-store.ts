@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { apiCall, apiFetch } from "@/lib/api";
+import { extractTablesFromSQL } from "@/lib/sql-utils";
 import type {
   Automation,
   AutomationRun,
@@ -58,14 +59,28 @@ function topologicalSort(blocks: WorkflowBlock[], edges: WorkflowEdge[]): string
     }
   }
 
-  // Map sorted block IDs → SQL
+  // Append any active but disconnected blocks (not reached by edges) in Y-position order
   const blockMap = new Map(blocks.map((b) => [b.id, b]));
+  const sortedSet = new Set(sorted);
+  const disconnected = Array.from(activeIds)
+    .filter((id) => !sortedSet.has(id))
+    .sort((a, b) => blockMap.get(a)!.position.y - blockMap.get(b)!.position.y);
+  sorted.push(...disconnected);
+
   return sorted.map((id) => blockMap.get(id)!.sql);
 }
 
 // ---------------------------------------------------------------------------
 // Store
 // ---------------------------------------------------------------------------
+
+interface TestTriggerState {
+  intervalId: ReturnType<typeof setInterval>;
+  intervalSeconds: number;
+  iterationCount: number;
+  lastResult: { status: string; message: string; run: AutomationRun | null } | null;
+  isRunning: boolean;
+}
 
 interface AutomationState {
   automations: Automation[];
@@ -82,6 +97,10 @@ interface AutomationState {
   workflowBlocks: WorkflowBlock[];
   workflowEdges: WorkflowEdge[];
   isGeneratingSQL: boolean;
+  editingAutomationId: string | null;
+
+  // Test trigger state
+  activeTestTriggers: Record<string, TestTriggerState>;
 
   // Automation CRUD
   fetchAutomations: () => Promise<void>;
@@ -92,12 +111,17 @@ interface AutomationState {
   runNow: (id: string) => Promise<{ status: string; message: string; run: AutomationRun | null } | null>;
   fetchRunHistory: (id: string, limit?: number) => Promise<AutomationRun[]>;
 
+  // Test trigger
+  startTestTrigger: (id: string, intervalSeconds: number) => void;
+  stopTestTrigger: (id: string) => void;
+
   // Legacy modal (kept so existing admin/automations page still works)
   openAutomationModal: (context: AutomationContext) => void;
   closeAutomationModal: () => void;
 
   // Workflow builder actions
   openWorkflowBuilder: (context: WorkflowBuilderContext) => void;
+  openWorkflowBuilderForEdit: (automation: Automation) => void;
   closeWorkflowBuilder: () => void;
   initBlocksFromConversation: (messages: Message[], focusMessageId: string) => void;
   addBlock: (block: WorkflowBlock) => void;
@@ -108,6 +132,8 @@ interface AutomationState {
   updateBlockPosition: (id: string, position: { x: number; y: number }) => void;
   addEdge: (edge: WorkflowEdge) => void;
   removeEdge: (id: string) => void;
+  getSuggestedEdges: () => WorkflowEdge[];
+  applySuggestedEdges: () => void;
   generateSQL: (prompt: string) => Promise<void>;
   saveWorkflowAsAutomation: (meta: {
     name: string;
@@ -130,6 +156,8 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   workflowBlocks: [],
   workflowEdges: [],
   isGeneratingSQL: false,
+  editingAutomationId: null,
+  activeTestTriggers: {},
 
   // ---------------------------------------------------------------------------
   // Automation CRUD (unchanged)
@@ -199,6 +227,67 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     return (await apiCall<AutomationRun[]>(`/api/automations/${id}/runs?limit=${limit}`)) ?? [];
   },
 
+  // Test trigger
+  startTestTrigger: (id, intervalSeconds) => {
+    // Stop existing if any
+    const existing = get().activeTestTriggers[id];
+    if (existing) clearInterval(existing.intervalId);
+
+    const runOnce = async () => {
+      set((s) => ({
+        activeTestTriggers: {
+          ...s.activeTestTriggers,
+          [id]: { ...s.activeTestTriggers[id], isRunning: true },
+        },
+      }));
+
+      const result = await get().runNow(id);
+
+      set((s) => {
+        const current = s.activeTestTriggers[id];
+        if (!current) return s;
+        return {
+          activeTestTriggers: {
+            ...s.activeTestTriggers,
+            [id]: {
+              ...current,
+              iterationCount: current.iterationCount + 1,
+              lastResult: result,
+              isRunning: false,
+            },
+          },
+        };
+      });
+    };
+
+    // Run immediately, then on interval
+    runOnce();
+    const intervalId = setInterval(runOnce, intervalSeconds * 1000);
+
+    set((s) => ({
+      activeTestTriggers: {
+        ...s.activeTestTriggers,
+        [id]: {
+          intervalId,
+          intervalSeconds,
+          iterationCount: 0,
+          lastResult: null,
+          isRunning: true,
+        },
+      },
+    }));
+  },
+
+  stopTestTrigger: (id) => {
+    const existing = get().activeTestTriggers[id];
+    if (existing) clearInterval(existing.intervalId);
+    set((s) => {
+      const next = { ...s.activeTestTriggers };
+      delete next[id];
+      return { activeTestTriggers: next };
+    });
+  },
+
   // Legacy modal
   openAutomationModal: (context) => set({ automationModalOpen: true, automationModalContext: context }),
   closeAutomationModal: () => set({ automationModalOpen: false, automationModalContext: null }),
@@ -213,7 +302,21 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       workflowBuilderContext: context,
       workflowBlocks: [],
       workflowEdges: [],
+      editingAutomationId: null,
     }),
+
+  openWorkflowBuilderForEdit: (automation) => {
+    const graph = automation.workflow_graph;
+    set({
+      workflowBuilderOpen: true,
+      workflowBuilderContext: automation.source_conversation_id
+        ? { conversationId: automation.source_conversation_id, focusMessageId: automation.source_message_id ?? "" }
+        : null,
+      workflowBlocks: graph?.blocks ?? [],
+      workflowEdges: graph?.edges ?? [],
+      editingAutomationId: automation.id,
+    });
+  },
 
   closeWorkflowBuilder: () =>
     set({
@@ -221,6 +324,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       workflowBuilderContext: null,
       workflowBlocks: [],
       workflowEdges: [],
+      editingAutomationId: null,
     }),
 
   initBlocksFromConversation: (messages, focusMessageId) => {
@@ -251,8 +355,8 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
           | { result?: string }
           | undefined;
 
-        // Try to extract row/column counts from the tool result
-        let resultPreview: { rowCount: number; columnCount: number } | null = null;
+        // Try to extract row/column counts and column names from the tool result
+        let resultPreview: { rowCount: number; columnCount: number; columnNames: string[] } | null = null;
         if (resultData?.result) {
           try {
             const parsed = JSON.parse(resultData.result as string);
@@ -260,6 +364,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
               resultPreview = {
                 rowCount: parsed.rows.length,
                 columnCount: parsed.columns.length,
+                columnNames: parsed.columns as string[],
               };
             }
           } catch {
@@ -270,14 +375,13 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
         blocks.push({
           id: nextBlockId(),
           sql,
-          label: userQuestion
-            ? `${userQuestion.slice(0, 60)}${userQuestion.length > 60 ? "..." : ""}`
-            : `SQL Query ${blocks.length + 1}`,
+          label: `SQL Query ${blocks.length + 1}`,
           sourceMessageId: msg.id,
           sourceMessagePreview: userQuestion || null,
           isActive: true,
           isEndpoint: false,
           resultPreview,
+          tables: extractTablesFromSQL(sql),
           position: { x: 300, y },
         });
         y += 200;
@@ -339,6 +443,57 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       workflowEdges: s.workflowEdges.filter((e) => e.id !== id),
     })),
 
+  getSuggestedEdges: () => {
+    const { workflowBlocks, workflowEdges } = get();
+    const existingEdgeSet = new Set(
+      workflowEdges.map((e) => `${e.sourceBlockId}->${e.targetBlockId}`),
+    );
+    const suggested: WorkflowEdge[] = [];
+
+    // Find block pairs from different messages sharing tables
+    for (let i = 0; i < workflowBlocks.length; i++) {
+      for (let j = i + 1; j < workflowBlocks.length; j++) {
+        const a = workflowBlocks[i];
+        const b = workflowBlocks[j];
+
+        // Skip if from the same message
+        if (a.sourceMessageId && a.sourceMessageId === b.sourceMessageId) continue;
+
+        // Check for shared tables
+        const sharedTables = a.tables.filter((t) => b.tables.includes(t));
+        if (sharedTables.length === 0) continue;
+
+        // Source is the block with lower Y position (earlier in flow)
+        const [source, target] = a.position.y <= b.position.y ? [a, b] : [b, a];
+        const edgeKey = `${source.id}->${target.id}`;
+
+        if (!existingEdgeSet.has(edgeKey)) {
+          suggested.push({
+            id: `suggested-${source.id}-${target.id}`,
+            sourceBlockId: source.id,
+            targetBlockId: target.id,
+          });
+          existingEdgeSet.add(edgeKey); // prevent duplicates
+        }
+      }
+    }
+    return suggested;
+  },
+
+  applySuggestedEdges: () => {
+    const suggested = get().getSuggestedEdges();
+    if (suggested.length === 0) return;
+    set((s) => ({
+      workflowEdges: [
+        ...s.workflowEdges,
+        ...suggested.map((e) => ({
+          ...e,
+          id: `edge-${e.sourceBlockId}-${e.targetBlockId}`,
+        })),
+      ],
+    }));
+  },
+
   generateSQL: async (prompt) => {
     set({ isGeneratingSQL: true });
     try {
@@ -355,12 +510,13 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
         const newBlock: WorkflowBlock = {
           id: nextBlockId(),
           sql: data.sql,
-          label: prompt.slice(0, 60) + (prompt.length > 60 ? "..." : ""),
+          label: `SQL Query ${workflowBlocks.length + 1}`,
           sourceMessageId: null,
           sourceMessagePreview: prompt,
           isActive: true,
           isEndpoint: false,
           resultPreview: null,
+          tables: extractTablesFromSQL(data.sql),
           position: { x: 300, y: maxY + 200 },
         };
         set((s) => ({ workflowBlocks: [...s.workflowBlocks, newBlock] }));
@@ -371,7 +527,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   },
 
   saveWorkflowAsAutomation: async (meta) => {
-    const { workflowBlocks, workflowEdges, workflowBuilderContext } = get();
+    const { workflowBlocks, workflowEdges, workflowBuilderContext, editingAutomationId } = get();
     const activeBlocks = workflowBlocks.filter((b) => b.isActive);
     if (activeBlocks.length === 0) return null;
 
@@ -390,6 +546,22 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     // Find the endpoint block for the nl_query
     const endpoint = workflowBlocks.find((b) => b.isEndpoint);
 
+    const workflowGraph = { blocks: workflowBlocks, edges: workflowEdges };
+
+    // If editing an existing automation, update instead of create
+    if (editingAutomationId) {
+      return await get().updateAutomation(editingAutomationId, {
+        name: meta.name,
+        description: meta.description,
+        nl_query: endpoint?.sourceMessagePreview || meta.name,
+        sql_queries: finalQueries,
+        schedule_preset: meta.schedulePreset,
+        cron_expression: meta.cronExpression,
+        trigger_conditions: meta.triggerConditions,
+        workflow_graph: workflowGraph,
+      } as Partial<CreateAutomationPayload>);
+    }
+
     const payload: CreateAutomationPayload = {
       name: meta.name,
       description: meta.description,
@@ -399,6 +571,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       cron_expression: meta.cronExpression,
       trigger_conditions: meta.triggerConditions,
       source_conversation_id: workflowBuilderContext?.conversationId,
+      workflow_graph: workflowGraph,
     };
 
     return await get().createAutomation(payload);
