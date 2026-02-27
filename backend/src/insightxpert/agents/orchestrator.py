@@ -52,6 +52,7 @@ async def orchestrator_loop(
     agent_mode: str = "auto",
     dataset_service=None,
     skip_clarification: bool = False,
+    stats_context_injection: bool = False,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst -> downstream agent pipeline.
 
@@ -112,7 +113,7 @@ async def orchestrator_loop(
     # --- Stats context pre-fetch ---
     stats_context: str | None = None
     stats_groups: list[str] = []
-    if config.enable_stats_context:
+    if config.enable_stats_context and stats_context_injection:
         from insightxpert.agents.stats_resolver import StatsResolver
         try:
             stats_result = await asyncio.to_thread(StatsResolver().resolve, question, db.engine)

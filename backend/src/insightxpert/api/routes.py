@@ -243,6 +243,7 @@ async def chat_sse(
             agent_mode=chat_req.agent_mode,
             dataset_service=dataset_service,
             skip_clarification=effective_skip_clarification,
+            stats_context_injection=features.stats_context_injection,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -315,6 +316,7 @@ async def chat_poll(
         agent_mode=chat_req.agent_mode,
         dataset_service=dataset_service,
         skip_clarification=effective_skip_clarification,
+        stats_context_injection=features.stats_context_injection,
     ):
         chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:
@@ -365,6 +367,7 @@ async def chat_answer(
         agent_mode=chat_req.agent_mode,
         dataset_service=dataset_service,
         skip_clarification=effective_skip_clarification,
+        stats_context_injection=features.stats_context_injection,
     ):
         all_chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:

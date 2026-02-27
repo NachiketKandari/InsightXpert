@@ -11,6 +11,7 @@ class FeatureToggles(BaseModel):
     conversation_export: bool = True
     agent_process_sidebar: bool = True
     clarification_enabled: bool = False
+    stats_context_injection: bool = False
 
 
 class OrgBranding(BaseModel):

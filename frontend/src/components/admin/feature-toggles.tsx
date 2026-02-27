@@ -11,6 +11,7 @@ import {
   Download,
   PanelRight,
   HelpCircle,
+  Sparkles,
 } from "lucide-react";
 
 const FEATURE_DEFS: {
@@ -60,6 +61,12 @@ const FEATURE_DEFS: {
     label: "Question Clarification",
     description: "Ask for clarification before answering ambiguous questions (adds latency)",
     icon: HelpCircle,
+  },
+  {
+    key: "stats_context_injection",
+    label: "Pre-Computed Stats Context",
+    description: "Inject pre-configured dataset statistics directly into the LLM context, enabling faster answers without SQL for common aggregate questions",
+    icon: Sparkles,
   },
 ];
 
