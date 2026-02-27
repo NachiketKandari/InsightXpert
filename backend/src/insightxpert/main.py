@@ -191,24 +191,30 @@ def _seed_prompts(engine) -> None:
         seeded = 0
         for name, filename, description in templates:
             existing = session.query(PromptTemplate).filter_by(name=name).first()
-            if existing:
-                continue
             try:
                 content = get_file_content(filename)
-                prompt = PromptTemplate(
-                    id=_uuid(),
-                    name=name,
-                    content=content,
-                    description=description,
-                    is_active=True,
-                    created_at=_utcnow(),
-                    updated_at=_utcnow(),
-                )
-                session.add(prompt)
-                seeded += 1
-                logger.info("Seeded prompt template: %s", name)
             except FileNotFoundError:
                 logger.warning("Template file not found: %s", filename)
+                continue
+            if existing:
+                if existing.content != content:
+                    existing.content = content
+                    existing.updated_at = _utcnow()
+                    seeded += 1
+                    logger.info("Updated prompt template: %s", name)
+                continue
+            prompt = PromptTemplate(
+                id=_uuid(),
+                name=name,
+                content=content,
+                description=description,
+                is_active=True,
+                created_at=_utcnow(),
+                updated_at=_utcnow(),
+            )
+            session.add(prompt)
+            seeded += 1
+            logger.info("Seeded prompt template: %s", name)
         session.commit()
         if seeded == 0:
             logger.debug("All prompt templates already seeded")
