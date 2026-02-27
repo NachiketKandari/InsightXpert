@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://insightxpert-api-413119399385.us-central1.run.app/api/:path*"
+    }
+  ]
+}

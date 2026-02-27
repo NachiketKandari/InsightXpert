@@ -123,7 +123,7 @@ async def update_dataset(
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     if not fields:
         raise HTTPException(status_code=400, detail="No fields to update")
-    result = await asyncio.to_thread(lambda: svc.update_dataset(dataset_id, **fields))
+    result = await asyncio.to_thread(svc.update_dataset, dataset_id, **fields)
     if not result:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return result
@@ -138,7 +138,7 @@ async def add_column(
 ):
     _require_admin(user)
     svc = _get_dataset_service(request)
-    result = await asyncio.to_thread(lambda: svc.add_column(dataset_id, **body.model_dump()))
+    result = await asyncio.to_thread(svc.add_column, dataset_id, **body.model_dump())
     if not result:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return result
@@ -154,7 +154,7 @@ async def update_column(
 ):
     _require_admin(user)
     svc = _get_dataset_service(request)
-    result = await asyncio.to_thread(lambda: svc.update_column(dataset_id, col_id, **body.model_dump()))
+    result = await asyncio.to_thread(svc.update_column, dataset_id, col_id, **body.model_dump())
     if not result:
         raise HTTPException(status_code=404, detail="Column not found")
     return result
@@ -169,7 +169,7 @@ async def add_example_query(
 ):
     _require_admin(user)
     svc = _get_dataset_service(request)
-    result = await asyncio.to_thread(lambda: svc.add_example_query(dataset_id, **body.model_dump()))
+    result = await asyncio.to_thread(svc.add_example_query, dataset_id, **body.model_dump())
     if not result:
         raise HTTPException(status_code=404, detail="Dataset not found")
     return result

@@ -96,9 +96,13 @@ export function useSSEChat() {
           } else if (chunk.type === "tool_call") {
             markLastRunningDone();
             const stepId = generateStepId();
+            const friendlyLabel =
+              chunk.tool_name === "run_sql"
+                ? "Generated SQL query"
+                : chunk.content || "Calling tool...";
             const step: AgentStep = {
               id: stepId,
-              label: chunk.content || "Calling tool...",
+              label: friendlyLabel,
               status: "running",
               detail: chunk.sql || undefined,
               sql: chunk.sql || undefined,
@@ -143,7 +147,9 @@ export function useSSEChat() {
             const stepId = generateStepId();
             const step: AgentStep = {
               id: stepId,
-              label: `Results received${chunk.tool_name ? ` from ${chunk.tool_name}` : ""}`,
+              label: chunk.tool_name === "run_sql"
+                ? "Query results received"
+                : `Results received${chunk.tool_name ? ` from ${chunk.tool_name}` : ""}`,
               status: "done",
               toolName: chunk.tool_name || undefined,
               resultPreview,

@@ -96,19 +96,25 @@ class _TokenCountingLLM:
 def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
     """Return the resolved FeatureToggles for the given user based on admin config."""
     config = _get_cached_config(request.app.state.config_path)
-    # Admins bypass all restrictions; return defaults (everything enabled except what's off by default)
     if user.is_admin:
-        return FeatureToggles()
-    domain = user.email.split("@")[1].lower()
-    if domain in [d.lower() for d in config.admin_domains]:
-        return FeatureToggles()
-    email_lower = user.email.lower()
-    for mapping in config.user_org_mappings:
-        if mapping.email.lower() == email_lower:
-            org = config.organizations.get(mapping.org_id)
-            if org:
-                return org.features
-    return config.defaults.features
+        features = FeatureToggles()
+    else:
+        domain = user.email.split("@")[1].lower()
+        if domain in [d.lower() for d in config.admin_domains]:
+            features = FeatureToggles()
+        else:
+            email_lower = user.email.lower()
+            features = config.defaults.features
+            for mapping in config.user_org_mappings:
+                if mapping.email.lower() == email_lower:
+                    org = config.organizations.get(mapping.org_id)
+                    if org:
+                        features = org.features
+                    break
+
+    # Clarification is disabled for everyone until it's production-ready.
+    # Override regardless of admin config or org settings.
+    return features.model_copy(update={"clarification_enabled": False})
 
 
 def _get_deps(request: Request):
@@ -261,8 +267,7 @@ async def chat_sse(
         yield {"data": metrics_chunk.model_dump_json()}
 
         # Yield [DONE] immediately so the client stops spinning — the
-        # persist is fire-and-forget in a background thread.  The task is
-        # attached to the running event loop and survives connection close.
+        # persist is fire-and-forget in a background thread.
         yield {"data": "[DONE]"}
 
         store_cid = cid or actual_cid
@@ -782,10 +787,7 @@ async def submit_feedback(
     store = request.app.state.persistent_conv_store
     ok = await asyncio.to_thread(
         store.update_message_feedback,
-        message_id=body.message_id,
-        user_id=user.id,
-        feedback=body.feedback,
-        comment=body.comment,
+        body.message_id, user.id, body.feedback, body.comment,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Message not found")

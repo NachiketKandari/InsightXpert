@@ -183,8 +183,7 @@ async def list_user_conversations(
 ):
     """List all conversations for a specific user (admin view)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    convos = await asyncio.to_thread(store.get_conversations, user_id)
-    return {"conversations": convos}
+    return {"conversations": await asyncio.to_thread(store.get_conversations, user_id)}
 
 
 @router.get("/api/admin/conversations/{conversation_id}")
@@ -246,8 +245,7 @@ async def list_users_with_stats(
 ):
     """List all users with conversation and message counts."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    users = await asyncio.to_thread(store.get_all_users_with_stats)
-    return {"users": users}
+    return {"users": await asyncio.to_thread(store.get_all_users_with_stats)}
 
 
 @router.delete("/api/admin/conversations/user/{user_id}")

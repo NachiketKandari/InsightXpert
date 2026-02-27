@@ -6,15 +6,12 @@ from datetime import datetime, timezone
 from typing import Generator
 
 from fastapi import HTTPException, Request, status
-from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import User
 from insightxpert.auth.security import decode_access_token
 
 logger = logging.getLogger("insightxpert.auth")
-
-_read_only_warned = False
 
 
 def get_db_session(request: Request) -> Generator[Session, None, None]:
@@ -24,24 +21,24 @@ def get_db_session(request: Request) -> Generator[Session, None, None]:
 
 
 def _fetch_user(engine, user_id: str) -> User | None:
-    """Fetch user and update last_active (sync, meant to run in a thread)."""
-    global _read_only_warned
     with Session(engine) as session:
         user = session.get(User, user_id)
-        if user is None or not user.is_active:
+        if user is None:
             return None
-        if not _read_only_warned:
-            user.last_active = datetime.now(timezone.utc)
-            try:
-                session.commit()
-                session.refresh(user)
-            except OperationalError:
-                logger.warning("Database is read-only; last_active updates will be skipped")
-                _read_only_warned = True
-                session.rollback()
-                session.refresh(user)
         session.expunge(user)
         return user
+
+
+def _update_last_active(engine, user_id: str) -> None:
+    try:
+        with Session(engine) as session:
+            user = session.get(User, user_id)
+            if user:
+                user.last_active = datetime.now(timezone.utc)
+                session.commit()
+    except Exception as e:
+        logger.debug("last_active update failed: %s", e)
+
 
 
 async def get_current_user(request: Request) -> User:
@@ -69,9 +66,11 @@ async def get_current_user(request: Request) -> User:
 
     engine = request.app.state.auth_engine
     user = await asyncio.to_thread(_fetch_user, engine, user_id)
-    if user is None:
+    if user is None or not user.is_active:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found or inactive",
         )
+
+    asyncio.create_task(asyncio.to_thread(_update_last_active, engine, user_id))
     return user
