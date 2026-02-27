@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -182,7 +183,8 @@ async def list_user_conversations(
 ):
     """List all conversations for a specific user (admin view)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    return {"conversations": store.get_conversations(user_id)}
+    convos = await asyncio.to_thread(store.get_conversations, user_id)
+    return {"conversations": convos}
 
 
 @router.get("/api/admin/conversations/{conversation_id}")
@@ -193,7 +195,7 @@ async def get_admin_conversation(
 ):
     """Get full conversation detail with messages (admin view, no ownership check)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    convo = store.get_conversation_admin(conversation_id)
+    convo = await asyncio.to_thread(store.get_conversation_admin, conversation_id)
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -230,7 +232,7 @@ async def delete_admin_conversation(
 ):
     """Delete a single conversation (admin, no ownership check)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    deleted = store.delete_conversation_admin(conversation_id)
+    deleted = await asyncio.to_thread(store.delete_conversation_admin, conversation_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     logger.info("Admin %s deleted conversation %s", ctx.user.email, conversation_id)
@@ -244,7 +246,8 @@ async def list_users_with_stats(
 ):
     """List all users with conversation and message counts."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    return {"users": store.get_all_users_with_stats()}
+    users = await asyncio.to_thread(store.get_all_users_with_stats)
+    return {"users": users}
 
 
 @router.delete("/api/admin/conversations/user/{user_id}")
@@ -255,7 +258,7 @@ async def delete_user_conversations(
 ):
     """Delete all conversations for a specific user."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    count = store.delete_user_conversations(user_id)
+    count = await asyncio.to_thread(store.delete_user_conversations, user_id)
     logger.info("Admin %s deleted %d conversations for user %s", ctx.user.email, count, user_id)
     return {"status": "ok", "deleted_count": count}
 
@@ -267,7 +270,7 @@ async def delete_all_conversations(
 ):
     """Delete ALL conversations across all users."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    count = store.delete_all_conversations()
+    count = await asyncio.to_thread(store.delete_all_conversations)
     logger.info("Admin %s deleted ALL conversations (%d total)", ctx.user.email, count)
     return {"status": "ok", "deleted_count": count}
 
@@ -288,38 +291,42 @@ def _prompt_to_dict(p: PromptTemplate) -> dict:
 
 
 @router.get("/api/admin/prompts")
-def list_prompts(
+async def list_prompts(
     request: Request,
     _ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """List all prompt templates."""
-    engine = request.app.state.auth_engine
-    with Session(engine) as session:
-        prompts = session.query(PromptTemplate).order_by(PromptTemplate.name).all()
-        return {"prompts": [_prompt_to_dict(p) for p in prompts]}
+    def _query():
+        engine = request.app.state.auth_engine
+        with Session(engine) as session:
+            prompts = session.query(PromptTemplate).order_by(PromptTemplate.name).all()
+            return {"prompts": [_prompt_to_dict(p) for p in prompts]}
+    return await asyncio.to_thread(_query)
 
 
 _PROMPT_NAME = Path(..., pattern=r"^[a-z][a-z0-9_]{0,99}$", description="Prompt template name")
 
 
 @router.get("/api/admin/prompts/{name}")
-def get_prompt(
+async def get_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
     _ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Get a specific prompt template by name."""
-    engine = request.app.state.auth_engine
-    with Session(engine) as session:
-        prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
-        if not prompt:
-            raise HTTPException(status_code=404, detail="Prompt not found")
-        return _prompt_to_dict(prompt)
+    def _query():
+        engine = request.app.state.auth_engine
+        with Session(engine) as session:
+            prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
+            if not prompt:
+                raise HTTPException(status_code=404, detail="Prompt not found")
+            return _prompt_to_dict(prompt)
+    return await asyncio.to_thread(_query)
 
 
 @router.put("/api/admin/prompts/{name}")
-def upsert_prompt(
+async def upsert_prompt(
     name: str = _PROMPT_NAME,
     *,
     body: PromptUpdateBody,
@@ -327,52 +334,56 @@ def upsert_prompt(
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Create or update a prompt template."""
-    engine = request.app.state.auth_engine
-    with Session(engine) as session:
-        prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
-        if prompt:
-            prompt.content = body.content
-            prompt.description = body.description
-            prompt.is_active = body.is_active
-        else:
-            from insightxpert.auth.models import _uuid, _utcnow
+    def _query():
+        engine = request.app.state.auth_engine
+        with Session(engine) as session:
+            prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
+            if prompt:
+                prompt.content = body.content
+                prompt.description = body.description
+                prompt.is_active = body.is_active
+            else:
+                from insightxpert.auth.models import _uuid, _utcnow
 
-            prompt = PromptTemplate(
-                id=_uuid(),
-                name=name,
-                content=body.content,
-                description=body.description,
-                is_active=body.is_active,
-                created_at=_utcnow(),
-                updated_at=_utcnow(),
-            )
-            session.add(prompt)
-        session.commit()
-        logger.info("Admin %s upserted prompt '%s'", ctx.user.email, name)
-        return {"status": "ok", "name": name}
+                prompt = PromptTemplate(
+                    id=_uuid(),
+                    name=name,
+                    content=body.content,
+                    description=body.description,
+                    is_active=body.is_active,
+                    created_at=_utcnow(),
+                    updated_at=_utcnow(),
+                )
+                session.add(prompt)
+            session.commit()
+            logger.info("Admin %s upserted prompt '%s'", ctx.user.email, name)
+            return {"status": "ok", "name": name}
+    return await asyncio.to_thread(_query)
 
 
 @router.delete("/api/admin/prompts/{name}")
-def delete_prompt(
+async def delete_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Delete a prompt template (reverts to file fallback)."""
-    engine = request.app.state.auth_engine
-    with Session(engine) as session:
-        prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
-        if not prompt:
-            raise HTTPException(status_code=404, detail="Prompt not found")
-        session.delete(prompt)
-        session.commit()
-        logger.info("Admin %s deleted prompt '%s'", ctx.user.email, name)
-        return {"status": "ok", "name": name}
+    def _query():
+        engine = request.app.state.auth_engine
+        with Session(engine) as session:
+            prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
+            if not prompt:
+                raise HTTPException(status_code=404, detail="Prompt not found")
+            session.delete(prompt)
+            session.commit()
+            logger.info("Admin %s deleted prompt '%s'", ctx.user.email, name)
+            return {"status": "ok", "name": name}
+    return await asyncio.to_thread(_query)
 
 
 @router.post("/api/admin/prompts/{name}/reset")
-def reset_prompt(
+async def reset_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
@@ -385,27 +396,29 @@ def reset_prompt(
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"No file template found for '{name}'")
 
-    engine = request.app.state.auth_engine
-    with Session(engine) as session:
-        prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
-        if prompt:
-            prompt.content = file_content
-        else:
-            from insightxpert.auth.models import _uuid, _utcnow
+    def _query():
+        engine = request.app.state.auth_engine
+        with Session(engine) as session:
+            prompt = session.query(PromptTemplate).filter(PromptTemplate.name == name).first()
+            if prompt:
+                prompt.content = file_content
+            else:
+                from insightxpert.auth.models import _uuid, _utcnow
 
-            prompt = PromptTemplate(
-                id=_uuid(),
-                name=name,
-                content=file_content,
-                description=f"System prompt for {name}",
-                is_active=True,
-                created_at=_utcnow(),
-                updated_at=_utcnow(),
-            )
-            session.add(prompt)
-        session.commit()
-        logger.info("Admin %s reset prompt '%s' to file default", ctx.user.email, name)
-        return {"status": "ok", "name": name}
+                prompt = PromptTemplate(
+                    id=_uuid(),
+                    name=name,
+                    content=file_content,
+                    description=f"System prompt for {name}",
+                    is_active=True,
+                    created_at=_utcnow(),
+                    updated_at=_utcnow(),
+                )
+                session.add(prompt)
+            session.commit()
+            logger.info("Admin %s reset prompt '%s' to file default", ctx.user.email, name)
+            return {"status": "ok", "name": name}
+    return await asyncio.to_thread(_query)
 
 
 # --- Public endpoint (any authenticated user) --------------------------------

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from urllib.parse import urlparse
 
@@ -33,8 +34,14 @@ async def login(
     response: Response,
     db: Session = Depends(get_db_session),
 ):
-    user = db.query(User).filter(User.email == body.email).first()
-    if user is None or not verify_password(body.password, user.hashed_password):
+    def _authenticate():
+        user = db.query(User).filter(User.email == body.email).first()
+        if user is None or not verify_password(body.password, user.hashed_password):
+            return None
+        return user
+
+    user = await asyncio.to_thread(_authenticate)
+    if user is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

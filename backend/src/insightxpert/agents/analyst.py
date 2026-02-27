@@ -148,7 +148,9 @@ async def analyst_loop(
     # The distance threshold of 1.0 filters out weak matches that would add
     # noise rather than helpful context.
     rag_start = time.time()
-    similar_qa = rag.search_qa(question, n=5, max_distance=1.0, sql_valid_only=True)
+    similar_qa = await asyncio.to_thread(
+        rag.search_qa, question, n=5, max_distance=1.0, sql_valid_only=True,
+    )
     rag_ms = (time.time() - rag_start) * 1000
 
     logger.info(
@@ -360,7 +362,9 @@ async def analyst_loop(
             sql = _extract_sql_from_messages(messages)
             if sql:
                 try:
-                    rag.add_qa_pair(question, sql, {"sql_valid": True})
+                    await asyncio.to_thread(
+                        rag.add_qa_pair, question, sql, {"sql_valid": True},
+                    )
                     logger.debug("Auto-saved QA pair to RAG (sql_valid=True)")
                 except Exception:
                     logger.debug("Auto-save QA pair to RAG failed", exc_info=True)

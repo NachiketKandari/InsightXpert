@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import React, { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PanelLeft, PanelRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -25,7 +25,7 @@ import {
 
 const sidebarTransition = { duration: 0.2, ease: "easeInOut" } as const;
 
-export function AppShell({ children }: { children: React.ReactNode }) {
+export const AppShell = React.memo(function AppShell({ children }: { children: React.ReactNode }) {
   const leftOpen = useChatStore((s) => s.leftSidebarOpen);
   const rightOpen = useChatStore((s) => s.rightSidebarOpen);
   const setLeftSidebar = useChatStore((s) => s.setLeftSidebar);
@@ -168,4 +168,4 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <SampleQuestionsModal open={sampleQuestionsOpen} onOpenChange={setSampleQuestionsOpen} />
     </div>
   );
-}
+});

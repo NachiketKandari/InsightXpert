@@ -410,9 +410,13 @@ async def get_config(
     # Only advertise Ollama if it's actually reachable
     try:
         import ollama as ollama_sdk
-        client = ollama_sdk.Client(host=settings.ollama_base_url)
-        ollama_resp = client.list()
-        ollama_models = [m.model.replace(":latest", "") for m in ollama_resp.models]
+
+        def _list_ollama():
+            client = ollama_sdk.Client(host=settings.ollama_base_url)
+            resp = client.list()
+            return [m.model.replace(":latest", "") for m in resp.models]
+
+        ollama_models = await asyncio.to_thread(_list_ollama)
         if ollama_models:
             providers.append(ProviderModels(provider="ollama", models=ollama_models))
     except Exception:
@@ -439,8 +443,12 @@ async def switch_model(
     if req.provider == "ollama":
         try:
             import ollama as ollama_sdk
-            client = ollama_sdk.Client(host=settings.ollama_base_url)
-            client.show(req.model)
+
+            def _check_ollama():
+                client = ollama_sdk.Client(host=settings.ollama_base_url)
+                client.show(req.model)
+
+            await asyncio.to_thread(_check_ollama)
         except Exception as e:
             raise HTTPException(
                 status_code=503,

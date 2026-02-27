@@ -43,7 +43,7 @@ export function createSSEStream(
         draining = true;
         // Defer to next tick so all chunks from the same reader.read()
         // batch are queued before we start delivering them one by one.
-        setTimeout(drainQueue, 0);
+        queueMicrotask(drainQueue);
       }
     }
 

@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useChatStore } from "@/stores/chat-store";
 import type { Message } from "@/types/chat";
 
-function MessageMetrics({ message }: { message: Message }) {
+const MessageMetrics = React.memo(function MessageMetrics({ message }: { message: Message }) {
   const { wallTimeMs, generationTimeMs, inputTokens, outputTokens } = message;
   if (!wallTimeMs && !generationTimeMs && !inputTokens && !outputTokens) return null;
 
@@ -60,7 +60,10 @@ function MessageMetrics({ message }: { message: Message }) {
       )}
     </div>
   );
-}
+});
+
+const selectIsActiveStreaming = (s: { isStreaming: boolean; streamingConversationId: string | null; activeConversationId: string | null }) =>
+  s.isStreaming && s.streamingConversationId === s.activeConversationId;
 
 interface MessageBubbleProps {
   message: Message;
@@ -77,7 +80,7 @@ function MessageBubbleInner({
   onRetry,
   onFeedback,
 }: MessageBubbleProps) {
-  const isStreaming = useChatStore((s) => s.isStreaming && s.streamingConversationId === s.activeConversationId);
+  const isStreaming = useChatStore(selectIsActiveStreaming);
   const isUser = message.role === "user";
 
   // Stable wrapper so MessageActions always gets the same function reference

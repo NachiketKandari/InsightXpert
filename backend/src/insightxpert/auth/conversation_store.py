@@ -348,11 +348,6 @@ class PersistentConversationStore:
     def delete_user_conversations(self, user_id: str) -> int:
         """Delete ALL conversations for a user. Returns count deleted."""
         with Session(self.engine) as session:
-            count = (
-                session.query(ConversationRecord)
-                .filter(ConversationRecord.user_id == user_id)
-                .count()
-            )
             conv_ids = [
                 c.id for c in
                 session.query(ConversationRecord.id)
@@ -367,7 +362,7 @@ class PersistentConversationStore:
                     ConversationRecord.user_id == user_id
                 ).delete(synchronize_session=False)
             session.commit()
-            return count
+            return len(conv_ids)
 
     def delete_all_conversations(self) -> int:
         """Delete ALL conversations across all users. Returns count deleted."""
