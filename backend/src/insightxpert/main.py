@@ -74,6 +74,16 @@ def _migrate_schema(engine) -> None:
             except Exception as e:
                 logger.debug("Index creation skipped: %s", e)
 
+        # Indexes for automation tables
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS ix_automation_runs_automation_id ON automation_runs (automation_id)",
+            "CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id)",
+        ]:
+            try:
+                conn.execute(text(idx_sql))
+            except Exception as e:
+                logger.debug("Index creation skipped: %s", e)
+
         # Sync delete tracking table (for Turso background sync)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS _sync_deletes (
@@ -163,6 +173,7 @@ def _seed_prompts(engine) -> None:
     templates = [
         ("analyst_system", "analyst_system.j2", "System prompt for the SQL analyst agent"),
         ("statistician_system", "statistician_system.j2", "System prompt for the statistician agent"),
+        ("advanced_system", "advanced_system.j2", "System prompt for the advanced analytics agent"),
     ]
     with Session(engine) as session:
         seeded = 0
@@ -362,6 +373,18 @@ async def lifespan(app: FastAPI):
     app.state.persistent_conv_store = persistent_conv_store
     app.state.dataset_service = dataset_service
 
+    # Automation service + scheduler
+    from insightxpert.automations.service import AutomationService
+    from insightxpert.automations.scheduler import AutomationScheduler
+    app.state.automation_service = AutomationService(auth_engine)
+    automation_scheduler = AutomationScheduler(auth_engine, db)
+    try:
+        await automation_scheduler.start()
+        app.state.automation_scheduler = automation_scheduler
+        logger.info("Automation scheduler initialized")
+    except Exception as e:
+        logger.error("Automation scheduler startup failed: %s", e, exc_info=True)
+
     # Admin config (JSON file)
     config_path = Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
     config_path.parent.mkdir(parents=True, exist_ok=True)
@@ -389,6 +412,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if hasattr(app.state, 'automation_scheduler'):
+        await app.state.automation_scheduler.shutdown()
     if sync_manager is not None:
         await sync_manager.shutdown()
     if not rag_task.done():
@@ -490,11 +515,14 @@ async def health_check():
 
 
 from insightxpert.datasets.routes import router as datasets_router
+from insightxpert.automations.routes import router as automations_router, notifications_router
 
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(datasets_router)
+app.include_router(automations_router)
+app.include_router(notifications_router)
 
 if __name__ == "__main__":
     import os
