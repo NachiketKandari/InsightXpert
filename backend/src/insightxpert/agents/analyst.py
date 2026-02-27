@@ -91,6 +91,7 @@ async def analyst_loop(
     ddl_override: str | None = None,
     documentation_override: str | None = None,
     stats_context: str | None = None,
+    stats_groups: list[str] | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst agentic loop for a single user question.
 
@@ -258,6 +259,14 @@ async def analyst_loop(
                 logger.info(
                     "LLM answered without tool calls on iteration %d — permitted (stats_context provided)",
                     iteration + 1,
+                )
+                # Emit stats context chunk for frontend transparency
+                yield ChatChunk(
+                    type="stats_context",
+                    content=stats_context,
+                    data={"groups": stats_groups or []},
+                    conversation_id=cid,
+                    timestamp=time.time(),
                 )
                 # Fall through to the final-answer branch below
             else:

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
+from dataclasses import dataclass, field
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -163,11 +164,19 @@ def _rows_to_markdown(group: str, rows: list[dict]) -> str:
     return "\n".join(lines)
 
 
+@dataclass
+class StatsResult:
+    """Holds resolved stats context: the markdown for the LLM and the matched group names."""
+
+    markdown: str
+    groups: list[str] = field(default_factory=list)
+
+
 class StatsResolver:
     """Resolves a user question to pre-computed stat rows from dataset_stats."""
 
-    def resolve(self, question: str, engine: Engine) -> str | None:
-        """Return a markdown stats context block relevant to the question, or None."""
+    def resolve(self, question: str, engine: Engine) -> StatsResult | None:
+        """Return a StatsResult with markdown and matched groups, or None."""
         q_lower = question.lower()
 
         matched_groups: list[str] = []
@@ -221,4 +230,4 @@ class StatsResolver:
         if not sections:
             return None
 
-        return "\n\n".join(sections)
+        return StatsResult(markdown="\n\n".join(sections), groups=matched_groups)

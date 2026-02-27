@@ -15,6 +15,7 @@ import { ChartBlock } from "./chart-block";
 import { AnswerChunk } from "./answer-chunk";
 import { ErrorChunk } from "./error-chunk";
 import { ClarificationChunk } from "./clarification-chunk";
+import { StatsContextChunk } from "./stats-context-chunk";
 
 /** Inline progress step: spinner → checkmark after a brief delay during streaming. */
 function ProgressStep({ label, isComplete }: { label: string; isComplete?: boolean }) {
@@ -140,6 +141,17 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererPro
           content={chunk.content ?? "Could you clarify your question?"}
           skipAllowed={!!(chunk.data?.skip_allowed)}
         />
+      );
+      break;
+    case "stats_context":
+      content = (
+        <>
+          <ProgressStep label="Retrieved dataset statistics" isComplete={isComplete} />
+          <StatsContextChunk
+            content={chunk.content ?? ""}
+            groups={chunk.data?.groups as string[]}
+          />
+        </>
       );
       break;
     default:

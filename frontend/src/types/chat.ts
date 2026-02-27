@@ -6,7 +6,8 @@ export type ChunkType =
   | "answer"
   | "error"
   | "clarification"
-  | "metrics";
+  | "metrics"
+  | "stats_context";
 
 export interface ChatChunk {
   type: ChunkType;

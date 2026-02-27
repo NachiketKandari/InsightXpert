@@ -158,6 +158,16 @@ export function useSSEChat() {
             };
             addAgentStep(step);
             // No running step to track — this step is already "done".
+          } else if (chunk.type === "stats_context") {
+            markLastRunningDone();
+            const stepId = generateStepId();
+            const step: AgentStep = {
+              id: stepId,
+              label: "Retrieved dataset statistics",
+              status: "done",
+              timestamp: chunk.timestamp,
+            };
+            addAgentStep(step);
           } else if (chunk.type === "answer") {
             markLastRunningDone();
             const stepId = generateStepId();

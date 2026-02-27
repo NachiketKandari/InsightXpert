@@ -111,10 +111,14 @@ async def orchestrator_loop(
 
     # --- Stats context pre-fetch ---
     stats_context: str | None = None
+    stats_groups: list[str] = []
     if config.enable_stats_context:
         from insightxpert.agents.stats_resolver import StatsResolver
         try:
-            stats_context = StatsResolver().resolve(question, db.engine)
+            stats_result = StatsResolver().resolve(question, db.engine)
+            if stats_result:
+                stats_context = stats_result.markdown
+                stats_groups = stats_result.groups
         except Exception as _stats_err:
             logger.debug("StatsResolver failed, continuing without stats context: %s", _stats_err)
 
@@ -137,6 +141,7 @@ async def orchestrator_loop(
         ddl_override=ddl_override,
         documentation_override=docs_override,
         stats_context=stats_context,
+        stats_groups=stats_groups,
     ):
         # Intercept SQL and result chunks for Phase 2 hand-off.
         # We keep the *last* SQL and result set because the analyst may
