@@ -13,15 +13,9 @@ interface ConversationGroup {
 function groupConversationsByDate(conversations: Conversation[]): ConversationGroup[] {
   const now = new Date();
   const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const startOfYesterday = startOfToday - 86_400_000;
-  const startOf7DaysAgo = startOfToday - 7 * 86_400_000;
-  const startOf30DaysAgo = startOfToday - 30 * 86_400_000;
 
   const groups: Record<string, Conversation[]> = {
     Today: [],
-    Yesterday: [],
-    "Previous 7 Days": [],
-    "Previous 30 Days": [],
     Older: [],
   };
 
@@ -29,22 +23,15 @@ function groupConversationsByDate(conversations: Conversation[]): ConversationGr
   const sorted = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
 
   for (const conv of sorted) {
-    const t = conv.updatedAt;
-    if (t >= startOfToday) {
+    if (conv.updatedAt >= startOfToday) {
       groups["Today"].push(conv);
-    } else if (t >= startOfYesterday) {
-      groups["Yesterday"].push(conv);
-    } else if (t >= startOf7DaysAgo) {
-      groups["Previous 7 Days"].push(conv);
-    } else if (t >= startOf30DaysAgo) {
-      groups["Previous 30 Days"].push(conv);
     } else {
       groups["Older"].push(conv);
     }
   }
 
   // Return only non-empty groups in order
-  const orderedLabels = ["Today", "Yesterday", "Previous 7 Days", "Previous 30 Days", "Older"];
+  const orderedLabels = ["Today", "Older"];
   return orderedLabels
     .filter((label) => groups[label].length > 0)
     .map((label) => ({ label, conversations: groups[label] }));
