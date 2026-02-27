@@ -460,9 +460,22 @@ async def http_exception_handler(_request: Request, exc: HTTPException):
 
 
 @app.exception_handler(Exception)
-async def generic_exception_handler(_request: Request, exc: Exception):
+async def generic_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception: %s", exc, exc_info=True)
     logger.debug("Full traceback:\n%s", traceback.format_exc())
+
+    # Starlette's ServerErrorMiddleware (outermost) can intercept generic
+    # exception handler responses before CORSMiddleware adds headers.
+    # Manually attach CORS headers so browsers can read 500 error bodies.
+    headers: dict[str, str] = {}
+    origin = request.headers.get("origin", "")
+    if origin:
+        allowed = [o.strip() for o in _settings.cors_origins.split(",")]
+        if origin in allowed:
+            headers["access-control-allow-origin"] = origin
+            headers["access-control-allow-credentials"] = "true"
+            headers["vary"] = "Origin"
+
     return JSONResponse(
         status_code=500,
         content={
@@ -470,6 +483,7 @@ async def generic_exception_handler(_request: Request, exc: Exception):
             "detail": "An unexpected internal error occurred",
             "status_code": 500,
         },
+        headers=headers,
     )
 
 
