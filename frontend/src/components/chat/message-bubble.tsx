@@ -71,6 +71,8 @@ interface MessageBubbleProps {
   message: Message;
   isLastAssistant?: boolean;
   onRetry?: () => void;
+  /** Re-send a user message as a new message at the bottom */
+  onResend?: (content: string) => void;
   // Takes messageId so callers can pass a stable handler without wrapping in
   // a per-message closure, which would break React.memo's prop comparison.
   onFeedback?: (messageId: string, type: "up" | "down", comment?: string) => void;
@@ -82,6 +84,7 @@ function MessageBubbleInner({
   message,
   isLastAssistant,
   onRetry,
+  onResend,
   onFeedback,
   userQuestion,
 }: MessageBubbleProps) {
@@ -167,8 +170,10 @@ function MessageBubbleInner({
         <MessageActions
           role={message.role}
           content={message.content}
+          timestamp={message.timestamp}
           isLastAssistant={isLastAssistant}
           onRetry={onRetry}
+          onResend={isUser ? onResend : undefined}
           onFeedback={handleFeedbackForMsg}
         />
       )}
@@ -194,6 +199,7 @@ export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
     prev.message === next.message &&
     prev.isLastAssistant === next.isLastAssistant &&
     prev.onRetry === next.onRetry &&
+    prev.onResend === next.onResend &&
     prev.onFeedback === next.onFeedback &&
     prev.userQuestion === next.userQuestion
   );

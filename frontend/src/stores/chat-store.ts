@@ -35,6 +35,7 @@ interface ChatState {
   // Actions
   initFromStorage: () => Promise<void>;
   newConversation: () => string;
+  clearActiveConversation: () => void;
   setActiveConversation: (id: string) => void;
   loadConversationMessages: (id: string) => Promise<void>;
   deleteConversation: (id: string) => void;
@@ -135,6 +136,10 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
       return { conversations, activeConversationId: id, agentSteps: [] };
     });
     return id;
+  },
+
+  clearActiveConversation: () => {
+    set({ activeConversationId: null, agentSteps: [] });
   },
 
   setActiveConversation: (id) => {
@@ -428,6 +433,5 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
       ...c,
       messages: [] as Message[],
     })),
-    activeConversationId: state.activeConversationId,
   }) as unknown as ChatState,
 }));

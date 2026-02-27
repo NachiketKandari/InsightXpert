@@ -6,6 +6,7 @@ import {
   Paperclip,
   TerminalSquare,
   FlaskConical,
+  Check,
   ChevronDown,
   ArrowUp,
   Square,
@@ -14,7 +15,6 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuCheckboxItem,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
@@ -112,15 +112,16 @@ export function InputToolbar({
           <DropdownMenuLabel className="text-xs text-muted-foreground">
             Agents
           </DropdownMenuLabel>
-          <DropdownMenuCheckboxItem
-            checked={statsEnabled}
-            onCheckedChange={(checked) =>
-              setAgentMode(checked ? "auto" : "analyst")
-            }
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              setAgentMode(statsEnabled ? "analyst" : "auto");
+            }}
           >
-            <FlaskConical className="size-4 mr-1.5" />
+            <FlaskConical className="size-4" />
             Statistician
-          </DropdownMenuCheckboxItem>
+            {statsEnabled && <Check className="size-3.5 ml-auto text-emerald-500" />}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
 

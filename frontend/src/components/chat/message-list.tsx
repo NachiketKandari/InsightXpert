@@ -72,6 +72,7 @@ export function MessageList({ onRetry }: MessageListProps) {
               message={msg}
               isLastAssistant={idx === lastAssistantIdx}
               onRetry={handleRetry}
+              onResend={msg.role === "user" ? onRetry : undefined}
               onFeedback={handleFeedback}
               userQuestion={userQuestion}
             />

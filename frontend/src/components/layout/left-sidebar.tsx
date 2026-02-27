@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/tooltip";
 
 export function LeftSidebar() {
-  const newConversation = useChatStore((s) => s.newConversation);
+  const clearActiveConversation = useChatStore((s) => s.clearActiveConversation);
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -155,7 +155,7 @@ export function LeftSidebar() {
                 <Button
                   variant="outline"
                   className="w-full justify-start gap-2"
-                  onClick={() => newConversation()}
+                  onClick={() => clearActiveConversation()}
                 >
                   <Plus className="size-4" />
                   New Chat

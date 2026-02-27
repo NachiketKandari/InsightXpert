@@ -16,3 +16,14 @@ export function relativeTime(timestamp: number): string {
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
 }
+
+export function formatDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const sameYear = date.getFullYear() === now.getFullYear();
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" }),
+  });
+}
