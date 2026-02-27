@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { Plus, Sparkles, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { apiCall } from "@/lib/api";
 import { ConditionRow } from "./condition-row";
@@ -88,10 +87,6 @@ export function TriggerConditionBuilder({
 
   return (
     <div className="space-y-3">
-      <Label className="text-sm font-medium">Trigger Conditions</Label>
-      <p className="text-xs text-muted-foreground">
-        Define when notifications should fire. Leave empty to notify on every run.
-      </p>
       <div className="space-y-2">
         {conditions.map((cond, i) => (
           <ConditionRow

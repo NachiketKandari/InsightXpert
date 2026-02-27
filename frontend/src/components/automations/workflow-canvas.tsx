@@ -5,7 +5,6 @@ import {
   ReactFlow,
   Background,
   Controls,
-  MiniMap,
   MarkerType,
   ConnectionLineType,
   type Connection,
@@ -30,7 +29,7 @@ const EDGE_COLOR = "oklch(0.65 0.15 230)";
 const EDGE_COLOR_MUTED = "oklch(0.55 0.05 230)";
 
 const defaultEdgeOptions = {
-  type: "smoothstep" as const,
+  type: "default" as const,
   animated: true,
   markerEnd: {
     type: MarkerType.ArrowClosed,
@@ -58,7 +57,7 @@ function edgesToRFEdges(edges: WorkflowEdge[]): Edge[] {
     id: e.id,
     source: e.sourceBlockId,
     target: e.targetBlockId,
-    type: "smoothstep",
+    type: "default",
     animated: true,
     markerEnd: {
       type: MarkerType.ArrowClosed,
@@ -79,7 +78,7 @@ function suggestedToRFEdges(suggested: WorkflowEdge[]): Edge[] {
     id: e.id,
     source: e.sourceBlockId,
     target: e.targetBlockId,
-    type: "smoothstep",
+    type: "default",
     animated: false,
     markerEnd: {
       type: MarkerType.ArrowClosed,
@@ -171,7 +170,7 @@ export function WorkflowCanvas() {
         onEdgesChange={handleEdgesChange}
         onConnect={handleConnect}
         defaultEdgeOptions={defaultEdgeOptions}
-        connectionLineType={ConnectionLineType.SmoothStep}
+        connectionLineType={ConnectionLineType.Bezier}
         connectionLineStyle={{
           stroke: EDGE_COLOR,
           strokeWidth: 2.5,
@@ -187,11 +186,6 @@ export function WorkflowCanvas() {
       >
         <Background gap={20} size={1} className="opacity-30" />
         <Controls className="!bg-card !border-border !shadow-sm [&>button]:!bg-card [&>button]:!border-border [&>button]:!fill-foreground" />
-        <MiniMap
-          style={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))" }}
-          nodeColor="hsl(var(--primary))"
-          maskColor="rgba(0,0,0,0.06)"
-        />
       </ReactFlow>
 
       {/* Empty state */}

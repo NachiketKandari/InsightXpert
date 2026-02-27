@@ -2,7 +2,6 @@
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { cronToHumanReadable, SCHEDULE_PRESETS } from "@/lib/automation-utils";
 import type { SchedulePreset } from "@/types/automation";
 
@@ -25,7 +24,6 @@ export function SchedulePicker({ preset, customCron, onChange }: SchedulePickerP
 
   return (
     <div className="space-y-3">
-      <Label className="text-sm font-medium">Schedule</Label>
       <div className="flex flex-wrap gap-2">
         {presets.map((p) => (
           <Button

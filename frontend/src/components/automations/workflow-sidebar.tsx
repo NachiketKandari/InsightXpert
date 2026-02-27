@@ -8,6 +8,7 @@ import {
   Database,
   Sparkles,
   Calendar,
+  Bell,
   Library,
 } from "lucide-react";
 import { SchedulePicker } from "./schedule-picker";
@@ -194,6 +195,7 @@ export function WorkflowSidebar({
                 return (
                   <button
                     key={`${group.messageId}-${entry.index}`}
+                    title={entry.sql}
                     className={`w-full text-left rounded-md border overflow-hidden transition-all ${
                       alreadyAdded
                         ? "border-primary/20 bg-primary/[0.03] opacity-50 cursor-default"
@@ -243,27 +245,31 @@ export function WorkflowSidebar({
         <AiSqlGenerator />
       </Collapsible>
 
-      {/* Schedule & Triggers */}
+      {/* Schedule */}
       <Collapsible
         title="Schedule"
         icon={<Calendar className="size-3.5" />}
         defaultOpen
       >
-        <div className="space-y-4">
-          <SchedulePicker
-            preset={preset}
-            customCron={customCron}
-            onChange={onScheduleChange}
-          />
-          <div className="border-t border-border/40 pt-3">
-            <TriggerConditionBuilder
-              conditions={conditions}
-              onChange={onConditionsChange}
-              columns={endpointColumns}
-              resultShape="tabular"
-            />
-          </div>
-        </div>
+        <SchedulePicker
+          preset={preset}
+          customCron={customCron}
+          onChange={onScheduleChange}
+        />
+      </Collapsible>
+
+      {/* Trigger Conditions */}
+      <Collapsible
+        title="Trigger Conditions"
+        icon={<Bell className="size-3.5" />}
+        defaultOpen={false}
+      >
+        <TriggerConditionBuilder
+          conditions={conditions}
+          onChange={onConditionsChange}
+          columns={endpointColumns}
+          resultShape="tabular"
+        />
       </Collapsible>
     </div>
   );

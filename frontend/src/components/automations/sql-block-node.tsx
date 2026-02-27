@@ -2,10 +2,11 @@
 
 import { memo, useState, useRef, useCallback } from "react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
-import { Target, Trash2, Pencil, Check, Database } from "lucide-react";
+import { Target, Trash2, Pencil, Check, Database, Code2 } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { useAutomationStore } from "@/stores/automation-store";
 import type { WorkflowBlock } from "@/types/automation";
+import { SqlEditorModal } from "./sql-editor-modal";
 
 type SQLBlockData = WorkflowBlock & { type: "sqlBlock" };
 
@@ -18,6 +19,7 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
 
   const [isEditing, setIsEditing] = useState(false);
   const [editLabel, setEditLabel] = useState(blockData.label);
+  const [isEditorOpen, setIsEditorOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const truncatedSql =
@@ -128,6 +130,13 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
           </button>
         ) : (
           <>
+            <button
+              onClick={() => setIsEditorOpen(true)}
+              className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
+              title="View / edit SQL"
+            >
+              <Code2 className="size-3.5" />
+            </button>
             <Switch
               checked={blockData.isActive}
               onCheckedChange={() => toggleActive(id)}
@@ -156,7 +165,10 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
       </div>
 
       {/* SQL Preview */}
-      <pre className="px-3 py-2 text-[10px] font-mono text-muted-foreground leading-relaxed overflow-hidden max-h-[96px] bg-muted/10">
+      <pre
+        className="px-3 py-2 text-[10px] font-mono text-muted-foreground leading-relaxed overflow-hidden max-h-[96px] bg-muted/10 cursor-pointer hover:bg-muted/20 transition-colors"
+        onClick={() => setIsEditorOpen(true)}
+      >
         {truncatedSql}
       </pre>
 
@@ -192,6 +204,14 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
           transition: "all 0.15s ease",
           boxShadow: "0 0 0 3px oklch(0.65 0.15 230 / 0.15)",
         }}
+      />
+
+      <SqlEditorModal
+        blockId={id}
+        blockLabel={blockData.label}
+        sql={blockData.sql}
+        isOpen={isEditorOpen}
+        onClose={() => setIsEditorOpen(false)}
       />
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { X, Workflow } from "lucide-react";
+import { X, Workflow, Play, CheckCircle2, AlertCircle, Loader2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -27,6 +27,7 @@ export function WorkflowBuilder() {
   const saveWorkflow = useAutomationStore((s) => s.saveWorkflowAsAutomation);
   const blocks = useAutomationStore((s) => s.workflowBlocks);
   const editingId = useAutomationStore((s) => s.editingAutomationId);
+  const runNow = useAutomationStore((s) => s.runNow);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -35,10 +36,16 @@ export function WorkflowBuilder() {
   const [conditions, setConditions] = useState<TriggerCondition[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [testRunStatus, setTestRunStatus] = useState<"idle" | "running" | "done" | "error">("idle");
+  const [testRunMessage, setTestRunMessage] = useState<string | null>(null);
 
   // Load conversation messages when builder opens
   useEffect(() => {
     if (!open) return;
+
+    // Reset test run state on open
+    setTestRunStatus("idle");
+    setTestRunMessage(null);
 
     // When editing, blocks/edges are already loaded from workflow_graph
     if (editingId) {
@@ -92,6 +99,20 @@ export function WorkflowBuilder() {
     setPreset(p);
     setCustomCron(cron);
   }, []);
+
+  const handleTestRun = useCallback(async () => {
+    if (!editingId) return;
+    setTestRunStatus("running");
+    setTestRunMessage(null);
+    const result = await runNow(editingId);
+    if (result) {
+      setTestRunStatus("done");
+      setTestRunMessage(result.message);
+    } else {
+      setTestRunStatus("error");
+      setTestRunMessage("Test run failed. Check the automation configuration.");
+    }
+  }, [editingId, runNow]);
 
   const handleSave = async () => {
     if (!name.trim() || blocks.filter((b) => b.isActive).length === 0) return;
@@ -195,11 +216,37 @@ export function WorkflowBuilder() {
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-border flex items-center justify-between flex-shrink-0">
-          <span className="text-xs text-muted-foreground">
-            {activeBlockCount} active block{activeBlockCount !== 1 ? "s" : ""}
-            {blocks.some((b) => b.isEndpoint) && " \u00b7 Endpoint set"}
-          </span>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs text-muted-foreground">
+              {activeBlockCount} active block{activeBlockCount !== 1 ? "s" : ""}
+              {blocks.some((b) => b.isEndpoint) && " \u00b7 Endpoint set"}
+            </span>
+            {testRunMessage && (
+              <span className={`text-xs flex items-center gap-1 ${testRunStatus === "done" ? "text-green-600" : "text-destructive"}`}>
+                {testRunStatus === "done"
+                  ? <CheckCircle2 className="size-3 flex-shrink-0" />
+                  : <AlertCircle className="size-3 flex-shrink-0" />}
+                {testRunMessage}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-2">
+            {editingId && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleTestRun}
+                disabled={testRunStatus === "running"}
+                title="Run this automation now and check trigger conditions"
+              >
+                {testRunStatus === "running" ? (
+                  <Loader2 className="size-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Play className="size-3.5 mr-1.5" />
+                )}
+                {testRunStatus === "running" ? "Running..." : "Test Run"}
+              </Button>
+            )}
             <Button variant="outline" size="sm" onClick={closeBuilder}>
               Cancel
             </Button>
