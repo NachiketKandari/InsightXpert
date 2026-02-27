@@ -315,6 +315,7 @@ class PersistentConversationStore:
             )
             return {
                 **_conv_to_dict(convo),
+                "user_id": convo.user_id,
                 "messages": [
                     {
                         "id": m.id,
@@ -332,11 +333,14 @@ class PersistentConversationStore:
                 ],
             }
 
-    def get_all_users_with_stats(self) -> list[dict]:
-        """Return all users with conversation/message counts (admin use)."""
+    def get_all_users_with_stats(self, user_ids: set[str] | None = None) -> list[dict]:
+        """Return all users with conversation/message counts (admin use).
+
+        If *user_ids* is provided, only those users are returned (org-scoped admin).
+        """
         from insightxpert.auth.models import User as UserModel
         with Session(self.engine) as session:
-            results = (
+            query = (
                 session.query(
                     UserModel.id,
                     UserModel.email,
@@ -347,9 +351,10 @@ class PersistentConversationStore:
                 )
                 .outerjoin(ConversationRecord, UserModel.id == ConversationRecord.user_id)
                 .outerjoin(MessageRecord, ConversationRecord.id == MessageRecord.conversation_id)
-                .group_by(UserModel.id)
-                .all()
             )
+            if user_ids is not None:
+                query = query.filter(UserModel.id.in_(user_ids))
+            results = query.group_by(UserModel.id).all()
             return [
                 {
                     "id": r.id,
@@ -385,6 +390,35 @@ class PersistentConversationStore:
                 ).delete(synchronize_session=False)
                 session.query(ConversationRecord).filter(
                     ConversationRecord.user_id == user_id
+                ).delete(synchronize_session=False)
+            session.commit()
+            return len(conv_ids)
+
+    def delete_conversations_for_users(self, user_ids: list[str]) -> int:
+        """Delete ALL conversations for multiple users. Returns count deleted."""
+        if not user_ids:
+            return 0
+        with Session(self.engine) as session:
+            conv_ids = [
+                c.id for c in
+                session.query(ConversationRecord.id)
+                .filter(ConversationRecord.user_id.in_(user_ids))
+                .all()
+            ]
+            if conv_ids:
+                msg_ids = [
+                    m.id for m in
+                    session.query(MessageRecord.id)
+                    .filter(MessageRecord.conversation_id.in_(conv_ids))
+                    .all()
+                ]
+                _record_delete(session, "messages", msg_ids)
+                _record_delete(session, "conversations", conv_ids)
+                session.query(MessageRecord).filter(
+                    MessageRecord.conversation_id.in_(conv_ids)
+                ).delete(synchronize_session=False)
+                session.query(ConversationRecord).filter(
+                    ConversationRecord.user_id.in_(user_ids)
                 ).delete(synchronize_session=False)
             session.commit()
             return len(conv_ids)
