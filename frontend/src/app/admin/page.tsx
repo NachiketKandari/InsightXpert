@@ -111,11 +111,27 @@ export default function AdminPage() {
     }
   }, []);
 
+  const loadUsers = useCallback(async () => {
+    setIsLoadingUsers(true);
+    try {
+      const res = await apiFetch("/api/admin/users");
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data.users);
+      }
+    } catch {
+      // ignore
+    }
+    setIsLoadingUsers(false);
+  }, []);
+
   useEffect(() => {
-    // loadConfig is async — setState happens in a callback, not synchronously
+    // Both are async — setState happens in callbacks, not synchronously
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadConfig();
-  }, [loadConfig]);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadUsers();
+  }, [loadConfig, loadUsers]);
 
   const handleOrgChange = (orgId: string) => {
     setSelectedOrgId(orgId);
@@ -264,20 +280,6 @@ export default function AdminPage() {
     }
     setIsSaving(false);
   };
-
-  const loadUsers = useCallback(async () => {
-    setIsLoadingUsers(true);
-    try {
-      const res = await apiFetch("/api/admin/users");
-      if (res.ok) {
-        const data = await res.json();
-        setUsers(data.users);
-      }
-    } catch {
-      // ignore
-    }
-    setIsLoadingUsers(false);
-  }, []);
 
   const deleteUserConversations = async (userId: string, email: string) => {
     if (!await confirm({ title: "Delete user conversations", description: `Delete all conversations for ${email}? This cannot be undone.`, confirmLabel: "Delete all", variant: "destructive" })) return;
@@ -632,6 +634,7 @@ export default function AdminPage() {
             <UserOrgMappingsEditor
               mappings={fullConfig.user_org_mappings}
               organizations={fullConfig.organizations}
+              users={users}
               onChange={(user_org_mappings) =>
                 setFullConfig({ ...fullConfig, user_org_mappings })
               }
