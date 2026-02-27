@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
@@ -66,7 +66,9 @@ interface MessageBubbleProps {
   message: Message;
   isLastAssistant?: boolean;
   onRetry?: () => void;
-  onFeedback?: (type: "up" | "down", comment?: string) => void;
+  // Takes messageId so callers can pass a stable handler without wrapping in
+  // a per-message closure, which would break React.memo's prop comparison.
+  onFeedback?: (messageId: string, type: "up" | "down", comment?: string) => void;
 }
 
 function MessageBubbleInner({
@@ -77,6 +79,13 @@ function MessageBubbleInner({
 }: MessageBubbleProps) {
   const isStreaming = useChatStore((s) => s.isStreaming && s.streamingConversationId === s.activeConversationId);
   const isUser = message.role === "user";
+
+  // Stable wrapper so MessageActions always gets the same function reference
+  // (message.id is a UUID and never changes; onFeedback is stable from parent).
+  const handleFeedbackForMsg = useCallback(
+    (type: "up" | "down", comment?: string) => onFeedback?.(message.id, type, comment),
+    [message.id, onFeedback],
+  );
 
   return (
     <motion.div
@@ -138,7 +147,7 @@ function MessageBubbleInner({
           content={message.content}
           isLastAssistant={isLastAssistant}
           onRetry={onRetry}
-          onFeedback={onFeedback}
+          onFeedback={handleFeedbackForMsg}
         />
       )}
     </motion.div>

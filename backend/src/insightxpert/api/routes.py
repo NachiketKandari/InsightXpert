@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -36,6 +37,7 @@ from insightxpert.api.models import (
 from sqlalchemy.exc import OperationalError, ProgrammingError
 
 from insightxpert.admin.config_store import read_config
+from insightxpert.admin.models import ClientConfig
 from insightxpert.admin.models import FeatureToggles
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
@@ -53,6 +55,23 @@ from insightxpert.memory.conversation_store import ConversationStore
 logger = logging.getLogger("insightxpert.api")
 
 router = APIRouter(prefix="/api")
+
+# Simple TTL cache for the admin config file — avoids a filesystem read on
+# every chat request.  60-second TTL means config changes propagate quickly.
+_config_cache: dict[str, tuple[float, ClientConfig]] = {}
+_CONFIG_TTL = 60.0
+
+
+def _get_cached_config(config_path) -> ClientConfig:
+    key = str(config_path)
+    cached = _config_cache.get(key)
+    if cached is not None:
+        cached_at, config = cached
+        if time.time() - cached_at < _CONFIG_TTL:
+            return config
+    config = read_config(config_path)
+    _config_cache[key] = (time.time(), config)
+    return config
 
 
 class _TokenCountingLLM:
@@ -76,7 +95,7 @@ class _TokenCountingLLM:
 
 def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
     """Return the resolved FeatureToggles for the given user based on admin config."""
-    config = read_config(request.app.state.config_path)
+    config = _get_cached_config(request.app.state.config_path)
     # Admins bypass all restrictions; return defaults (everything enabled except what's off by default)
     if user.is_admin:
         return FeatureToggles()
@@ -103,9 +122,10 @@ def _get_deps(request: Request):
     )
 
 
-def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
+async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     """Shared setup for both SSE and poll chat endpoints.
 
+    All Turso DB calls are offloaded to a thread to avoid blocking the event loop.
     Returns (llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history).
     """
     llm, db, rag, settings, conv_store, dataset_service = _get_deps(request)
@@ -119,7 +139,7 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     # from prior turns (e.g. after server restart or TTL expiry).
     if not history and cid:
         try:
-            convo_data = persistent_store.get_conversation(cid, user.id)
+            convo_data = await asyncio.to_thread(persistent_store.get_conversation, cid, user.id)
             if convo_data and convo_data.get("messages"):
                 for m in convo_data["messages"]:
                     if m["role"] == "user":
@@ -138,16 +158,16 @@ def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     if cid:
         persistent_cid = cid
         try:
-            persistent_store.get_or_create_conversation(cid, user.id, title)
+            await asyncio.to_thread(persistent_store.get_or_create_conversation, cid, user.id, title)
         except Exception as e:
             logger.error("Failed to ensure persistent conversation: %s", e, exc_info=True)
             raise DatabaseError(f"Failed to create conversation: {e}")
     else:
-        convo = persistent_store.create_conversation(user.id, title)
+        convo = await asyncio.to_thread(persistent_store.create_conversation, user.id, title)
         persistent_cid = convo["id"]
 
     try:
-        persistent_store.save_message(persistent_cid, user.id, "user", chat_req.message)
+        await asyncio.to_thread(persistent_store.save_message, persistent_cid, user.id, "user", chat_req.message)
     except Exception as e:
         logger.error("Failed to persist user message: %s", e, exc_info=True)
 
@@ -193,7 +213,7 @@ async def chat_sse(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
     features = _resolve_user_features(request, user)
     effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
@@ -240,20 +260,24 @@ async def chat_sse(
         )
         yield {"data": metrics_chunk.model_dump_json()}
 
-        # Persist BEFORE yielding [DONE] so that data is saved even if the
-        # client disconnects immediately after receiving the sentinel.
-        store_cid = cid or actual_cid
-        _persist_response(
-            conv_store, persistent_store, store_cid, persistent_cid, user.id,
-            final_answer[-1] if final_answer else "",
-            executed_sql,
-            "[" + ",".join(all_chunks) + "]",
-            input_tokens=counting_llm.input_tokens or None,
-            output_tokens=counting_llm.output_tokens or None,
-            generation_time_ms=generation_time_ms,
-        )
-
+        # Yield [DONE] immediately so the client stops spinning — the
+        # persist is fire-and-forget in a background thread.  The task is
+        # attached to the running event loop and survives connection close.
         yield {"data": "[DONE]"}
+
+        store_cid = cid or actual_cid
+        asyncio.ensure_future(
+            asyncio.to_thread(
+                _persist_response,
+                conv_store, persistent_store, store_cid, persistent_cid, user.id,
+                final_answer[-1] if final_answer else "",
+                executed_sql,
+                "[" + ",".join(all_chunks) + "]",
+                counting_llm.input_tokens or None,
+                counting_llm.output_tokens or None,
+                generation_time_ms,
+            )
+        )
 
     return EventSourceResponse(event_generator())
 
@@ -265,7 +289,7 @@ async def chat_poll(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = _prepare_chat(request, chat_req, user)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
     features = _resolve_user_features(request, user)
     effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
@@ -294,12 +318,13 @@ async def chat_poll(
 
     generation_time_ms = int((time.time() - start_time) * 1000)
     store_cid = cid or (chunks[0]["conversation_id"] if chunks else "")
-    _persist_response(
+    await asyncio.to_thread(
+        _persist_response,
         conv_store, persistent_store, store_cid, persistent_cid, user.id,
         final_answer, poll_executed_sql, json.dumps(chunks),
-        input_tokens=poll_counting_llm.input_tokens or None,
-        output_tokens=poll_counting_llm.output_tokens or None,
-        generation_time_ms=generation_time_ms,
+        poll_counting_llm.input_tokens or None,
+        poll_counting_llm.output_tokens or None,
+        generation_time_ms,
     )
 
     logger.info("POST /chat/poll done: %d chunks", len(chunks))
@@ -511,7 +536,7 @@ async def list_conversations(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    convos = persistent_store.get_conversations(user.id)
+    convos = await asyncio.to_thread(persistent_store.get_conversations, user.id)
     response.headers["Cache-Control"] = "private, max-age=5"
     return [ConversationSummary(**c) for c in convos]
 
@@ -526,7 +551,7 @@ async def search_conversations(
     if len(q) < 2:
         return []
     persistent_store = request.app.state.persistent_conv_store
-    results = persistent_store.search_conversations(user.id, q)
+    results = await asyncio.to_thread(persistent_store.search_conversations, user.id, q)
     return [SearchResultItem(**r) for r in results]
 
 
@@ -564,7 +589,7 @@ async def get_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    convo = persistent_store.get_conversation(conversation_id, user.id)
+    convo = await asyncio.to_thread(persistent_store.get_conversation, conversation_id, user.id)
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -606,7 +631,7 @@ async def delete_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    deleted = persistent_store.delete_conversation(conversation_id, user.id)
+    deleted = await asyncio.to_thread(persistent_store.delete_conversation, conversation_id, user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok"}
@@ -620,7 +645,7 @@ async def rename_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    renamed = persistent_store.rename_conversation(conversation_id, user.id, body.title)
+    renamed = await asyncio.to_thread(persistent_store.rename_conversation, conversation_id, user.id, body.title)
     if not renamed:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok"}
@@ -634,7 +659,7 @@ async def star_conversation(
     user: User = Depends(get_current_user),
 ):
     store = request.app.state.persistent_conv_store
-    ok = store.star_conversation(conversation_id, user.id, body.starred)
+    ok = await asyncio.to_thread(store.star_conversation, conversation_id, user.id, body.starred)
     if not ok:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok", "starred": body.starred}
@@ -747,7 +772,8 @@ async def submit_feedback(
     user: User = Depends(get_current_user),
 ):
     store = request.app.state.persistent_conv_store
-    ok = store.update_message_feedback(
+    ok = await asyncio.to_thread(
+        store.update_message_feedback,
         message_id=body.message_id,
         user_id=user.id,
         feedback=body.feedback,

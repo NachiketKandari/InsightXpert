@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -7,7 +8,7 @@ interface AnswerChunkProps {
   content: string;
 }
 
-export function AnswerChunk({ content }: AnswerChunkProps) {
+function AnswerChunkInner({ content }: AnswerChunkProps) {
   return (
     <div className="prose-invert prose-sm max-w-none">
       <ReactMarkdown
@@ -107,3 +108,7 @@ export function AnswerChunk({ content }: AnswerChunkProps) {
     </div>
   );
 }
+
+// Memoized to prevent React-Markdown re-parsing on every parent re-render
+// when the content string hasn't changed (e.g. sibling chunks updating).
+export const AnswerChunk = React.memo(AnswerChunkInner);
