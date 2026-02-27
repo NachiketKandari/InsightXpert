@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import ConversationRecord, MessageRecord, _record_delete
@@ -25,6 +25,7 @@ def _to_ist(dt: datetime) -> str:
 def _conv_to_dict(convo: ConversationRecord) -> dict:
     return {
         "id": convo.id,
+        "org_id": convo.org_id,
         "title": convo.title,
         "is_starred": convo.is_starred,
         "created_at": _to_ist(convo.created_at),
@@ -103,7 +104,7 @@ class PersistentConversationStore:
                 ],
             }
 
-    def get_or_create_conversation(self, conversation_id: str, user_id: str, title: str) -> dict:
+    def get_or_create_conversation(self, conversation_id: str, user_id: str, title: str, org_id: str | None = None) -> dict:
         with Session(self.engine) as session:
             convo = session.get(ConversationRecord, conversation_id)
             if convo is not None:
@@ -115,6 +116,7 @@ class PersistentConversationStore:
             convo = ConversationRecord(
                 id=conversation_id,
                 user_id=user_id,
+                org_id=org_id,
                 title=title,
                 created_at=now,
                 updated_at=now,
@@ -123,11 +125,12 @@ class PersistentConversationStore:
             session.commit()
             return _conv_to_dict(convo)
 
-    def create_conversation(self, user_id: str, title: str) -> dict:
+    def create_conversation(self, user_id: str, title: str, org_id: str | None = None) -> dict:
         now = datetime.now(timezone.utc)
         convo = ConversationRecord(
             id=str(uuid.uuid4()),
             user_id=user_id,
+            org_id=org_id,
             title=title,
             created_at=now,
             updated_at=now,
@@ -316,6 +319,7 @@ class PersistentConversationStore:
             return {
                 **_conv_to_dict(convo),
                 "user_id": convo.user_id,
+                "org_id": convo.org_id,
                 "messages": [
                     {
                         "id": m.id,
@@ -333,13 +337,19 @@ class PersistentConversationStore:
                 ],
             }
 
-    def get_all_users_with_stats(self, user_ids: set[str] | None = None) -> list[dict]:
+    def get_all_users_with_stats(self, user_ids: set[str] | None = None, org_id: str | None = None) -> list[dict]:
         """Return all users with conversation/message counts (admin use).
 
         If *user_ids* is provided, only those users are returned (org-scoped admin).
+        If *org_id* is provided, only conversations belonging to that org are counted.
         """
         from insightxpert.auth.models import User as UserModel
         with Session(self.engine) as session:
+            # Build the conversation join condition — optionally org-scoped
+            conv_join = UserModel.id == ConversationRecord.user_id
+            if org_id is not None:
+                conv_join = and_(conv_join, ConversationRecord.org_id == org_id)
+
             query = (
                 session.query(
                     UserModel.id,
@@ -349,7 +359,7 @@ class PersistentConversationStore:
                     func.count(MessageRecord.id).label("message_count"),
                     func.max(ConversationRecord.updated_at).label("last_active"),
                 )
-                .outerjoin(ConversationRecord, UserModel.id == ConversationRecord.user_id)
+                .outerjoin(ConversationRecord, conv_join)
                 .outerjoin(MessageRecord, ConversationRecord.id == MessageRecord.conversation_id)
             )
             if user_ids is not None:
@@ -419,6 +429,60 @@ class PersistentConversationStore:
                 ).delete(synchronize_session=False)
                 session.query(ConversationRecord).filter(
                     ConversationRecord.user_id.in_(user_ids)
+                ).delete(synchronize_session=False)
+            session.commit()
+            return len(conv_ids)
+
+    def delete_conversations_by_org(self, user_id: str, org_id: str) -> int:
+        """Delete conversations for a user that belong to a specific org. Returns count deleted."""
+        with Session(self.engine) as session:
+            conv_ids = [
+                c.id for c in
+                session.query(ConversationRecord.id)
+                .filter(ConversationRecord.user_id == user_id, ConversationRecord.org_id == org_id)
+                .all()
+            ]
+            if conv_ids:
+                msg_ids = [
+                    m.id for m in
+                    session.query(MessageRecord.id)
+                    .filter(MessageRecord.conversation_id.in_(conv_ids))
+                    .all()
+                ]
+                _record_delete(session, "messages", msg_ids)
+                _record_delete(session, "conversations", conv_ids)
+                session.query(MessageRecord).filter(
+                    MessageRecord.conversation_id.in_(conv_ids)
+                ).delete(synchronize_session=False)
+                session.query(ConversationRecord).filter(
+                    ConversationRecord.id.in_(conv_ids)
+                ).delete(synchronize_session=False)
+            session.commit()
+            return len(conv_ids)
+
+    def delete_conversations_by_org_all(self, org_id: str) -> int:
+        """Delete ALL conversations belonging to an org. Returns count deleted."""
+        with Session(self.engine) as session:
+            conv_ids = [
+                c.id for c in
+                session.query(ConversationRecord.id)
+                .filter(ConversationRecord.org_id == org_id)
+                .all()
+            ]
+            if conv_ids:
+                msg_ids = [
+                    m.id for m in
+                    session.query(MessageRecord.id)
+                    .filter(MessageRecord.conversation_id.in_(conv_ids))
+                    .all()
+                ]
+                _record_delete(session, "messages", msg_ids)
+                _record_delete(session, "conversations", conv_ids)
+                session.query(MessageRecord).filter(
+                    MessageRecord.conversation_id.in_(conv_ids)
+                ).delete(synchronize_session=False)
+                session.query(ConversationRecord).filter(
+                    ConversationRecord.id.in_(conv_ids)
                 ).delete(synchronize_session=False)
             session.commit()
             return len(conv_ids)

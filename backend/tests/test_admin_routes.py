@@ -2,10 +2,7 @@
 
 from __future__ import annotations
 
-import json
 import uuid
-from datetime import datetime, timezone
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -15,8 +12,6 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import StaticPool
 
-from insightxpert.admin.config_store import write_config
-from insightxpert.admin.models import ClientConfig
 from insightxpert.admin.routes import router as admin_router
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
@@ -58,7 +53,7 @@ def _make_admin_user() -> User:
 
 
 @pytest.fixture()
-def auth_engine(tmp_path):
+def auth_engine():
     """In-memory SQLAlchemy engine with auth tables created.
 
     Uses StaticPool + check_same_thread=False so that sync endpoints
@@ -72,15 +67,6 @@ def auth_engine(tmp_path):
     )
     AuthBase.metadata.create_all(engine)
     return engine
-
-
-@pytest.fixture()
-def config_path(tmp_path) -> Path:
-    """Write a minimal client config file and return its path."""
-    path = tmp_path / "client_config.json"
-    cfg = ClientConfig(admin_domains=["test.com"])
-    write_config(path, cfg)
-    return path
 
 
 @pytest.fixture()
@@ -98,14 +84,13 @@ def rag_mock():
 
 
 @pytest.fixture()
-def app(auth_engine, config_path, persistent_conv_store, rag_mock):
+def app(auth_engine, persistent_conv_store, rag_mock):
     """Create a minimal FastAPI app with the admin router and overrides."""
     application = FastAPI()
     application.include_router(admin_router)
 
     # Wire up app.state dependencies used by the routes
     application.state.auth_engine = auth_engine
-    application.state.config_path = config_path
     application.state.persistent_conv_store = persistent_conv_store
     application.state.rag = rag_mock
 

@@ -115,10 +115,20 @@ class TursoSyncManager:
     # Background push: Local -> Turso
     # ------------------------------------------------------------------
 
+    def _get_remote_columns(self, remote_conn, table: str) -> set[str]:
+        """Return the set of column names that exist in the remote Turso table."""
+        try:
+            rows = remote_conn.execute(text(f"PRAGMA table_info({table})")).fetchall()
+            return {r[1] for r in rows}
+        except Exception:
+            return set()
+
     def push_to_turso(self) -> dict[str, int]:
         """Push changed rows (since last sync) from local SQLite to Turso.
 
         Uses created_at/updated_at timestamps for change detection.
+        Only pushes columns that exist in both local and Turso so that
+        schema-lagging remote tables don't cause hard failures.
         Returns {table_name: row_count} for logging.
         """
         stats: dict[str, int] = {}
@@ -128,11 +138,11 @@ class TursoSyncManager:
             with self._turso.begin() as remote_conn:
                 for table in SYNC_TABLES:
                     try:
-                        # Determine which timestamp columns exist
+                        # Determine which timestamp columns exist locally
                         cols_info = local_conn.execute(
                             text(f"PRAGMA table_info({table})")
                         ).fetchall()
-                        col_names_set = {r[1] for r in cols_info}
+                        local_cols = {r[1] for r in cols_info}
 
                         if cutoff is None:
                             # First push: sync everything
@@ -140,10 +150,10 @@ class TursoSyncManager:
                         else:
                             # Incremental: find rows changed since last sync
                             conditions = []
-                            if "updated_at" in col_names_set:
-                                conditions.append(f"updated_at > :cutoff")
-                            if "created_at" in col_names_set:
-                                conditions.append(f"created_at > :cutoff")
+                            if "updated_at" in local_cols:
+                                conditions.append("updated_at > :cutoff")
+                            if "created_at" in local_cols:
+                                conditions.append("created_at > :cutoff")
 
                             if not conditions:
                                 stats[table] = 0
@@ -159,15 +169,28 @@ class TursoSyncManager:
                             stats[table] = 0
                             continue
 
-                        columns = list(rows[0]._mapping.keys())
-                        col_names = ", ".join(columns)
-                        placeholders = ", ".join(f":{c}" for c in columns)
+                        # Intersect with columns that actually exist in Turso
+                        # to handle cases where the remote schema is behind.
+                        all_local_cols = list(rows[0]._mapping.keys())
+                        remote_cols = self._get_remote_columns(remote_conn, table)
+                        if remote_cols:
+                            push_cols = [c for c in all_local_cols if c in remote_cols]
+                        else:
+                            push_cols = all_local_cols
+
+                        if not push_cols:
+                            stats[table] = 0
+                            continue
+
+                        col_names = ", ".join(push_cols)
+                        placeholders = ", ".join(f":{c}" for c in push_cols)
                         upsert_sql = f"INSERT OR REPLACE INTO {table} ({col_names}) VALUES ({placeholders})"
 
                         for row in rows:
+                            row_dict = dict(row._mapping)
                             remote_conn.execute(
                                 text(upsert_sql),
-                                dict(row._mapping),
+                                {c: row_dict[c] for c in push_cols},
                             )
                         stats[table] = len(rows)
                     except Exception as e:

@@ -94,6 +94,7 @@ class User(Base):
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
     last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utcnow, nullable=True)
 
 
@@ -102,6 +103,7 @@ class ConversationRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    org_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     is_starred: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

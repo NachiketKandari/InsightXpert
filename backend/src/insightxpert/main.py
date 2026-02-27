@@ -76,6 +76,18 @@ def _migrate_schema(engine) -> None:
 
         _add_column("automations", "workflow_json", "TEXT")
         _add_column("users", "org_id", "VARCHAR(100)")
+        _add_column("users", "updated_at", "DATETIME")
+        # Backfill updated_at = created_at for existing rows that don't have it
+        conn.execute(text(
+            "UPDATE users SET updated_at = created_at WHERE updated_at IS NULL"
+        ))
+        _add_column("conversations", "org_id", "VARCHAR(100)")
+
+        # Index for org-scoped conversation queries
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_org_id ON conversations (org_id)"))
+        except Exception as e:
+            logger.debug("Index creation skipped: %s", e)
 
         # Indexes for automation tables
         for idx_sql in [
@@ -116,6 +128,27 @@ def _migrate_schema(engine) -> None:
         if "alembic_version" in existing_tables:
             conn.execute(text("DROP TABLE alembic_version"))
             logger.info("Migration: dropped alembic_version table")
+
+
+def _backfill_conversation_org(engine) -> None:
+    """Stamp conversations.org_id from their owner's users.org_id (idempotent).
+
+    User-to-org assignments are managed via the admin panel.  This only
+    propagates the existing users.org_id onto conversations that were
+    created before the org_id column existed.
+    """
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "UPDATE conversations SET org_id = ("
+            "  SELECT users.org_id FROM users WHERE users.id = conversations.user_id"
+            ") WHERE conversations.org_id IS NULL"
+            "  AND EXISTS ("
+            "    SELECT 1 FROM users"
+            "    WHERE users.id = conversations.user_id AND users.org_id IS NOT NULL"
+            "  )"
+        ))
+        if result.rowcount:
+            logger.info("Backfilled org_id on %d conversations", result.rowcount)
 
 
 def _seed_datasets(engine) -> None:
@@ -303,6 +336,7 @@ async def lifespan(app: FastAPI):
         AuthBase.metadata.create_all(auth_engine)
         _migrate_schema(auth_engine)
         seed_admin(auth_engine, settings)
+        _backfill_conversation_org(auth_engine)
         logger.info("Auth tables initialized, admin user ensured")
     except Exception as e:
         logger.error("Auth table setup failed: %s", e, exc_info=True)

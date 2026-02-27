@@ -163,12 +163,12 @@ async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     if cid:
         persistent_cid = cid
         try:
-            await asyncio.to_thread(persistent_store.get_or_create_conversation, cid, user.id, title)
+            await asyncio.to_thread(persistent_store.get_or_create_conversation, cid, user.id, title, user.org_id)
         except Exception as e:
             logger.error("Failed to ensure persistent conversation: %s", e, exc_info=True)
             raise DatabaseError(f"Failed to create conversation: {e}")
     else:
-        convo = await asyncio.to_thread(persistent_store.create_conversation, user.id, title)
+        convo = await asyncio.to_thread(persistent_store.create_conversation, user.id, title, user.org_id)
         persistent_cid = convo["id"]
 
     try:

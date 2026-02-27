@@ -55,34 +55,37 @@ def _require_admin(user: User, config: ClientConfig) -> None:
 
 class _AdminContext:
     """Bundles admin-verified config + user so endpoints don't re-resolve the user."""
-    __slots__ = ("config", "user", "scoped_user_ids")
+    __slots__ = ("config", "user", "scoped_user_ids", "scoped_org_id")
 
     def __init__(
         self,
         config: ClientConfig,
         user: User,
         scoped_user_ids: set[str] | None,
+        scoped_org_id: str | None,
     ) -> None:
         self.config = config
         self.user = user
         # None → super admin (sees everything); set → org-scoped admin
         self.scoped_user_ids = scoped_user_ids
+        # The org_id this admin is scoped to (None for super admins)
+        self.scoped_org_id = scoped_org_id
 
 
-def _resolve_admin_scope(user: User, engine) -> set[str] | None:
+def _resolve_admin_scope(user: User, engine) -> tuple[set[str] | None, str | None]:
     """Determine the set of user IDs an org-scoped admin may access.
 
     Uses ``users.org_id`` FK directly — no need to scan email-based mappings.
-    Returns *None* for super admins (unrestricted) or a set of user IDs in
-    the same org.
+    Returns (None, None) for super admins (unrestricted) or (user_ids, org_id)
+    for org-scoped admins.
     """
     with Session(engine) as session:
         db_user = session.get(UserModel, user.id)
         if db_user is None or db_user.org_id is None:
-            return None  # super admin — unrestricted
+            return None, None  # super admin — unrestricted
         admin_org_id = db_user.org_id
         rows = session.query(UserModel.id).filter(UserModel.org_id == admin_org_id).all()
-        return {r.id for r in rows}
+        return {r.id for r in rows}, admin_org_id
 
 
 def _assert_user_in_scope(ctx: _AdminContext, user_id: str) -> None:
@@ -94,6 +97,15 @@ def _assert_user_in_scope(ctx: _AdminContext, user_id: str) -> None:
         )
 
 
+def _assert_conversation_in_scope(ctx: _AdminContext, convo: dict) -> None:
+    """Raise 403 if the conversation's org doesn't match the admin's org."""
+    if ctx.scoped_org_id is not None and convo.get("org_id") != ctx.scoped_org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Conversation not in your organization",
+        )
+
+
 def _get_admin_context(
     request: Request,
     user: User = Depends(get_current_user),
@@ -101,8 +113,8 @@ def _get_admin_context(
     engine = request.app.state.auth_engine
     config = read_config(engine)
     _require_admin(user, config)
-    scoped_ids = _resolve_admin_scope(user, engine)
-    return _AdminContext(config, user, scoped_ids)
+    scoped_ids, scoped_org_id = _resolve_admin_scope(user, engine)
+    return _AdminContext(config, user, scoped_ids, scoped_org_id)
 
 
 # --- Admin endpoints (admin only) -------------------------------------------
@@ -214,10 +226,14 @@ async def list_user_conversations(
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    """List all conversations for a specific user (admin view)."""
+    """List all conversations for a specific user (admin view, org-scoped)."""
     _assert_user_in_scope(ctx, user_id)
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    return {"conversations": await asyncio.to_thread(store.get_conversations, user_id)}
+    convos = await asyncio.to_thread(store.get_conversations, user_id)
+    # Org-scoped admins only see conversations belonging to their org
+    if ctx.scoped_org_id is not None:
+        convos = [c for c in convos if c.get("org_id") == ctx.scoped_org_id]
+    return {"conversations": convos}
 
 
 @router.get("/api/admin/conversations/{conversation_id}")
@@ -231,7 +247,7 @@ async def get_admin_conversation(
     convo = await asyncio.to_thread(store.get_conversation_admin, conversation_id)
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    _assert_user_in_scope(ctx, convo["user_id"])
+    _assert_conversation_in_scope(ctx, convo)
 
     messages = [
         {
@@ -266,11 +282,11 @@ async def delete_admin_conversation(
 ):
     """Delete a single conversation (admin, org-scoped)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    if ctx.scoped_user_ids is not None:
+    if ctx.scoped_org_id is not None:
         convo = await asyncio.to_thread(store.get_conversation_admin, conversation_id)
         if convo is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        _assert_user_in_scope(ctx, convo["user_id"])
+        _assert_conversation_in_scope(ctx, convo)
     deleted = await asyncio.to_thread(store.delete_conversation_admin, conversation_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -287,7 +303,7 @@ async def list_users_with_stats(
     store: PersistentConversationStore = request.app.state.persistent_conv_store
     return {
         "users": await asyncio.to_thread(
-            store.get_all_users_with_stats, ctx.scoped_user_ids
+            store.get_all_users_with_stats, ctx.scoped_user_ids, ctx.scoped_org_id
         )
     }
 
@@ -301,7 +317,12 @@ async def delete_user_conversations(
     """Delete all conversations for a specific user (org-scoped)."""
     _assert_user_in_scope(ctx, user_id)
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    count = await asyncio.to_thread(store.delete_user_conversations, user_id)
+    if ctx.scoped_org_id is not None:
+        count = await asyncio.to_thread(
+            store.delete_conversations_by_org, user_id, ctx.scoped_org_id
+        )
+    else:
+        count = await asyncio.to_thread(store.delete_user_conversations, user_id)
     logger.info("Admin %s deleted %d conversations for user %s", ctx.user.email, count, user_id)
     return {"status": "ok", "deleted_count": count}
 
@@ -313,13 +334,13 @@ async def delete_all_conversations(
 ):
     """Delete ALL conversations (super admin) or org conversations (org admin)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    if ctx.scoped_user_ids is not None:
+    if ctx.scoped_org_id is not None:
         count = await asyncio.to_thread(
-            store.delete_conversations_for_users, list(ctx.scoped_user_ids)
+            store.delete_conversations_by_org_all, ctx.scoped_org_id
         )
         logger.info(
-            "Org admin %s deleted %d conversations for org users",
-            ctx.user.email, count,
+            "Org admin %s deleted %d conversations for org %s",
+            ctx.user.email, count, ctx.scoped_org_id,
         )
     else:
         count = await asyncio.to_thread(store.delete_all_conversations)
