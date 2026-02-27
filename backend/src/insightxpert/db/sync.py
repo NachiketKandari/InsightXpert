@@ -30,6 +30,7 @@ SYNC_TABLES = [
     "automations",
     "automation_runs",
     "notifications",
+    "dataset_stats",
 ]
 
 
