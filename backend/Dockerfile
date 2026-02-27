@@ -11,8 +11,9 @@ COPY pyproject.toml uv.lock ./
 # Install dependencies
 RUN uv sync --frozen --no-dev
 
-# Copy application source
+# Copy application source and transaction data
 COPY src/ src/
+COPY upi_transactions_2024.csv .
 
 # Pre-download ChromaDB's ONNX embedding model and warm the embedding function
 # so it doesn't download/compile at runtime (which can cause startup timeouts)
