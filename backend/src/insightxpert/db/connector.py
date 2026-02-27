@@ -97,20 +97,29 @@ class DatabaseConnector:
         self, sql: str, *, row_limit: int = 1000, timeout: int = 30, read_only: bool = False
     ) -> list[dict]:
         start = time.time()
+        _sqlite_local = self.dialect in ("sqlite",) and not self._is_libsql_remote
         with self.engine.connect() as conn:
-            if read_only and self.dialect in ("sqlite",) and not self._is_libsql_remote:
+            if read_only and _sqlite_local:
                 conn.execute(text("PRAGMA query_only = ON"))
-            result = conn.execute(text(sql))
-            if result.returns_rows:
-                columns = list(result.keys())
-                rows = [dict(zip(columns, row)) for row in result.fetchmany(row_limit)]
+            try:
+                result = conn.execute(text(sql))
+                if result.returns_rows:
+                    columns = list(result.keys())
+                    rows = [dict(zip(columns, row)) for row in result.fetchmany(row_limit)]
+                    ms = (time.time() - start) * 1000
+                    logger.debug("SQL (%.0fms, %d rows): %s", ms, len(rows), sql[:200])
+                    return rows
+                conn.commit()
                 ms = (time.time() - start) * 1000
-                logger.debug("SQL (%.0fms, %d rows): %s", ms, len(rows), sql[:200])
-                return rows
-            conn.commit()
-            ms = (time.time() - start) * 1000
-            logger.debug("SQL (%.0fms, %d affected): %s", ms, result.rowcount, sql[:200])
-            return [{"affected_rows": result.rowcount}]
+                logger.debug("SQL (%.0fms, %d affected): %s", ms, result.rowcount, sql[:200])
+                return [{"affected_rows": result.rowcount}]
+            finally:
+                # Reset query_only so the connection isn't returned to the pool in
+                # read-only state, which would cause writes from other callers sharing
+                # the same engine (e.g. PersistentConversationStore) to fail with
+                # "attempt to write a readonly database".
+                if read_only and _sqlite_local:
+                    conn.execute(text("PRAGMA query_only = OFF"))
 
     def get_tables(self) -> list[str]:
         from sqlalchemy import inspect
