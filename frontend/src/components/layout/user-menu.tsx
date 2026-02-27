@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown } from "lucide-react";
@@ -53,8 +53,8 @@ export const UserMenu = React.memo(function UserMenu() {
 
   if (!user) return null;
 
-  const initials = useMemo(() => getInitials(user.email), [user.email]);
-  const displayName = useMemo(() => getDisplayName(user.email), [user.email]);
+  const initials = getInitials(user.email);
+  const displayName = getDisplayName(user.email);
 
   const handleLogout = async () => {
     await logout();
