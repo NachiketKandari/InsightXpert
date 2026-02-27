@@ -18,6 +18,7 @@ class OrgBranding(BaseModel):
     display_name: str | None = None
     logo_url: str | None = None
     theme: dict[str, str] | None = None  # CSS variable overrides
+    color_mode: str | None = None  # "dark" | "light" | None (user preference)
 
 
 class OrgConfig(BaseModel):

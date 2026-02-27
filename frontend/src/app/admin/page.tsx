@@ -43,6 +43,7 @@ const DEFAULT_BRANDING: OrgBranding = {
   display_name: null,
   logo_url: null,
   theme: null,
+  color_mode: null,
 };
 
 export default function AdminPage() {

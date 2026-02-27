@@ -2,7 +2,14 @@
 
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Sun, Moon, Monitor } from "lucide-react";
 import type { OrgBranding } from "@/types/admin";
+
+const COLOR_MODES: { value: "dark" | "light" | null; label: string; icon: React.ElementType }[] = [
+  { value: null, label: "Auto", icon: Monitor },
+  { value: "light", label: "Light", icon: Sun },
+  { value: "dark", label: "Dark", icon: Moon },
+];
 
 const THEME_COLORS: { key: string; label: string }[] = [
   { key: "--background", label: "Background" },
@@ -45,6 +52,34 @@ export function BrandingEditor({ branding, onChange }: BrandingEditorProps) {
       <h3 className="text-sm font-medium text-muted-foreground">
         Branding & Theme
       </h3>
+
+      {/* Color Mode */}
+      <div className="space-y-2">
+        <Label>Color Mode</Label>
+        <div className="flex gap-2">
+          {COLOR_MODES.map(({ value, label, icon: Icon }) => {
+            const active = branding.color_mode === value;
+            return (
+              <button
+                key={String(value)}
+                type="button"
+                onClick={() => update({ color_mode: value })}
+                className={`flex items-center gap-2 rounded-lg border px-4 py-2 text-sm transition-colors ${
+                  active
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-transparent text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                }`}
+              >
+                <Icon className="size-4" />
+                {label}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Auto follows the user&apos;s system/browser preference.
+        </p>
+      </div>
 
       {/* Identity */}
       <div className="space-y-4">
