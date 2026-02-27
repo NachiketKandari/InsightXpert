@@ -382,7 +382,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
           isEndpoint: false,
           resultPreview,
           tables: extractTablesFromSQL(sql),
-          position: { x: 300, y },
+          position: { x: 320, y },
         });
         y += 200;
       }
@@ -517,7 +517,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
           isEndpoint: false,
           resultPreview: null,
           tables: extractTablesFromSQL(data.sql),
-          position: { x: 300, y: maxY + 200 },
+          position: { x: 320, y: maxY + 200 },
         };
         set((s) => ({ workflowBlocks: [...s.workflowBlocks, newBlock] }));
       }

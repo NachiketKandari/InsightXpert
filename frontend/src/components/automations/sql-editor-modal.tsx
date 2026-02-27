@@ -80,7 +80,7 @@ export function SqlEditorModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={(v) => !v && onClose()}>
-      <DialogContent className="max-w-3xl w-[90vw] h-[80vh] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
+      <DialogContent showCloseButton={false} className="max-w-3xl w-[90vw] h-[80vh] max-h-[80vh] flex flex-col gap-0 p-0 overflow-hidden">
         <DialogHeader className="px-4 py-3 border-b border-border flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">

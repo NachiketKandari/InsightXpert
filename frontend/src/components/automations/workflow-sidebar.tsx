@@ -137,7 +137,7 @@ export function WorkflowSidebar({
         isEndpoint: false,
         resultPreview: null,
         tables: extractTablesFromSQL(sql),
-        position: { x: 300, y: maxY + 200 },
+        position: { x: 320, y: maxY + 200 },
       };
       addBlock(newBlock);
     },
