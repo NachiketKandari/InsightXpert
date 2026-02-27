@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from pathlib import Path
@@ -182,7 +183,7 @@ async def list_user_conversations(
 ):
     """List all conversations for a specific user (admin view)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    return {"conversations": store.get_conversations(user_id)}
+    return {"conversations": await asyncio.to_thread(store.get_conversations, user_id)}
 
 
 @router.get("/api/admin/conversations/{conversation_id}")
@@ -193,7 +194,7 @@ async def get_admin_conversation(
 ):
     """Get full conversation detail with messages (admin view, no ownership check)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    convo = store.get_conversation_admin(conversation_id)
+    convo = await asyncio.to_thread(store.get_conversation_admin, conversation_id)
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -230,7 +231,7 @@ async def delete_admin_conversation(
 ):
     """Delete a single conversation (admin, no ownership check)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    deleted = store.delete_conversation_admin(conversation_id)
+    deleted = await asyncio.to_thread(store.delete_conversation_admin, conversation_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     logger.info("Admin %s deleted conversation %s", ctx.user.email, conversation_id)
@@ -244,7 +245,7 @@ async def list_users_with_stats(
 ):
     """List all users with conversation and message counts."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    return {"users": store.get_all_users_with_stats()}
+    return {"users": await asyncio.to_thread(store.get_all_users_with_stats)}
 
 
 @router.delete("/api/admin/conversations/user/{user_id}")
@@ -255,7 +256,7 @@ async def delete_user_conversations(
 ):
     """Delete all conversations for a specific user."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    count = store.delete_user_conversations(user_id)
+    count = await asyncio.to_thread(store.delete_user_conversations, user_id)
     logger.info("Admin %s deleted %d conversations for user %s", ctx.user.email, count, user_id)
     return {"status": "ok", "deleted_count": count}
 
@@ -267,7 +268,7 @@ async def delete_all_conversations(
 ):
     """Delete ALL conversations across all users."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    count = store.delete_all_conversations()
+    count = await asyncio.to_thread(store.delete_all_conversations)
     logger.info("Admin %s deleted ALL conversations (%d total)", ctx.user.email, count)
     return {"status": "ok", "deleted_count": count}
 

@@ -5,6 +5,7 @@ import time
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
+from sqlalchemy.pool import NullPool
 
 logger = logging.getLogger("insightxpert.db")
 
@@ -44,6 +45,13 @@ class DatabaseConnector:
         elif "libsql" in url and "://" in url and "///" not in url:
             # Already sqlite+libsql:// with remote host
             self._is_libsql_remote = True
+
+        if self._is_libsql_remote:
+            # Turso streams expire server-side; the libSQL driver raises ValueError
+            # (not a DBAPI error) so pool_pre_ping can't recover stale connections.
+            # NullPool gives each Session a fresh HTTP stream with zero reuse.
+            kwargs["poolclass"] = NullPool
+            kwargs.pop("pool_pre_ping", None)
 
         if "libsql" in url and auth_token:
             connect_args = {"auth_token": auth_token}

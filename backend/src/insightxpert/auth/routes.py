@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from urllib.parse import urlparse
 
@@ -7,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session
 
 from insightxpert.api.models import LoginRequest, UserResponse
-from insightxpert.auth.dependencies import get_current_user, get_db_session
+from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
 from insightxpert.auth.security import create_access_token, verify_password
 
@@ -26,14 +27,23 @@ def _cookie_flags(request: Request) -> tuple[bool, str]:
     return secure, samesite
 
 
+def _find_user_by_email(engine, email: str) -> User | None:
+    with Session(engine) as session:
+        user = session.query(User).filter(User.email == email).first()
+        if user is None:
+            return None
+        session.expunge(user)
+        return user
+
+
 @router.post("/login", response_model=UserResponse)
 async def login(
     body: LoginRequest,
     request: Request,
     response: Response,
-    db: Session = Depends(get_db_session),
 ):
-    user = db.query(User).filter(User.email == body.email).first()
+    engine = request.app.state.auth_engine
+    user = await asyncio.to_thread(_find_user_by_email, engine, body.email)
     if user is None or not verify_password(body.password, user.hashed_password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
