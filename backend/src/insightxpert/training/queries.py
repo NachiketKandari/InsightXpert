@@ -6,7 +6,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
         "category": "Descriptive",
         "question": "What is the average transaction amount for bill payments?",
         "sql": (
-            "SELECT ROUND(AVG(amount_inr), 2) AS avg_amount "
+            "SELECT AVG(amount_inr) AS avg_amount "
             "FROM transactions "
             "WHERE transaction_type = 'Bill Payment';"
         ),
@@ -16,7 +16,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
         "question": "How many transactions are in the dataset and what is the overall success rate?",
         "sql": (
             "SELECT COUNT(*) AS total_txns, "
-            "ROUND(SUM(CASE WHEN transaction_status = 'SUCCESS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS success_rate_pct "
+            "SUM(CASE WHEN transaction_status = 'SUCCESS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS success_rate_pct "
             "FROM transactions;"
         ),
     },
@@ -27,7 +27,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
         "sql": (
             "SELECT device_type, "
             "COUNT(*) AS total_txns, "
-            "ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct "
+            "SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS failure_rate_pct "
             "FROM transactions "
             "WHERE device_type IN ('Android', 'iOS') "
             "GROUP BY device_type;"
@@ -38,7 +38,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
         "question": "Compare the average transaction amount across all transaction types.",
         "sql": (
             "SELECT transaction_type, "
-            "ROUND(AVG(amount_inr), 2) AS avg_amount, "
+            "AVG(amount_inr) AS avg_amount, "
             "COUNT(*) AS txn_count "
             "FROM transactions "
             "GROUP BY transaction_type "
@@ -64,7 +64,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
         "sql": (
             "SELECT CASE WHEN is_weekend = 1 THEN 'Weekend' ELSE 'Weekday' END AS day_type, "
             "COUNT(*) AS txn_count, "
-            "ROUND(AVG(amount_inr), 2) AS avg_amount "
+            "AVG(amount_inr) AS avg_amount "
             "FROM transactions "
             "GROUP BY is_weekend;"
         ),
@@ -86,7 +86,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
         "question": "What is the transaction volume breakdown by sender state for the top 10 states?",
         "sql": (
             "SELECT sender_state, COUNT(*) AS txn_count, "
-            "ROUND(SUM(amount_inr), 2) AS total_amount "
+            "SUM(amount_inr) AS total_amount "
             "FROM transactions "
             "GROUP BY sender_state "
             "ORDER BY txn_count DESC "
@@ -100,8 +100,8 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
         "sql": (
             "SELECT network_type, "
             "COUNT(*) AS total_txns, "
-            "ROUND(SUM(CASE WHEN transaction_status = 'SUCCESS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS success_rate_pct, "
-            "ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct "
+            "SUM(CASE WHEN transaction_status = 'SUCCESS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS success_rate_pct, "
+            "SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS failure_rate_pct "
             "FROM transactions "
             "GROUP BY network_type "
             "ORDER BY success_rate_pct DESC;"
@@ -116,7 +116,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
             "     WHEN amount_inr >= 1000  THEN 'Medium (1K-10K)' "
             "     ELSE 'Low (<1K)' END AS amount_bucket, "
             "COUNT(*) AS total_txns, "
-            "ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct "
+            "SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*) AS failure_rate_pct "
             "FROM transactions "
             "GROUP BY amount_bucket "
             "ORDER BY failure_rate_pct DESC;"
@@ -130,7 +130,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
             "SELECT "
             "COUNT(*) AS high_value_txns, "
             "SUM(fraud_flag) AS flagged_count, "
-            "ROUND(SUM(fraud_flag) * 100.0 / COUNT(*), 2) AS flagged_pct "
+            "SUM(fraud_flag) * 100.0 / COUNT(*) AS flagged_pct "
             "FROM transactions "
             "WHERE amount_inr >= 10000;"
         ),
@@ -143,7 +143,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
             "    SELECT sender_bank, device_type, "
             "        COUNT(*) AS total_txns, "
             "        SUM(fraud_flag) AS flagged_txns, "
-            "        ROUND(SUM(fraud_flag) * 1.0 / COUNT(*), 4) AS flag_rate "
+            "        SUM(fraud_flag) * 1.0 / COUNT(*) AS flag_rate "
             "    FROM transactions "
             "    WHERE hour_of_day IN (22, 23, 0, 1, 2, 3) AND is_weekend = 1 "
             "    GROUP BY sender_bank, device_type "
@@ -152,7 +152,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
             "    SELECT sender_bank, device_type, "
             "        COUNT(*) AS total_txns, "
             "        SUM(fraud_flag) AS flagged_txns, "
-            "        ROUND(SUM(fraud_flag) * 1.0 / COUNT(*), 4) AS baseline_flag_rate "
+            "        SUM(fraud_flag) * 1.0 / COUNT(*) AS baseline_flag_rate "
             "    FROM transactions "
             "    GROUP BY sender_bank, device_type "
             ") "
@@ -160,7 +160,7 @@ EXAMPLE_QUERIES: list[dict[str, str]] = [
             "    l.total_txns AS late_night_wknd_txns, "
             "    l.flag_rate  AS late_night_wknd_flag_rate, "
             "    b.baseline_flag_rate, "
-            "    ROUND(l.flag_rate / NULLIF(b.baseline_flag_rate, 0), 2) AS risk_ratio "
+            "    l.flag_rate / NULLIF(b.baseline_flag_rate, 0) AS risk_ratio "
             "FROM late_night_weekend l "
             "JOIN baseline b ON l.sender_bank = b.sender_bank AND l.device_type = b.device_type "
             "ORDER BY risk_ratio DESC;"
