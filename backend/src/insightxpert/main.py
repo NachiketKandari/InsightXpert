@@ -74,10 +74,22 @@ def _migrate_schema(engine) -> None:
             except Exception as e:
                 logger.debug("Index creation skipped: %s", e)
 
+        _add_column("automations", "workflow_json", "TEXT")
+
         # Indexes for automation tables
         for idx_sql in [
             "CREATE INDEX IF NOT EXISTS ix_automation_runs_automation_id ON automation_runs (automation_id)",
             "CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id)",
+        ]:
+            try:
+                conn.execute(text(idx_sql))
+            except Exception as e:
+                logger.debug("Index creation skipped: %s", e)
+
+        # Indexes for dataset_stats (created by AuthBase.metadata.create_all, but ensure idempotently)
+        for idx_sql in [
+            "CREATE INDEX IF NOT EXISTS ix_dataset_stats_stat_group ON dataset_stats (stat_group)",
+            "CREATE INDEX IF NOT EXISTS ix_dataset_stats_group_dim ON dataset_stats (stat_group, dimension)",
         ]:
             try:
                 conn.execute(text(idx_sql))
@@ -337,6 +349,17 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(_ensure_transactions_loaded, auth_engine)
     except Exception as e:
         logger.error("Transaction loading failed: %s", e, exc_info=True)
+
+    # 6. Pre-compute dataset statistics (idempotent)
+    try:
+        from insightxpert.db.stats_computer import compute_and_store_stats
+        n = await asyncio.to_thread(compute_and_store_stats, auth_engine)
+        if n:
+            logger.info("Dataset stats computed: %d rows written", n)
+        else:
+            logger.debug("Dataset stats already present, skipping computation")
+    except Exception as e:
+        logger.error("Dataset stats computation failed: %s", e, exc_info=True)
 
     # RAG vector store
     rag = VectorStore(persist_dir=settings.chroma_persist_dir)

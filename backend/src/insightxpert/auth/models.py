@@ -3,7 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -141,6 +141,7 @@ class Automation(Base):
     created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
     source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    workflow_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
@@ -187,3 +188,18 @@ class Notification(Base):
     severity: Mapped[str] = mapped_column(String(20), default="info")
     is_read: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class DatasetStat(Base):
+    __tablename__ = "dataset_stats"
+    __table_args__ = (
+        Index("ix_dataset_stats_group_dim", "stat_group", "dimension"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    stat_group: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    dimension: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    metric: Mapped[str] = mapped_column(String(100), nullable=False)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    string_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

@@ -830,6 +830,48 @@ async def ollama_delete_model(
         raise HTTPException(status_code=400, detail=f"Failed to delete model '{model_name}': {e}")
 
 
+# --- Dataset Stats -------------------------------------------------------
+
+
+@router.get("/stats")
+async def get_dataset_stats(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Return all pre-computed dataset statistics grouped by stat_group and dimension."""
+    auth_engine = request.app.state.auth_engine
+
+    def _fetch_stats():
+        from sqlalchemy import text as sa_text
+        with auth_engine.connect() as conn:
+            result = conn.execute(sa_text(
+                "SELECT stat_group, dimension, metric, value, string_value, updated_at "
+                "FROM dataset_stats ORDER BY stat_group, dimension, metric"
+            ))
+            return [dict(zip(result.keys(), row)) for row in result.fetchall()]
+
+    try:
+        rows = await asyncio.to_thread(_fetch_stats)
+    except Exception as e:
+        logger.error("Failed to fetch dataset stats: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch dataset stats")
+
+    # Nest into groups -> dimensions -> metrics
+    groups: dict[str, dict[str, dict]] = {}
+    computed_at: str | None = None
+    for row in rows:
+        grp = row["stat_group"]
+        dim = row["dimension"] or ""
+        metric = row["metric"]
+        val = row["string_value"] if row["string_value"] is not None else row["value"]
+        if row.get("updated_at") and computed_at is None:
+            computed_at = str(row["updated_at"])
+
+        groups.setdefault(grp, {}).setdefault(dim, {})[metric] = val
+
+    return {"groups": groups, "computed_at": computed_at}
+
+
 # --- Feedback -----------------------------------------------------------
 
 

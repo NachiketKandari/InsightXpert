@@ -109,6 +109,15 @@ async def orchestrator_loop(
         except Exception as e:
             logger.warning("Clarification check failed, proceeding: %s", e)
 
+    # --- Stats context pre-fetch ---
+    stats_context: str | None = None
+    if config.enable_stats_context:
+        from insightxpert.agents.stats_resolver import StatsResolver
+        try:
+            stats_context = StatsResolver().resolve(question, db.engine)
+        except Exception as _stats_err:
+            logger.debug("StatsResolver failed, continuing without stats context: %s", _stats_err)
+
     # --- Phase 1: Analyst ---
     # collected_sql holds the *last* SQL statement executed by the analyst.
     # collected_results holds the parsed row dicts from the last run_sql
@@ -127,6 +136,7 @@ async def orchestrator_loop(
         history=history,
         ddl_override=ddl_override,
         documentation_override=docs_override,
+        stats_context=stats_context,
     ):
         # Intercept SQL and result chunks for Phase 2 hand-off.
         # We keep the *last* SQL and result set because the analyst may

@@ -62,6 +62,9 @@ class Settings(BaseSettings):
     rag_bootstrap_timeout_seconds: int = Field(default=120, gt=0)
     conversation_ttl_seconds: int = Field(default=7200, gt=0)
 
+    # Stats context injection
+    enable_stats_context: bool = True  # Set ENABLE_STATS_CONTEXT=false to disable
+
     # Logging
     log_level: str = "INFO"
 
