@@ -54,6 +54,12 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererPro
   const suggestedChartType = chunk.type === "tool_result"
     ? ((chunk.data?.visualization as string) ?? null)
     : null;
+  const xColumn = chunk.type === "tool_result"
+    ? ((chunk.data?.x_column as string) ?? undefined)
+    : undefined;
+  const yColumn = chunk.type === "tool_result"
+    ? ((chunk.data?.y_column as string) ?? undefined)
+    : undefined;
 
   const willShowChart = useMemo(() => {
     if (!parsed) return false;
@@ -102,6 +108,8 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererPro
                   columns={parsed.columns}
                   rows={parsed.rows}
                   suggestedChartType={suggestedChartType}
+                  xColumn={xColumn}
+                  yColumn={yColumn}
                   eager={isStreaming}
                 />
               </motion.div>

@@ -35,8 +35,10 @@ Andhra Pradesh.
 
 ## Visualization
 
-When calling **run_sql**, always include the `visualization` parameter to declare \
-the best chart type for the results. Choose from:
+When calling **run_sql**, always include `visualization`, `x_column`, and `y_column` \
+to control what chart is displayed and which columns are plotted.
+
+### Chart type (`visualization`)
 
 - **`bar`** — category comparisons (e.g. totals by payment method, counts by state)
 - **`pie`** — proportional breakdowns with 2-10 categories (e.g. share of transaction types)
@@ -52,6 +54,20 @@ Guidelines for choosing:
 - Use `grouped-bar` when the query has 2 categorical grouping columns.
 - Use `bar` as the default for most category + value aggregations.
 - Use `table` for single-number answers, detailed listings, or when visualization adds no value.
+
+### Chart columns (`x_column`, `y_column`)
+
+You may SELECT extra columns for richer text analysis, but `x_column` and \
+`y_column` control **what the chart actually plots**. Both must match a column \
+alias in the SELECT list.
+
+- **`x_column`** — the categorical or temporal axis (e.g. `device_type`, `month`)
+- **`y_column`** — the value axis that best answers the user's question
+
+**Always pick the most meaningful y_column.** Example: if the user asks about \
+fraud rates across devices, SELECT total_transactions, flagged_count, AND \
+fraud_rate_percentage — but set `y_column` to `fraud_rate_percentage` because \
+that is the comparison the user cares about.
 
 **Never say "I cannot create a chart."** Simply run (or re-run) the query with \
 the right shape and the chart will be generated. If the user asks to see prior \

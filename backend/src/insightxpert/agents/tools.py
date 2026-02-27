@@ -31,6 +31,14 @@ class RunSqlTool(Tool):
                     "enum": ["bar", "pie", "line", "grouped-bar", "table"],
                     "description": "Chart type for the results. 'bar' for category comparisons, 'pie' for proportional breakdowns (2-10 categories), 'line' for temporal trends, 'grouped-bar' for cross-tabulations with 2 category dimensions, 'table' when no chart is appropriate.",
                 },
+                "x_column": {
+                    "type": "string",
+                    "description": "Column name from the SELECT to use as the x-axis (categories). Must match a column alias in the query.",
+                },
+                "y_column": {
+                    "type": "string",
+                    "description": "Column name from the SELECT to use as the y-axis (values). Must match a column alias in the query. Choose the column that best answers the user's question — e.g. a rate or percentage rather than a raw count.",
+                },
             },
             "required": ["sql"],
         }
