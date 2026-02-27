@@ -1,9 +1,40 @@
 {
   "admin_domains": [
-    "insightxpert.ai"
+    "insightxpert.ai",
+    "insightx.ai"
   ],
-  "user_org_mappings": [],
-  "organizations": {},
+  "user_org_mappings": [
+    {
+      "email": "user@insightx.ai",
+      "org_id": "insightx"
+    },
+    {
+      "email": "admin@insightx.ai",
+      "org_id": "insightx"
+    }
+  ],
+  "organizations": {
+    "insightx": {
+      "org_id": "insightx",
+      "org_name": "InsightX",
+      "features": {
+        "sql_executor": true,
+        "model_switching": true,
+        "rag_training": true,
+        "chart_rendering": true,
+        "conversation_export": true,
+        "agent_process_sidebar": false,
+        "clarification_enabled": false,
+        "stats_context_injection": false
+      },
+      "branding": {
+        "display_name": null,
+        "logo_url": null,
+        "theme": null,
+        "color_mode": "light"
+      }
+    }
+  },
   "defaults": {
     "features": {
       "sql_executor": true,
@@ -11,12 +42,15 @@
       "rag_training": true,
       "chart_rendering": true,
       "conversation_export": true,
-      "agent_process_sidebar": true
+      "agent_process_sidebar": true,
+      "clarification_enabled": false,
+      "stats_context_injection": false
     },
     "branding": {
       "display_name": null,
       "logo_url": null,
-      "theme": null
+      "theme": null,
+      "color_mode": null
     }
   }
 }
