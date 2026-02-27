@@ -44,7 +44,7 @@ function getDisplayName(email: string): string {
 
 export const UserMenu = React.memo(function UserMenu() {
   const { user, logout } = useAuthStore();
-  const { isAdmin } = useClientConfig();
+  const { isAdmin, config } = useClientConfig();
   const router = useRouter();
   const isMobile = useIsMobile();
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
@@ -124,10 +124,12 @@ export const UserMenu = React.memo(function UserMenu() {
             <ListChecks className="size-4" />
             Sample Questions
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={toggleTheme}>
-            {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-            {theme === "dark" ? "Light Mode" : "Dark Mode"}
-          </DropdownMenuItem>
+          {!config?.branding?.color_mode && (
+            <DropdownMenuItem onClick={toggleTheme}>
+              {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              {theme === "dark" ? "Light Mode" : "Dark Mode"}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} variant="destructive">
             <LogOut className="size-4" />
