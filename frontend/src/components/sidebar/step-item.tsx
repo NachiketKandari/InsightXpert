@@ -192,13 +192,13 @@ export function StepItem({ step }: StepItemProps) {
           {step.toolName && (
             <div className="flex items-center gap-1.5">
               <span className={cn(
-                "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] font-mono",
+                "inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-mono",
                 theme === "dark"
                   ? "bg-cyan-accent/15 border-cyan-accent/30 text-cyan-accent"
                   : "bg-teal-700/10 border-teal-700/25 text-teal-700"
               )}>
-                <Database className="size-2.5" />
-                {step.toolName}
+                <Database className="size-3" />
+                {step.toolName === "run_sql" ? "SQL" : step.toolName}
               </span>
             </div>
           )}
