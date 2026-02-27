@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from insightxpert.admin.config_store import read_config, write_config
+from insightxpert.admin.config_store import migrate_from_json
 from insightxpert.admin.routes import router as admin_router
 from insightxpert.api.routes import router
 from insightxpert.auth.conversation_store import PersistentConversationStore
@@ -75,6 +75,7 @@ def _migrate_schema(engine) -> None:
                 logger.debug("Index creation skipped: %s", e)
 
         _add_column("automations", "workflow_json", "TEXT")
+        _add_column("users", "org_id", "VARCHAR(100)")
 
         # Indexes for automation tables
         for idx_sql in [
@@ -409,14 +410,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Automation scheduler startup failed: %s", e, exc_info=True)
 
-    # Admin config (JSON file)
-    config_path = Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    if not config_path.exists():
-        write_config(config_path, read_config(config_path))
-        logger.info("Default admin config created: %s", config_path)
-    app.state.config_path = config_path
-    logger.info("Admin config loaded: %s", config_path)
+    # Admin config — stored in the DB; migrate from legacy JSON file if needed
+    legacy_config_path = Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
+    try:
+        migrate_from_json(auth_engine, legacy_config_path)
+        logger.info("Admin config ready (DB-backed)")
+    except Exception as e:
+        logger.error("Admin config migration failed: %s", e, exc_info=True)
 
     # 6. Start background sync (if Turso configured)
     if sync_manager is not None:

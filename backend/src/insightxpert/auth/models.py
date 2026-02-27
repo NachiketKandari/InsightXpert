@@ -43,6 +43,40 @@ def _record_delete(session: Session, table_name: str, record_ids: list[str]) -> 
         _auth_logger.debug("Skipping delete tracking: _sync_deletes table not available")
 
 
+class Organization(Base):
+    """Per-org feature flags and branding stored as JSON blobs.
+
+    ``id`` is a human-readable slug (e.g. "acme") so it can be used as a
+    readable FK from the ``users`` table without an extra join.
+    ``features_json`` / ``branding_json`` are serialised Pydantic models —
+    using TEXT+JSON is intentional: the schema evolves with new toggle fields
+    without requiring table migrations.
+    """
+
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(100), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    features_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    branding_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class AppSetting(Base):
+    """Key-value store for global application settings (admin_domains, defaults).
+
+    A narrow key-value table is the right shape here: these settings are
+    infrequently changed singletons, not rows in a domain collection.
+    """
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(String(100), primary_key=True)
+    value_json: Mapped[str] = mapped_column(Text, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -51,6 +85,14 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
+    # FK to organizations — NULL means no org mapping (uses global defaults).
+    # SET NULL on delete so removing an org doesn't orphan users.
+    org_id: Mapped[str | None] = mapped_column(
+        String(100),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utcnow, nullable=True)
 

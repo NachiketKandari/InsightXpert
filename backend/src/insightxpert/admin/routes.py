@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from insightxpert.admin.config_store import (
     delete_org_config,
@@ -16,14 +16,14 @@ from insightxpert.admin.config_store import (
 )
 from insightxpert.admin.models import (
     ClientConfig,
+    FeatureToggles,
+    OrgBranding,
     OrgConfig,
     ResolvedClientConfig,
 )
-from sqlalchemy.orm import Session
-
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
-from insightxpert.auth.models import PromptTemplate, User
+from insightxpert.auth.models import AppSetting, Organization, PromptTemplate, User
 from insightxpert.auth.models import User as UserModel
 from insightxpert.prompts import get_file_content
 
@@ -36,10 +36,6 @@ class PromptUpdateBody(BaseModel):
     content: str = Field(..., min_length=1)
     description: str | None = None
     is_active: bool = True
-
-
-def _config_path(request: Request) -> Path:
-    return request.app.state.config_path
 
 
 def is_admin_user(user: User, config: ClientConfig) -> bool:
@@ -73,40 +69,19 @@ class _AdminContext:
         self.scoped_user_ids = scoped_user_ids
 
 
-def _resolve_admin_scope(
-    user: User, config: ClientConfig, engine
-) -> set[str] | None:
+def _resolve_admin_scope(user: User, engine) -> set[str] | None:
     """Determine the set of user IDs an org-scoped admin may access.
 
-    Returns *None* for super admins (no restriction) or a set of user IDs
-    belonging to the admin's org.
+    Uses ``users.org_id`` FK directly — no need to scan email-based mappings.
+    Returns *None* for super admins (unrestricted) or a set of user IDs in
+    the same org.
     """
-    email_lower = user.email.lower()
-
-    # Find admin's org mapping
-    admin_org_id: str | None = None
-    for mapping in config.user_org_mappings:
-        if mapping.email.lower() == email_lower:
-            admin_org_id = mapping.org_id
-            break
-
-    if admin_org_id is None:
-        return None  # super admin — unrestricted
-
-    # Collect all emails mapped to the same org
-    org_emails = {
-        m.email.lower()
-        for m in config.user_org_mappings
-        if m.org_id == admin_org_id
-    }
-
-    # Look up DB user IDs for those emails
     with Session(engine) as session:
-        rows = (
-            session.query(UserModel.id)
-            .filter(UserModel.email.in_(org_emails))
-            .all()
-        )
+        db_user = session.get(UserModel, user.id)
+        if db_user is None or db_user.org_id is None:
+            return None  # super admin — unrestricted
+        admin_org_id = db_user.org_id
+        rows = session.query(UserModel.id).filter(UserModel.org_id == admin_org_id).all()
         return {r.id for r in rows}
 
 
@@ -123,11 +98,10 @@ def _get_admin_context(
     request: Request,
     user: User = Depends(get_current_user),
 ) -> _AdminContext:
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
     engine = request.app.state.auth_engine
-    scoped_ids = _resolve_admin_scope(user, config, engine)
+    config = read_config(engine)
+    _require_admin(user, config)
+    scoped_ids = _resolve_admin_scope(user, engine)
     return _AdminContext(config, user, scoped_ids)
 
 
@@ -161,7 +135,8 @@ async def update_global_config(
 
         config.defaults = DefaultConfig.model_validate(body["defaults"])
 
-    write_config(_config_path(request), config)
+    engine = request.app.state.auth_engine
+    await asyncio.to_thread(write_config, engine, config)
     return config
 
 
@@ -196,7 +171,8 @@ async def upsert_org(
     _ctx: _AdminContext = Depends(_get_admin_context),
 ):
     body.org_id = org_id
-    updated = set_org_config(_config_path(request), org_id, body)
+    engine = request.app.state.auth_engine
+    updated = await asyncio.to_thread(set_org_config, engine, org_id, body)
     return updated.organizations[org_id]
 
 
@@ -209,7 +185,8 @@ async def delete_org(
     if org_id not in ctx.config.organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    delete_org_config(_config_path(request), org_id)
+    engine = request.app.state.auth_engine
+    await asyncio.to_thread(delete_org_config, engine, org_id)
     return {"status": "ok"}
 
 
@@ -504,31 +481,33 @@ async def resolve_client_config(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    path = _config_path(request)
-    config = read_config(path)
+    engine = request.app.state.auth_engine
+    config = await asyncio.to_thread(read_config, engine)
     admin = is_admin_user(user, config)
 
-    # Admins get null config (show everything); resolve their org_id if scoped
     if admin:
-        admin_org_id: str | None = None
-        email_lower = user.email.lower()
-        for mapping in config.user_org_mappings:
-            if mapping.email.lower() == email_lower:
-                admin_org_id = mapping.org_id
-                break
+        # Admins get null config (show everything).
+        # Resolve their own org_id via FK for scope-aware operations.
+        with Session(engine) as session:
+            db_user = session.get(UserModel, user.id)
+            admin_org_id = db_user.org_id if db_user else None
         return ResolvedClientConfig(config=None, is_admin=True, org_id=admin_org_id)
 
-    # Check user-org mapping
-    email_lower = user.email.lower()
-    for mapping in config.user_org_mappings:
-        if mapping.email.lower() == email_lower:
-            org = config.organizations.get(mapping.org_id)
+    # Non-admin: look up org directly from users.org_id FK
+    with Session(engine) as session:
+        db_user = session.get(UserModel, user.id)
+        if db_user and db_user.org_id:
+            org = session.get(Organization, db_user.org_id)
             if org:
-                return ResolvedClientConfig(
-                    config=org, is_admin=False, org_id=mapping.org_id
+                org_config = OrgConfig(
+                    org_id=org.id,
+                    org_name=org.name,
+                    features=FeatureToggles.model_validate(json.loads(org.features_json)),
+                    branding=OrgBranding.model_validate(json.loads(org.branding_json)),
                 )
+                return ResolvedClientConfig(config=org_config, is_admin=False, org_id=org.id)
 
-    # Default config
+    # Default config for users without an org mapping
     default_org = OrgConfig(
         org_id="default",
         org_name="Default",

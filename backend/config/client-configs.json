@@ -1,7 +1,6 @@
 {
   "admin_domains": [
-    "insightxpert.ai",
-    "insightx.ai"
+    "insightxpert.ai"
   ],
   "user_org_mappings": [
     {
@@ -28,7 +27,7 @@
         "stats_context_injection": false
       },
       "branding": {
-        "display_name": null,
+        "display_name": "InsightX",
         "logo_url": null,
         "theme": null,
         "color_mode": "light"

@@ -57,21 +57,21 @@ logger = logging.getLogger("insightxpert.api")
 
 router = APIRouter(prefix="/api")
 
-# Simple TTL cache for the admin config file — avoids a filesystem read on
-# every chat request.  60-second TTL means config changes propagate quickly.
+# TTL cache for the admin config — avoids a DB read on every chat request.
+# 60-second TTL means config changes propagate quickly.
 _config_cache: dict[str, tuple[float, ClientConfig]] = {}
 _CONFIG_TTL = 60.0
+_CONFIG_CACHE_KEY = "__db__"
 
 
-def _get_cached_config(config_path) -> ClientConfig:
-    key = str(config_path)
-    cached = _config_cache.get(key)
+def _get_cached_config(engine) -> ClientConfig:
+    cached = _config_cache.get(_CONFIG_CACHE_KEY)
     if cached is not None:
         cached_at, config = cached
         if time.time() - cached_at < _CONFIG_TTL:
             return config
-    config = read_config(config_path)
-    _config_cache[key] = (time.time(), config)
+    config = read_config(engine)
+    _config_cache[_CONFIG_CACHE_KEY] = (time.time(), config)
     return config
 
 
@@ -96,7 +96,7 @@ class _TokenCountingLLM:
 
 def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
     """Return the resolved FeatureToggles for the given user based on admin config."""
-    config = _get_cached_config(request.app.state.config_path)
+    config = _get_cached_config(request.app.state.auth_engine)
     # Everyone starts from defaults (including admins and admin-domain users).
     # Org-mapped users get their org-specific overrides on top.
     features = config.defaults.features
