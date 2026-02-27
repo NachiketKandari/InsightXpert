@@ -6,8 +6,6 @@ export interface SSECallbacks {
   onError: (error: Error) => void;
 }
 
-const CHUNK_STAGGER_MS = 16;
-
 export type AgentMode = "auto" | "analyst";
 
 export interface SSEOptions {
@@ -29,24 +27,13 @@ export function createSSEStream(
     let streamDone = false;
 
     function drainQueue() {
-      if (chunkQueue.length === 0) {
-        draining = false;
-        if (streamDone) {
-          callbacks.onDone();
-        }
-        return;
+      while (chunkQueue.length > 0) {
+        const data = chunkQueue.shift()!;
+        callbacks.onChunk(data);
       }
-
-      const data = chunkQueue.shift()!;
-      callbacks.onChunk(data);
-
-      if (chunkQueue.length > 0) {
-        setTimeout(drainQueue, CHUNK_STAGGER_MS);
-      } else {
-        draining = false;
-        if (streamDone) {
-          callbacks.onDone();
-        }
+      draining = false;
+      if (streamDone) {
+        callbacks.onDone();
       }
     }
 
@@ -56,7 +43,7 @@ export function createSSEStream(
         draining = true;
         // Defer to next tick so all chunks from the same reader.read()
         // batch are queued before we start delivering them one by one.
-        setTimeout(drainQueue, 0);
+        queueMicrotask(drainQueue);
       }
     }
 

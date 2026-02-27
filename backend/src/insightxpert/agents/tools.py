@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -35,7 +36,9 @@ class RunSqlTool(Tool):
         }
 
     async def execute(self, context: ToolContext, args: dict) -> str:
-        rows = context.db.execute(args["sql"], row_limit=context.row_limit)
+        rows = await asyncio.to_thread(
+            context.db.execute, args["sql"], row_limit=context.row_limit,
+        )
         logger.debug("run_sql returned %d rows", len(rows))
         return json.dumps({"rows": rows, "row_count": len(rows)}, default=str)
 
@@ -66,14 +69,13 @@ class GetSchemaTool(Tool):
 
         tables = args.get("tables", [])
         if tables:
-            results = []
-            for t in tables:
-                info = get_table_info(context.db.engine, t)
-                results.append(info)
+            results = await asyncio.gather(
+                *(asyncio.to_thread(get_table_info, context.db.engine, t) for t in tables)
+            )
             logger.debug("get_schema returned info for tables: %s", tables)
-            return json.dumps(results, default=str)
+            return json.dumps(list(results), default=str)
         else:
-            ddl = get_schema_ddl(context.db.engine)
+            ddl = await asyncio.to_thread(get_schema_ddl, context.db.engine)
             logger.debug("get_schema returned full DDL (%d chars)", len(ddl))
             return ddl
 
@@ -108,11 +110,13 @@ class SearchSimilarTool(Tool):
         query = args["query"]
         collection = args["collection"]
         if collection == "qa_pairs":
-            items = context.rag.search_qa(query, max_distance=1.0, sql_valid_only=True)
+            items = await asyncio.to_thread(
+                context.rag.search_qa, query, max_distance=1.0, sql_valid_only=True,
+            )
         elif collection == "ddl":
-            items = context.rag.search_ddl(query)
+            items = await asyncio.to_thread(context.rag.search_ddl, query)
         elif collection == "docs":
-            items = context.rag.search_docs(query)
+            items = await asyncio.to_thread(context.rag.search_docs, query)
         else:
             logger.warning("Unknown collection: %s", collection)
             return json.dumps({"error": f"Unknown collection: {collection}"})

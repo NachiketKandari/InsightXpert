@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown } from "lucide-react";
@@ -41,7 +42,7 @@ function getDisplayName(email: string): string {
     .join(" ");
 }
 
-export function UserMenu() {
+export const UserMenu = React.memo(function UserMenu() {
   const { user, logout } = useAuthStore();
   const { isAdmin } = useClientConfig();
   const router = useRouter();
@@ -128,4 +129,4 @@ export function UserMenu() {
       </DropdownMenu>
     </div>
   );
-}
+});

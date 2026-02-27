@@ -14,7 +14,8 @@ export function ClarificationChunk({
   content,
   skipAllowed = true,
 }: ClarificationChunkProps) {
-  const { isStreaming, pendingClarification } = useChatStore();
+  const isStreaming = useChatStore((s) => s.isStreaming);
+  const pendingClarification = useChatStore((s) => s.pendingClarification);
 
   const handleSkip = () => {
     const store = useChatStore.getState();

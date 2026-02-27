@@ -173,12 +173,10 @@ class VectorStore:
             A list of dicts, each with keys ``"document"``, ``"metadata"``,
             and ``"distance"``, sorted by ascending distance.
         """
-        if self._qa.count() == 0:
-            return []
         where = {"sql_valid": True} if sql_valid_only else None
         results = self._qa.query(
             query_texts=[question],
-            n_results=min(n, self._qa.count()),
+            n_results=n,
             where=where,
         )
         items = self._unpack(results)
@@ -196,9 +194,7 @@ class VectorStore:
         Returns:
             A list of dicts with ``"document"``, ``"metadata"``, ``"distance"``.
         """
-        if self._ddl.count() == 0:
-            return []
-        results = self._ddl.query(query_texts=[question], n_results=min(n, self._ddl.count()))
+        results = self._ddl.query(query_texts=[question], n_results=n)
         return self._unpack(results)
 
     def search_docs(self, question: str, n: int = 3) -> list[dict]:
@@ -211,9 +207,7 @@ class VectorStore:
         Returns:
             A list of dicts with ``"document"``, ``"metadata"``, ``"distance"``.
         """
-        if self._docs.count() == 0:
-            return []
-        results = self._docs.query(query_texts=[question], n_results=min(n, self._docs.count()))
+        results = self._docs.query(query_texts=[question], n_results=n)
         return self._unpack(results)
 
     def search_findings(self, question: str, n: int = 3) -> list[dict]:
@@ -230,9 +224,7 @@ class VectorStore:
         Returns:
             A list of dicts with ``"document"``, ``"metadata"``, ``"distance"``.
         """
-        if self._findings.count() == 0:
-            return []
-        results = self._findings.query(query_texts=[question], n_results=min(n, self._findings.count()))
+        results = self._findings.query(query_texts=[question], n_results=n)
         return self._unpack(results)
 
     def flush_qa_pairs(self) -> int:

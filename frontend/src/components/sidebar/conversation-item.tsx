@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { MoreHorizontal, Pencil, Trash2, MessageSquare, Check, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import {
@@ -19,7 +19,7 @@ interface ConversationItemProps {
   isActive: boolean;
 }
 
-export function ConversationItem({
+export const ConversationItem = React.memo(function ConversationItem({
   conversation,
   isActive,
 }: ConversationItemProps) {
@@ -156,4 +156,4 @@ export function ConversationItem({
       </DropdownMenu>
     </div>
   );
-}
+});

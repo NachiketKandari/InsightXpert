@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useCallback } from "react";
 import { motion } from "framer-motion";
 import { Loader2 } from "lucide-react";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useChatStore } from "@/stores/chat-store";
 import type { Message } from "@/types/chat";
 
-function MessageMetrics({ message }: { message: Message }) {
+const MessageMetrics = React.memo(function MessageMetrics({ message }: { message: Message }) {
   const { wallTimeMs, generationTimeMs, inputTokens, outputTokens } = message;
   if (!wallTimeMs && !generationTimeMs && !inputTokens && !outputTokens) return null;
 
@@ -60,13 +60,18 @@ function MessageMetrics({ message }: { message: Message }) {
       )}
     </div>
   );
-}
+});
+
+const selectIsActiveStreaming = (s: { isStreaming: boolean; streamingConversationId: string | null; activeConversationId: string | null }) =>
+  s.isStreaming && s.streamingConversationId === s.activeConversationId;
 
 interface MessageBubbleProps {
   message: Message;
   isLastAssistant?: boolean;
   onRetry?: () => void;
-  onFeedback?: (type: "up" | "down", comment?: string) => void;
+  // Takes messageId so callers can pass a stable handler without wrapping in
+  // a per-message closure, which would break React.memo's prop comparison.
+  onFeedback?: (messageId: string, type: "up" | "down", comment?: string) => void;
 }
 
 function MessageBubbleInner({
@@ -75,8 +80,15 @@ function MessageBubbleInner({
   onRetry,
   onFeedback,
 }: MessageBubbleProps) {
-  const isStreaming = useChatStore((s) => s.isStreaming && s.streamingConversationId === s.activeConversationId);
+  const isStreaming = useChatStore(selectIsActiveStreaming);
   const isUser = message.role === "user";
+
+  // Stable wrapper so MessageActions always gets the same function reference
+  // (message.id is a UUID and never changes; onFeedback is stable from parent).
+  const handleFeedbackForMsg = useCallback(
+    (type: "up" | "down", comment?: string) => onFeedback?.(message.id, type, comment),
+    [message.id, onFeedback],
+  );
 
   return (
     <motion.div
@@ -138,7 +150,7 @@ function MessageBubbleInner({
           content={message.content}
           isLastAssistant={isLastAssistant}
           onRetry={onRetry}
-          onFeedback={onFeedback}
+          onFeedback={handleFeedbackForMsg}
         />
       )}
     </motion.div>

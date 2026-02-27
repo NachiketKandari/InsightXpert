@@ -22,6 +22,7 @@ The ``agent_mode`` parameter controls gating:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -64,10 +65,12 @@ async def orchestrator_loop(
     docs_override: str | None = None
 
     if dataset_service is not None:
-        active_ds = dataset_service.get_active_dataset()
+        active_ds = await asyncio.to_thread(dataset_service.get_active_dataset)
         if active_ds:
             ddl_override = active_ds.get("ddl")
-            docs_override = dataset_service.build_documentation_markdown(active_ds["id"])
+            docs_override = await asyncio.to_thread(
+                dataset_service.build_documentation_markdown, active_ds["id"],
+            )
 
     # --- Clarification pre-check ---
     if not skip_clarification:

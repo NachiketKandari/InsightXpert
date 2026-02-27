@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from sqlalchemy.orm import Session
 
@@ -10,20 +11,30 @@ from insightxpert.auth.models import Dataset, DatasetColumn, ExampleQuery
 
 logger = logging.getLogger("insightxpert.datasets")
 
+_ACTIVE_DS_TTL = 60.0
+
 
 class DatasetService:
     """Provides dataset metadata from the DB for the analyst agent and trainer."""
 
     def __init__(self, engine) -> None:
         self._engine = engine
+        self._active_ds_cache: tuple[float, dict | None] | None = None
 
     def get_active_dataset(self) -> dict | None:
         """Return the currently active dataset as a dict, or None."""
+        cached = self._active_ds_cache
+        if cached is not None:
+            cached_at, result = cached
+            if time.time() - cached_at < _ACTIVE_DS_TTL:
+                return result
+
         with Session(self._engine) as session:
             ds = session.query(Dataset).filter(Dataset.is_active.is_(True)).first()
-            if not ds:
+            if ds is None:
+                self._active_ds_cache = (time.time(), None)
                 return None
-            return {
+            result = {
                 "id": ds.id,
                 "name": ds.name,
                 "description": ds.description,
@@ -33,6 +44,8 @@ class DatasetService:
                 "created_at": str(ds.created_at),
                 "updated_at": str(ds.updated_at),
             }
+            self._active_ds_cache = (time.time(), result)
+            return result
 
     def get_dataset_by_id(self, dataset_id: str) -> dict | None:
         """Return a single dataset by ID."""
@@ -168,6 +181,7 @@ class DatasetService:
 
     def activate_dataset(self, dataset_id: str) -> bool:
         """Set one dataset as active, deactivating all others."""
+        self._active_ds_cache = None
         with Session(self._engine) as session:
             ds = session.get(Dataset, dataset_id)
             if not ds:

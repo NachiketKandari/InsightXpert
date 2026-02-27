@@ -1,5 +1,6 @@
 "use client";
 
+import React from "react";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat-store";
@@ -12,7 +13,7 @@ import {
 import { AppLogo } from "@/components/ui/app-logo";
 import { DatasetSelector } from "./dataset-selector";
 
-export function Header() {
+export const Header = React.memo(function Header() {
   const isMobile = useIsMobile();
   const leftOpen = useChatStore((s) => s.leftSidebarOpen);
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
@@ -47,4 +48,4 @@ export function Header() {
       </div>
     </header>
   );
-}
+});

@@ -14,7 +14,10 @@ export function MessageList({ onRetry }: MessageListProps) {
   const conversation = useChatStore((s) => s.activeConversation());
   const messages = conversation?.messages ?? [];
 
-  const { scrollRef, handleScroll } = useAutoScroll([messages]);
+  // Scroll only when the number of messages or streaming chunks changes —
+  // NOT on every property update (feedback, tokens, wallTimeMs, etc.).
+  const lastMsgChunkCount = messages.at(-1)?.chunks.length ?? 0;
+  const { scrollRef, handleScroll } = useAutoScroll([messages.length, lastMsgChunkCount]);
 
   // Find the last user message for retry
   const lastUserMessage = [...messages].reverse().find((m) => m.role === "user");
@@ -58,9 +61,7 @@ export function MessageList({ onRetry }: MessageListProps) {
             message={msg}
             isLastAssistant={idx === lastAssistantIdx}
             onRetry={handleRetry}
-            onFeedback={(type, comment) =>
-              handleFeedback(msg.id, type, comment)
-            }
+            onFeedback={handleFeedback}
           />
         ))}
 

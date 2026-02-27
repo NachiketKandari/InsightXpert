@@ -40,6 +40,7 @@ def _update_last_active(engine, user_id: str) -> None:
         logger.debug("last_active update failed: %s", e)
 
 
+
 async def get_current_user(request: Request) -> User:
     token = request.cookies.get("__session")
     if not token:
