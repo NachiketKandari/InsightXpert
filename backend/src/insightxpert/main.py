@@ -273,11 +273,12 @@ async def lifespan(app: FastAPI):
 
     auth_engine = db.engine
 
-    # 2. Create auth tables & run migrations
+    # 2. Create auth tables, run migrations, and seed admin user
     try:
         AuthBase.metadata.create_all(auth_engine)
         _migrate_schema(auth_engine)
-        logger.info("Auth tables initialized")
+        seed_admin(auth_engine, settings)
+        logger.info("Auth tables initialized, admin user ensured")
     except Exception as e:
         logger.error("Auth table setup failed: %s", e, exc_info=True)
 
@@ -307,12 +308,7 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("No TURSO_URL configured — running in pure local mode")
 
-    # 4. Seed admin, prompts, datasets (idempotent — safe after sync)
-    try:
-        seed_admin(auth_engine, settings)
-    except Exception as e:
-        logger.error("Admin seeding failed: %s", e, exc_info=True)
-
+    # 4. Seed prompts, datasets (idempotent — safe after sync)
     try:
         _seed_prompts(auth_engine)
         logger.info("Prompt templates initialized")
