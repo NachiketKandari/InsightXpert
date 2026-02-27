@@ -48,11 +48,15 @@ interface ChartBlockProps {
   columns: string[];
   rows: Record<string, unknown>[];
   suggestedChartType?: string | null;
+  /** Explicit x-axis column from the LLM. Falls back to auto-detect if not provided. */
+  xColumn?: string;
+  /** Explicit y-axis column from the LLM. Falls back to auto-detect if not provided. */
+  yColumn?: string;
   /** Skip lazy loading (render immediately) for currently-streaming messages. */
   eager?: boolean;
 }
 
-function ChartBlockInner({ columns, rows, suggestedChartType }: ChartBlockProps) {
+function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }: ChartBlockProps) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(true);
 
@@ -64,10 +68,14 @@ function ChartBlockInner({ columns, rows, suggestedChartType }: ChartBlockProps)
     [columns, rows, suggestedChartType],
   );
 
-  const { categoryKey, valueKey, groupKey } = useMemo(
-    () => getChartConfig(columns, rows),
-    [columns, rows],
-  );
+  const { categoryKey, valueKey, groupKey } = useMemo(() => {
+    const auto = getChartConfig(columns, rows);
+    return {
+      categoryKey: (xColumn && columns.includes(xColumn)) ? xColumn : auto.categoryKey,
+      valueKey: (yColumn && columns.includes(yColumn)) ? yColumn : auto.valueKey,
+      groupKey: auto.groupKey,
+    };
+  }, [columns, rows, xColumn, yColumn]);
 
   const data = useMemo(
     () => rows.map((row) => ({ ...row, [valueKey]: Number(row[valueKey]) })),

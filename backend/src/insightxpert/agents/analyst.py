@@ -325,8 +325,13 @@ async def analyst_loop(
                 })
 
                 tool_result_data = {"tool": tc.name, "result": result}
-                if tc.name == "run_sql" and tc.arguments.get("visualization"):
-                    tool_result_data["visualization"] = tc.arguments["visualization"]
+                if tc.name == "run_sql":
+                    if tc.arguments.get("visualization"):
+                        tool_result_data["visualization"] = tc.arguments["visualization"]
+                    if tc.arguments.get("x_column"):
+                        tool_result_data["x_column"] = tc.arguments["x_column"]
+                    if tc.arguments.get("y_column"):
+                        tool_result_data["y_column"] = tc.arguments["y_column"]
 
                 yield ChatChunk(
                     type="tool_result",
