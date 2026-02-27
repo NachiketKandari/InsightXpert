@@ -42,6 +42,54 @@ def migration_engine(tmp_path):
                 FOREIGN KEY (conversation_id) REFERENCES conversations(id)
             )
         """))
+        conn.execute(text("""
+            CREATE TABLE automations (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                description TEXT,
+                nl_query TEXT NOT NULL,
+                sql_query TEXT NOT NULL,
+                cron_expression VARCHAR(100) NOT NULL,
+                trigger_conditions TEXT,
+                is_active BOOLEAN DEFAULT 1,
+                last_run_at DATETIME,
+                next_run_at DATETIME,
+                created_by VARCHAR(36) NOT NULL,
+                source_conversation_id VARCHAR(36),
+                source_message_id VARCHAR(36),
+                created_at DATETIME,
+                updated_at DATETIME,
+                FOREIGN KEY (created_by) REFERENCES users(id)
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE automation_runs (
+                id VARCHAR(36) PRIMARY KEY,
+                automation_id VARCHAR(36) NOT NULL,
+                status VARCHAR(20) NOT NULL,
+                result_json TEXT,
+                row_count INTEGER,
+                execution_time_ms INTEGER,
+                triggers_fired TEXT,
+                error_message TEXT,
+                created_at DATETIME,
+                FOREIGN KEY (automation_id) REFERENCES automations(id)
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE notifications (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                automation_id VARCHAR(36),
+                run_id VARCHAR(36),
+                title VARCHAR(255) NOT NULL,
+                message TEXT NOT NULL,
+                severity VARCHAR(20) NOT NULL,
+                is_read BOOLEAN DEFAULT 0,
+                created_at DATETIME,
+                FOREIGN KEY (user_id) REFERENCES users(id)
+            )
+        """))
     yield engine
     engine.dispose()
 
@@ -125,7 +173,7 @@ def test_migrate_schema_drops_legacy_tables(migration_engine):
 
 
 def test_seed_prompts_creates_templates(seed_engine):
-    """An empty prompt_templates table gets seeded with 2 templates."""
+    """An empty prompt_templates table gets seeded with 3 templates."""
     with Session(seed_engine) as session:
         assert session.query(PromptTemplate).count() == 0
 
@@ -133,9 +181,9 @@ def test_seed_prompts_creates_templates(seed_engine):
 
     with Session(seed_engine) as session:
         templates = session.query(PromptTemplate).all()
-        assert len(templates) == 2
+        assert len(templates) == 3
         names = {t.name for t in templates}
-        assert names == {"analyst_system", "statistician_system"}
+        assert names == {"analyst_system", "statistician_system", "advanced_system"}
         for t in templates:
             assert t.content  # non-empty content
             assert t.is_active is True
@@ -148,7 +196,7 @@ def test_seed_prompts_idempotent(seed_engine):
     _seed_prompts(seed_engine)
 
     with Session(seed_engine) as session:
-        assert session.query(PromptTemplate).count() == 2
+        assert session.query(PromptTemplate).count() == 3
 
 
 def test_seed_prompts_preserves_existing(seed_engine):
@@ -172,9 +220,11 @@ def test_seed_prompts_preserves_existing(seed_engine):
     _seed_prompts(seed_engine)
 
     with Session(seed_engine) as session:
-        # Custom analyst_system preserved, missing statistician_system seeded
-        assert session.query(PromptTemplate).count() == 2
+        # Custom analyst_system preserved, missing templates seeded
+        assert session.query(PromptTemplate).count() == 3
         existing = session.query(PromptTemplate).filter_by(name="analyst_system").one()
         assert existing.content == custom_content
         seeded = session.query(PromptTemplate).filter_by(name="statistician_system").one()
         assert seeded.content  # non-empty, from file
+        advanced = session.query(PromptTemplate).filter_by(name="advanced_system").one()
+        assert advanced.content  # non-empty, from file
