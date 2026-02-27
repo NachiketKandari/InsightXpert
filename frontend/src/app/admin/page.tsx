@@ -918,6 +918,14 @@ export default function AdminPage() {
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => resetPrompt(p.name)}
+                          title="Reset to default"
+                        >
+                          <RotateCcw className="size-3" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           onClick={() => deletePrompt(p.name)}
                           className="text-destructive hover:text-destructive"
                         >
