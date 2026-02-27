@@ -115,7 +115,7 @@ async def orchestrator_loop(
     if config.enable_stats_context:
         from insightxpert.agents.stats_resolver import StatsResolver
         try:
-            stats_result = StatsResolver().resolve(question, db.engine)
+            stats_result = await asyncio.to_thread(StatsResolver().resolve, question, db.engine)
             if stats_result:
                 stats_context = stats_result.markdown
                 stats_groups = stats_result.groups

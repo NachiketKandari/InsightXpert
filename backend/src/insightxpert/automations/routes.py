@@ -68,7 +68,7 @@ def _resolve_cron(body) -> str:
     raise HTTPException(status_code=400, detail="Either schedule_preset or cron_expression is required")
 
 
-def _validate_single_sql(sql: str, engine) -> None:
+def _validate_single_sql(sql: str) -> None:
     """Validate a single SQL statement is safe and syntactically correct."""
     if _FORBIDDEN_SQL.search(sql):
         raise HTTPException(status_code=400, detail="SQL contains forbidden statements (only SELECT queries allowed)")
@@ -77,15 +77,12 @@ def _validate_single_sql(sql: str, engine) -> None:
     if ";" in stripped:
         raise HTTPException(status_code=400, detail="Multi-statement SQL is not allowed")
 
-    from sqlalchemy import text
-    try:
-        with engine.connect() as conn:
-            conn.execute(text(f"EXPLAIN {stripped}"))
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Invalid SQL: {e}")
+    import sqlite3
+    if not sqlite3.complete_statement(stripped + ";"):
+        raise HTTPException(status_code=400, detail="Invalid SQL: incomplete or malformed statement")
 
 
-def _validate_sql_queries(queries: list[str], engine) -> None:
+def _validate_sql_queries(queries: list[str]) -> None:
     """Validate all SQL queries in a chain."""
     if not queries:
         raise HTTPException(status_code=400, detail="At least one SQL query is required")
@@ -93,7 +90,7 @@ def _validate_sql_queries(queries: list[str], engine) -> None:
         if not sql or not sql.strip():
             raise HTTPException(status_code=400, detail=f"SQL query at step {i + 1} is empty")
         try:
-            _validate_single_sql(sql, engine)
+            _validate_single_sql(sql)
         except HTTPException as e:
             raise HTTPException(status_code=400, detail=f"Step {i + 1}: {e.detail}")
 
@@ -196,8 +193,7 @@ async def create_automation(
         raise HTTPException(status_code=400, detail="At least one SQL query is required (sql_query or sql_queries)")
 
     # Validate all SQL queries in the chain
-    db = request.app.state.db
-    await asyncio.to_thread(_validate_sql_queries, sql_queries, db.engine)
+    await asyncio.to_thread(_validate_sql_queries, sql_queries)
 
     trigger_conditions = [tc.model_dump() for tc in body.trigger_conditions]
 
@@ -227,7 +223,7 @@ async def list_automations(
 ):
     _require_admin(user)
     svc = _get_automation_service(request)
-    return await asyncio.to_thread(svc.list_automations)
+    return await asyncio.to_thread(svc.list_automations, user.id)
 
 
 @router.get("/{automation_id}")
@@ -268,8 +264,7 @@ async def update_automation(
         fields["nl_query"] = body.nl_query
     if body.sql_queries is not None:
         # Validate and store the updated SQL chain
-        db = request.app.state.db
-        await asyncio.to_thread(_validate_sql_queries, body.sql_queries, db.engine)
+        await asyncio.to_thread(_validate_sql_queries, body.sql_queries)
         fields["sql_query"] = json.dumps(body.sql_queries)
     if body.trigger_conditions is not None:
         fields["trigger_conditions"] = [tc.model_dump() for tc in body.trigger_conditions]

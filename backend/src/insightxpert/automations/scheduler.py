@@ -211,7 +211,7 @@ class AutomationScheduler:
             return {"columns": columns, "rows": rows}
 
     async def _update_timestamps(self, automation_id: str) -> None:
-        """Update last_run_at and calculate next_run_at (fire-and-forget)."""
+        """Update last_run_at and calculate next_run_at."""
         try:
             now = datetime.now(timezone.utc)
             job = self._scheduler.get_job(automation_id)
@@ -222,9 +222,7 @@ class AutomationScheduler:
                     if job.next_run_time.tzinfo is None
                     else job.next_run_time
                 )
-            asyncio.create_task(
-                asyncio.to_thread(self._service.update_run_timestamps, automation_id, now, next_run)
-            )
+            await asyncio.to_thread(self._service.update_run_timestamps, automation_id, now, next_run)
         except Exception as e:
             logger.error("Failed to update timestamps for %s: %s", automation_id, e)
 

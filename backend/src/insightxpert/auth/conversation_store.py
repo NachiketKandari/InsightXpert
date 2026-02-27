@@ -5,11 +5,10 @@ import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import desc, func, select, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
-from insightxpert.auth.models import ConversationRecord, MessageRecord
+from insightxpert.auth.models import ConversationRecord, MessageRecord, _record_delete
 
 logger = logging.getLogger("insightxpert.auth")
 
@@ -31,26 +30,6 @@ def _conv_to_dict(convo: ConversationRecord) -> dict:
         "created_at": _to_ist(convo.created_at),
         "updated_at": _to_ist(convo.updated_at),
     }
-
-
-def _record_delete(session: Session, table_name: str, record_ids: list[str]) -> None:
-    """Record deletions in _sync_deletes so background sync can propagate to Turso."""
-    if not record_ids:
-        return
-    now = datetime.now(timezone.utc).isoformat()
-    try:
-        for rid in record_ids:
-            session.execute(
-                text(
-                    "INSERT INTO _sync_deletes (table_name, record_id, deleted_at, synced) "
-                    "VALUES (:table, :rid, :ts, 0)"
-                ),
-                {"table": table_name, "rid": rid, "ts": now},
-            )
-    except OperationalError:
-        # _sync_deletes table may not exist (e.g. in tests or pure-local mode).
-        # This is non-critical — only needed for Turso background sync.
-        logger.debug("Skipping delete tracking: _sync_deletes table not available")
 
 
 class PersistentConversationStore:

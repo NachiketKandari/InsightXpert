@@ -191,38 +191,37 @@ def compute_and_store_stats(engine: Engine) -> int:
     Idempotent: exits immediately (returns 0) if dataset_stats already has rows.
     Returns the number of rows written on a fresh computation.
     """
-    from insightxpert.auth.models import DatasetStat
+    with engine.connect() as read_conn:
+        with Session(engine) as write_session:
+            # Check if rows already exist — skip if so (static dataset)
+            from insightxpert.auth.models import DatasetStat
+            existing = write_session.query(DatasetStat).first()
+            if existing is not None:
+                logger.debug("dataset_stats already populated, skipping computation")
+                return 0
 
-    with Session(engine) as session:
-        # Check if rows already exist — skip if so (static dataset)
-        existing = session.query(DatasetStat).first()
-        if existing is not None:
-            logger.debug("dataset_stats already populated, skipping computation")
-            return 0
+            total_written = 0
 
-        total_written = 0
-
-        for group, sql in _SQL_QUERIES.items():
-            try:
-                with engine.connect() as conn:
-                    result = conn.execute(text(sql.strip()))
+            for group, sql in _SQL_QUERIES.items():
+                try:
+                    result = read_conn.execute(text(sql.strip()))
                     columns = list(result.keys())
                     rows = [dict(zip(columns, row)) for row in result.fetchall()]
 
-                # For "overall" group there's no "dimension" column — use None
-                if group == "overall":
-                    if rows:
-                        n = _upsert_rows(session, group, rows)
+                    # For "overall" group there's no "dimension" column — use None
+                    if group == "overall":
+                        if rows:
+                            n = _upsert_rows(write_session, group, rows)
+                            total_written += n
+                    else:
+                        n = _upsert_rows(write_session, group, rows)
                         total_written += n
-                else:
-                    n = _upsert_rows(session, group, rows)
-                    total_written += n
 
-                logger.debug("Computed stats for group '%s': %d source rows", group, len(rows))
+                    logger.debug("Computed stats for group '%s': %d source rows", group, len(rows))
 
-            except Exception as e:
-                logger.warning("Failed to compute stats for group '%s': %s", group, e)
+                except Exception as e:
+                    logger.warning("Failed to compute stats for group '%s': %s", group, e)
 
-        session.commit()
-        logger.info("dataset_stats populated: %d rows written across %d groups", total_written, len(_SQL_QUERIES))
-        return total_written
+            write_session.commit()
+            logger.info("dataset_stats populated: %d rows written across %d groups", total_written, len(_SQL_QUERIES))
+            return total_written

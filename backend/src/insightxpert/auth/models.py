@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import logging as _logging
 import uuid
 from datetime import datetime, timezone
 
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import text as _sa_text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
 
 
 class Base(DeclarativeBase):
@@ -17,6 +20,27 @@ def _uuid() -> str:
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
+
+_auth_logger = _logging.getLogger("insightxpert.auth")
+
+
+def _record_delete(session: Session, table_name: str, record_ids: list[str]) -> None:
+    """Record deletions in _sync_deletes so background sync can propagate to Turso."""
+    if not record_ids:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    try:
+        for rid in record_ids:
+            session.execute(
+                _sa_text(
+                    "INSERT INTO _sync_deletes (table_name, record_id, deleted_at, synced) "
+                    "VALUES (:table, :rid, :ts, 0)"
+                ),
+                {"table": table_name, "rid": rid, "ts": now},
+            )
+    except OperationalError:
+        _auth_logger.debug("Skipping delete tracking: _sync_deletes table not available")
 
 
 class User(Base):

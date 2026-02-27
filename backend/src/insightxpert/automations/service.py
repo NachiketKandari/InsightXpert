@@ -5,11 +5,11 @@ import logging
 
 from sqlalchemy.orm import Session
 
-from insightxpert.auth.conversation_store import _record_delete
 from insightxpert.auth.models import (
     Automation,
     AutomationRun,
     Notification,
+    _record_delete,
     _uuid,
     _utcnow,
 )

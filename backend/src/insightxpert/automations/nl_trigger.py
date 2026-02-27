@@ -86,24 +86,10 @@ async def compile_nl_trigger(
 
 
 async def _call_llm(llm, system_prompt: str, user_message: str) -> str:
-    """Call the LLM to generate a response. Handles both sync and async interfaces."""
-    import asyncio
-
-    prompt = f"{system_prompt}\n\nUser trigger description: {user_message}"
-
-    # Try using the underlying model directly (Gemini)
-    for attr in ("_model", "model"):
-        model = getattr(llm, attr, None)
-        if model and hasattr(model, "generate_content"):
-            response = await asyncio.to_thread(
-                model.generate_content,
-                [{"role": "user", "parts": [{"text": prompt}]}],
-            )
-            return response.text
-
-    # Fallback: use the generate method if available
-    if hasattr(llm, "generate"):
-        result = await asyncio.to_thread(llm.generate, prompt)
-        return str(result)
-
-    raise ValueError("Could not find a suitable LLM generation method")
+    """Call the LLM using the standard LLMProvider chat interface."""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": user_message},
+    ]
+    response = await llm.chat(messages)
+    return response.content or ""

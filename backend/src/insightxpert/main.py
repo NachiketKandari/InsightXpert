@@ -197,11 +197,6 @@ def _seed_prompts(engine) -> None:
                 logger.warning("Template file not found: %s", filename)
                 continue
             if existing:
-                if existing.content != content:
-                    existing.content = content
-                    existing.updated_at = _utcnow()
-                    seeded += 1
-                    logger.info("Updated prompt template: %s", name)
                 continue
             prompt = PromptTemplate(
                 id=_uuid(),
