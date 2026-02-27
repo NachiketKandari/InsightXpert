@@ -39,50 +39,52 @@ export function WorkflowBuilder() {
   const [testRunStatus, setTestRunStatus] = useState<"idle" | "running" | "done" | "error">("idle");
   const [testRunMessage, setTestRunMessage] = useState<string | null>(null);
 
-  // Load conversation messages when builder opens
-  useEffect(() => {
-    if (!open) return;
+  // Reset form state when dialog opens (render-time to avoid setState-in-effect)
+  const [prevOpen, setPrevOpen] = useState(false);
+  if (open !== prevOpen) {
+    setPrevOpen(open);
+    if (open) {
+      setTestRunStatus("idle");
+      setTestRunMessage(null);
 
-    // Reset test run state on open
-    setTestRunStatus("idle");
-    setTestRunMessage(null);
+      if (editingId) {
+        const auto = useAutomationStore.getState().automations.find((a) => a.id === editingId);
+        if (auto) {
+          setName(auto.name);
+          setDescription(auto.description ?? "");
+          setConditions(auto.trigger_conditions);
+        }
+        if (context) {
+          const chatState = useChatStore.getState();
+          const conv = chatState.conversations.find((c) => c.id === context.conversationId);
+          if (conv) setMessages(conv.messages);
+        }
+      } else if (context) {
+        setName("");
+        setDescription("");
+        setPreset("daily");
+        setCustomCron("");
+        setConditions([]);
 
-    // When editing, blocks/edges are already loaded from workflow_graph
-    if (editingId) {
-      // Pre-populate form from the automation being edited
-      const auto = useAutomationStore.getState().automations.find((a) => a.id === editingId);
-      if (auto) {
-        setName(auto.name);
-        setDescription(auto.description ?? "");
-        setConditions(auto.trigger_conditions);
-      }
-      // Still load messages for the sidebar query library if we have a context
-      if (context) {
         const chatState = useChatStore.getState();
         const conv = chatState.conversations.find((c) => c.id === context.conversationId);
-        if (conv) setMessages(conv.messages);
+        if (conv && conv.messages.length > 0) {
+          setMessages(conv.messages);
+        }
       }
-      return;
     }
+  }
 
-    if (!context) return;
+  // Load conversation messages and initialize blocks (async side effects only)
+  useEffect(() => {
+    if (!open || editingId || !context) return;
 
-    // Reset form for new automation
-    setName("");
-    setDescription("");
-    setPreset("daily");
-    setCustomCron("");
-    setConditions([]);
-
-    // Get messages from the chat store
     const chatState = useChatStore.getState();
     const conv = chatState.conversations.find((c) => c.id === context.conversationId);
 
     if (conv && conv.messages.length > 0) {
-      setMessages(conv.messages);
       initBlocks(conv.messages, context.focusMessageId);
     } else {
-      // Need to load conversation messages first
       chatState.loadConversationMessages(context.conversationId).then(() => {
         const updatedConv = useChatStore
           .getState()

@@ -106,7 +106,7 @@ export function WorkflowCanvas() {
   const getSuggestedEdges = useAutomationStore((s) => s.getSuggestedEdges);
   const applySuggestedEdges = useAutomationStore((s) => s.applySuggestedEdges);
 
-  const suggestedEdges = useMemo(() => getSuggestedEdges(), [getSuggestedEdges, blocks, edges]);
+  const suggestedEdges = getSuggestedEdges();
 
   const nodes = useMemo(() => blocksToNodes(blocks), [blocks]);
   const rfEdges = useMemo(

@@ -86,7 +86,6 @@ function MessageBubbleInner({
   onRetry,
   onResend,
   onFeedback,
-  userQuestion,
 }: MessageBubbleProps) {
   const isStreaming = useChatStore(selectIsActiveStreaming);
   const activeConversationId = useChatStore((s) => s.activeConversationId);

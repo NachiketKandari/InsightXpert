@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { Play, Save, X, Loader2, Database } from "lucide-react";
 import {
   Dialog,
@@ -42,14 +42,16 @@ export function SqlEditorModal({
   const [isRunning, setIsRunning] = useState(false);
   const updateBlock = useAutomationStore((s) => s.updateBlock);
 
-  // Reset state when modal opens with new SQL
-  useEffect(() => {
-    if (isOpen) {
-      setEditSql(sql);
-      setResult(null);
-      setError(null);
-    }
-  }, [isOpen, sql]);
+  // Reset state when modal opens or sql prop changes (render-time adjustment)
+  const [prevKey, setPrevKey] = useState({ isOpen, sql });
+  if (isOpen && (isOpen !== prevKey.isOpen || sql !== prevKey.sql)) {
+    setEditSql(sql);
+    setResult(null);
+    setError(null);
+  }
+  if (isOpen !== prevKey.isOpen || sql !== prevKey.sql) {
+    setPrevKey({ isOpen, sql });
+  }
 
   const handleRun = useCallback(async () => {
     if (!editSql.trim()) return;

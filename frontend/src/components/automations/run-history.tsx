@@ -19,16 +19,16 @@ const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = 
 export function RunHistory({ automationId }: RunHistoryProps) {
   const fetchRunHistory = useAutomationStore((s) => s.fetchRunHistory);
   const [runs, setRuns] = useState<AutomationRun[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [loadedForId, setLoadedForId] = useState<string | null>(null);
   const [selectedRun, setSelectedRun] = useState<AutomationRun | null>(null);
+  const isLoading = loadedForId !== automationId;
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoading(true);
     fetchRunHistory(automationId).then((data) => {
       if (!cancelled) {
         setRuns(data);
-        setIsLoading(false);
+        setLoadedForId(automationId);
       }
     });
     return () => { cancelled = true; };
