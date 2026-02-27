@@ -97,15 +97,13 @@ class _TokenCountingLLM:
 def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
     """Return the resolved FeatureToggles for the given user based on admin config."""
     config = _get_cached_config(request.app.state.config_path)
-    if user.is_admin:
-        features = FeatureToggles()
-    else:
+    # Everyone starts from defaults (including admins and admin-domain users).
+    # Org-mapped users get their org-specific overrides on top.
+    features = config.defaults.features
+    if not user.is_admin:
         domain = user.email.split("@")[1].lower()
-        if domain in [d.lower() for d in config.admin_domains]:
-            features = FeatureToggles()
-        else:
+        if domain not in [d.lower() for d in config.admin_domains]:
             email_lower = user.email.lower()
-            features = config.defaults.features
             for mapping in config.user_org_mappings:
                 if mapping.email.lower() == email_lower:
                     org = config.organizations.get(mapping.org_id)

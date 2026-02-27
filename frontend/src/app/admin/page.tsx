@@ -36,6 +36,7 @@ const DEFAULT_FEATURES: FeatureToggles = {
   conversation_export: true,
   agent_process_sidebar: false,
   clarification_enabled: false,
+  stats_context_injection: false,
 };
 
 const DEFAULT_BRANDING: OrgBranding = {
@@ -121,6 +122,15 @@ export default function AdminPage() {
       setEditingConfig(null);
       return;
     }
+    if (orgId === "__all__") {
+      setEditingConfig({
+        org_id: "__all__",
+        org_name: "All (Default)",
+        features: { ...fullConfig.defaults.features },
+        branding: { ...fullConfig.defaults.branding },
+      });
+      return;
+    }
     const org = fullConfig.organizations[orgId];
     setEditingConfig(org ? { ...org } : null);
   };
@@ -140,6 +150,31 @@ export default function AdminPage() {
       });
       if (res.ok) {
         showMessage("success", "Organization config saved");
+        await loadConfig();
+      } else {
+        showMessage("error", "Failed to save");
+      }
+    } catch {
+      showMessage("error", "Network error");
+    }
+    setIsSaving(false);
+  };
+
+  const saveDefaultsConfig = async () => {
+    if (!editingConfig || !fullConfig) return;
+    setIsSaving(true);
+    try {
+      const updatedDefaults = { ...fullConfig.defaults, features: editingConfig.features };
+      const res = await apiFetch("/api/admin/config", {
+        method: "PUT",
+        body: JSON.stringify({
+          admin_domains: fullConfig.admin_domains,
+          user_org_mappings: fullConfig.user_org_mappings,
+          defaults: updatedDefaults,
+        }),
+      });
+      if (res.ok) {
+        showMessage("success", "Default settings saved");
         await loadConfig();
       } else {
         showMessage("error", "Failed to save");
@@ -511,34 +546,35 @@ export default function AdminPage() {
             </div>
 
             {/* Org selector + editor */}
-            {orgList.length > 0 && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <Select
-                    value={selectedOrgId}
-                    onValueChange={handleOrgChange}
-                  >
-                    <SelectTrigger className="w-64">
-                      <SelectValue placeholder="Select organization" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {orgList.map((org) => (
-                        <SelectItem key={org.org_id} value={org.org_id}>
-                          {org.org_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Select
+                  value={selectedOrgId}
+                  onValueChange={handleOrgChange}
+                >
+                  <SelectTrigger className="w-64">
+                    <SelectValue placeholder="Select organization" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All (Default)</SelectItem>
+                    {orgList.map((org) => (
+                      <SelectItem key={org.org_id} value={org.org_id}>
+                        {org.org_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-                  {selectedOrgId && editingConfig && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        onClick={saveOrgConfig}
-                        disabled={isSaving}
-                      >
-                        <Save className="size-4 mr-1" />
-                        Save
-                      </Button>
+                {selectedOrgId && editingConfig && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={selectedOrgId === "__all__" ? saveDefaultsConfig : saveOrgConfig}
+                      disabled={isSaving}
+                    >
+                      <Save className="size-4 mr-1" />
+                      {selectedOrgId === "__all__" ? "Save Defaults" : "Save"}
+                    </Button>
+                    {selectedOrgId !== "__all__" && (
                       <Button
                         variant="destructive"
                         onClick={deleteOrg}
@@ -547,24 +583,28 @@ export default function AdminPage() {
                         <Trash2 className="size-4 mr-1" />
                         Delete
                       </Button>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
-                {editingConfig && (
-                  <Tabs defaultValue="features" className="space-y-4">
-                    <TabsList>
-                      <TabsTrigger value="features">Features</TabsTrigger>
+              {editingConfig && (
+                <Tabs defaultValue="features" className="space-y-4">
+                  <TabsList>
+                    <TabsTrigger value="features">Features</TabsTrigger>
+                    {selectedOrgId !== "__all__" && (
                       <TabsTrigger value="branding">Branding</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="features">
-                      <FeatureTogglesEditor
-                        features={editingConfig.features}
-                        onChange={(features) =>
-                          setEditingConfig({ ...editingConfig, features })
-                        }
-                      />
-                    </TabsContent>
+                    )}
+                  </TabsList>
+                  <TabsContent value="features">
+                    <FeatureTogglesEditor
+                      features={editingConfig.features}
+                      onChange={(features) =>
+                        setEditingConfig({ ...editingConfig, features })
+                      }
+                    />
+                  </TabsContent>
+                  {selectedOrgId !== "__all__" && (
                     <TabsContent value="branding">
                       <BrandingEditor
                         branding={editingConfig.branding}
@@ -573,10 +613,10 @@ export default function AdminPage() {
                         }
                       />
                     </TabsContent>
-                  </Tabs>
-                )}
-              </div>
-            )}
+                  )}
+                </Tabs>
+              )}
+            </div>
           </TabsContent>
 
           {/* Global Settings Tab */}
