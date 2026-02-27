@@ -74,6 +74,17 @@ def _migrate_schema(engine) -> None:
             except Exception as e:
                 logger.debug("Index creation skipped: %s", e)
 
+        # Sync delete tracking table (for Turso background sync)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS _sync_deletes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                table_name TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                deleted_at DATETIME NOT NULL,
+                synced BOOLEAN NOT NULL DEFAULT 0
+            )
+        """))
+
         # Drop legacy tables
         existing_tables = set(insp.get_table_names())
         if "feedback" in existing_tables:
@@ -205,6 +216,42 @@ def _run_rag_training(rag: VectorStore, db: DatabaseConnector, dataset_service=N
         logger.error("RAG bootstrap failed: %s", e, exc_info=True)
 
 
+def _ensure_transactions_loaded(engine) -> None:
+    """Load transactions from CSV into local SQLite if table is empty or missing."""
+    from sqlalchemy import inspect as sa_inspect
+    insp = sa_inspect(engine)
+
+    if "transactions" in insp.get_table_names():
+        with engine.connect() as conn:
+            count = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar()
+            if count and count > 0:
+                logger.debug("transactions table already has %d rows, skipping CSV load", count)
+                return
+
+    # Find the CSV file relative to the backend directory
+    csv_candidates = [
+        Path(__file__).resolve().parent.parent.parent.parent / "upi_transactions_2024.csv",
+        Path("upi_transactions_2024.csv"),
+        Path("backend/upi_transactions_2024.csv"),
+    ]
+
+    csv_path = None
+    for candidate in csv_candidates:
+        if candidate.exists():
+            csv_path = candidate
+            break
+
+    if csv_path is None:
+        logger.warning("No CSV file found for transactions table — queries will fail until data is loaded")
+        return
+
+    from insightxpert.db.data_loader import load_data
+    db_url = str(engine.url)
+    logger.info("Loading transactions from %s into local SQLite...", csv_path)
+    count = load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="replace")
+    logger.info("Loaded %d transactions from CSV", count)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = _settings
@@ -212,15 +259,77 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting InsightXpert (log_level=%s)", settings.log_level)
 
-    # Database
+    sync_manager = None
+
+    # 1. Connect to local SQLite (sub-ms queries)
     db = DatabaseConnector()
     try:
-        db.connect(settings.database_url, auth_token=settings.turso_auth_token)
+        db.connect(settings.database_url)
         safe_url = db.engine.url.render_as_string(hide_password=True)
-        logger.info("Database connected: %s", safe_url)
+        logger.info("Local database connected: %s", safe_url)
     except Exception as e:
         logger.error("Database connection failed: %s", e, exc_info=True)
         raise
+
+    auth_engine = db.engine
+
+    # 2. Create auth tables & run migrations
+    try:
+        AuthBase.metadata.create_all(auth_engine)
+        _migrate_schema(auth_engine)
+        logger.info("Auth tables initialized")
+    except Exception as e:
+        logger.error("Auth table setup failed: %s", e, exc_info=True)
+
+    # 3. Startup sync: pull auth data from Turso (if configured)
+    if settings.turso_url and settings.sync_on_startup:
+        try:
+            from insightxpert.db.sync import TursoSyncManager
+            sync_manager = TursoSyncManager(
+                local_engine=auth_engine,
+                turso_url=settings.turso_url,
+                turso_auth_token=settings.turso_auth_token,
+            )
+            await asyncio.to_thread(sync_manager.pull_from_turso)
+        except Exception as e:
+            logger.error("Startup sync from Turso failed (continuing with local data): %s", e, exc_info=True)
+    elif settings.turso_url:
+        # Turso configured but startup sync disabled — still create manager for background push
+        try:
+            from insightxpert.db.sync import TursoSyncManager
+            sync_manager = TursoSyncManager(
+                local_engine=auth_engine,
+                turso_url=settings.turso_url,
+                turso_auth_token=settings.turso_auth_token,
+            )
+        except Exception as e:
+            logger.error("Failed to create Turso sync manager: %s", e)
+    else:
+        logger.info("No TURSO_URL configured — running in pure local mode")
+
+    # 4. Seed admin, prompts, datasets (idempotent — safe after sync)
+    try:
+        seed_admin(auth_engine, settings)
+    except Exception as e:
+        logger.error("Admin seeding failed: %s", e, exc_info=True)
+
+    try:
+        _seed_prompts(auth_engine)
+        logger.info("Prompt templates initialized")
+    except Exception as e:
+        logger.error("Prompt seeding failed: %s", e, exc_info=True)
+
+    try:
+        _seed_datasets(auth_engine)
+        logger.info("Dataset tables initialized")
+    except Exception as e:
+        logger.error("Dataset seeding failed: %s", e, exc_info=True)
+
+    # 5. Load transactions from CSV if not already present
+    try:
+        await asyncio.to_thread(_ensure_transactions_loaded, auth_engine)
+    except Exception as e:
+        logger.error("Transaction loading failed: %s", e, exc_info=True)
 
     # RAG vector store
     rag = VectorStore(persist_dir=settings.chroma_persist_dir)
@@ -229,30 +338,6 @@ async def lifespan(app: FastAPI):
     # LLM provider
     llm = create_llm(settings.llm_provider.value, settings)
     logger.info("LLM provider: %s", settings.llm_provider.value)
-
-    # Auth tables (same database as transactions)
-    auth_engine = db.engine
-    try:
-        AuthBase.metadata.create_all(auth_engine)
-        _migrate_schema(auth_engine)
-        seed_admin(auth_engine, settings)
-        logger.info("Auth tables initialized")
-    except Exception as e:
-        logger.error("Auth table setup failed: %s", e, exc_info=True)
-
-    # Seed prompt templates from .j2 files if table is empty
-    try:
-        _seed_prompts(auth_engine)
-        logger.info("Prompt templates initialized")
-    except Exception as e:
-        logger.error("Prompt seeding failed: %s", e, exc_info=True)
-
-    # Seed datasets from hardcoded training files
-    try:
-        _seed_datasets(auth_engine)
-        logger.info("Dataset tables initialized")
-    except Exception as e:
-        logger.error("Dataset seeding failed: %s", e, exc_info=True)
 
     # Dataset service
     from insightxpert.datasets.service import DatasetService
@@ -290,6 +375,11 @@ async def lifespan(app: FastAPI):
     app.state.config_path = config_path
     logger.info("Admin config loaded: %s", config_path)
 
+    # 6. Start background sync (if Turso configured)
+    if sync_manager is not None:
+        await sync_manager.start_background_sync(settings.sync_interval_seconds)
+        logger.info("Background Turso sync started (interval=%ds)", settings.sync_interval_seconds)
+
     # Wait for RAG training to finish (with timeout so server still starts)
     rag_timeout = settings.rag_bootstrap_timeout_seconds
     try:
@@ -302,7 +392,9 @@ async def lifespan(app: FastAPI):
     logger.info("InsightXpert ready")
     yield
 
-    # Cancel RAG task if still running during shutdown
+    # Shutdown
+    if sync_manager is not None:
+        await sync_manager.shutdown()
     if not rag_task.done():
         rag_task.cancel()
     db.disconnect()

@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import desc, func, select
+from sqlalchemy import desc, func, select, text
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import ConversationRecord, MessageRecord
@@ -30,6 +30,21 @@ def _conv_to_dict(convo: ConversationRecord) -> dict:
         "created_at": _to_ist(convo.created_at),
         "updated_at": _to_ist(convo.updated_at),
     }
+
+
+def _record_delete(session: Session, table_name: str, record_ids: list[str]) -> None:
+    """Record deletions in _sync_deletes so background sync can propagate to Turso."""
+    if not record_ids:
+        return
+    now = datetime.now(timezone.utc).isoformat()
+    for rid in record_ids:
+        session.execute(
+            text(
+                "INSERT INTO _sync_deletes (table_name, record_id, deleted_at, synced) "
+                "VALUES (:table, :rid, :ts, 0)"
+            ),
+            {"table": table_name, "rid": rid, "ts": now},
+        )
 
 
 class PersistentConversationStore:
@@ -174,6 +189,15 @@ class PersistentConversationStore:
             convo = session.get(ConversationRecord, conversation_id)
             if convo is None or convo.user_id != user_id:
                 return False
+            # Record message IDs for sync before cascade deletes them
+            msg_ids = [
+                m.id for m in
+                session.query(MessageRecord.id)
+                .filter(MessageRecord.conversation_id == conversation_id)
+                .all()
+            ]
+            _record_delete(session, "messages", msg_ids)
+            _record_delete(session, "conversations", [conversation_id])
             session.delete(convo)
             session.commit()
             return True
@@ -184,6 +208,14 @@ class PersistentConversationStore:
             convo = session.get(ConversationRecord, conversation_id)
             if convo is None:
                 return False
+            msg_ids = [
+                m.id for m in
+                session.query(MessageRecord.id)
+                .filter(MessageRecord.conversation_id == conversation_id)
+                .all()
+            ]
+            _record_delete(session, "messages", msg_ids)
+            _record_delete(session, "conversations", [conversation_id])
             session.delete(convo)
             session.commit()
             return True
@@ -355,6 +387,14 @@ class PersistentConversationStore:
                 .all()
             ]
             if conv_ids:
+                msg_ids = [
+                    m.id for m in
+                    session.query(MessageRecord.id)
+                    .filter(MessageRecord.conversation_id.in_(conv_ids))
+                    .all()
+                ]
+                _record_delete(session, "messages", msg_ids)
+                _record_delete(session, "conversations", conv_ids)
                 session.query(MessageRecord).filter(
                     MessageRecord.conversation_id.in_(conv_ids)
                 ).delete(synchronize_session=False)
@@ -367,11 +407,14 @@ class PersistentConversationStore:
     def delete_all_conversations(self) -> int:
         """Delete ALL conversations across all users. Returns count deleted."""
         with Session(self.engine) as session:
-            count = session.query(ConversationRecord).count()
+            conv_ids = [c.id for c in session.query(ConversationRecord.id).all()]
+            msg_ids = [m.id for m in session.query(MessageRecord.id).all()]
+            _record_delete(session, "messages", msg_ids)
+            _record_delete(session, "conversations", conv_ids)
             session.query(MessageRecord).delete(synchronize_session=False)
             session.query(ConversationRecord).delete(synchronize_session=False)
             session.commit()
-            return count
+            return len(conv_ids)
 
     def update_message_feedback(
         self,

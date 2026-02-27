@@ -17,6 +17,23 @@ def _enable_sqlite_fks(dbapi_conn, connection_record):
     cursor.close()
 
 
+def create_turso_engine(url: str, auth_token: str) -> Engine:
+    """Create a SQLAlchemy engine for a remote Turso (libSQL over HTTPS) database.
+
+    Uses NullPool because the libSQL driver raises ValueError (not a DBAPI error)
+    on stale streams, so pool_pre_ping cannot recover them.
+    """
+    # Normalize libsql:// → sqlite+libsql://
+    if url.startswith("libsql://"):
+        host_part = url[len("libsql://"):]
+        url = f"sqlite+libsql://{host_part}?secure=true"
+    elif "libsql" not in url:
+        raise ValueError(f"Expected a libsql/Turso URL, got: {url[:50]}")
+
+    connect_args = {"auth_token": auth_token} if auth_token else {}
+    return create_engine(url, connect_args=connect_args, poolclass=NullPool)
+
+
 class DatabaseConnector:
     def __init__(self) -> None:
         self._engine: Engine | None = None
