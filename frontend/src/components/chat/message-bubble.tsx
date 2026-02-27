@@ -2,11 +2,13 @@
 
 import React, { useCallback } from "react";
 import { motion } from "framer-motion";
-import { Loader2 } from "lucide-react";
+import { Loader2, Zap } from "lucide-react";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
 import { MessageActions } from "@/components/chat/message-actions";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useChatStore } from "@/stores/chat-store";
+import { useAutomationStore } from "@/stores/automation-store";
+import { useClientConfig } from "@/hooks/use-client-config";
 import type { Message } from "@/types/chat";
 
 const MessageMetrics = React.memo(function MessageMetrics({ message }: { message: Message }) {
@@ -72,6 +74,8 @@ interface MessageBubbleProps {
   // Takes messageId so callers can pass a stable handler without wrapping in
   // a per-message closure, which would break React.memo's prop comparison.
   onFeedback?: (messageId: string, type: "up" | "down", comment?: string) => void;
+  /** The user question that preceded this assistant message */
+  userQuestion?: string;
 }
 
 function MessageBubbleInner({
@@ -79,8 +83,11 @@ function MessageBubbleInner({
   isLastAssistant,
   onRetry,
   onFeedback,
+  userQuestion,
 }: MessageBubbleProps) {
   const isStreaming = useChatStore(selectIsActiveStreaming);
+  const activeConversationId = useChatStore((s) => s.activeConversationId);
+  const { isAdmin } = useClientConfig();
   const isUser = message.role === "user";
 
   // Stable wrapper so MessageActions always gets the same function reference
@@ -89,6 +96,18 @@ function MessageBubbleInner({
     (type: "up" | "down", comment?: string) => onFeedback?.(message.id, type, comment),
     [message.id, onFeedback],
   );
+
+  // Show "Create Automation" for admin, assistant messages with tool_result, and not streaming
+  const hasToolResult = !isUser && message.chunks.some((c) => c.type === "tool_result");
+  const showAutomationBtn = isAdmin && hasToolResult && !isStreaming;
+
+  const handleCreateAutomation = useCallback(() => {
+    if (!activeConversationId) return;
+    useAutomationStore.getState().openWorkflowBuilder({
+      conversationId: activeConversationId,
+      focusMessageId: message.id,
+    });
+  }, [message.id, activeConversationId]);
 
   return (
     <motion.div
@@ -153,6 +172,16 @@ function MessageBubbleInner({
           onFeedback={handleFeedbackForMsg}
         />
       )}
+
+      {showAutomationBtn && (
+        <button
+          onClick={handleCreateAutomation}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors mt-1"
+        >
+          <Zap className="size-3.5" />
+          <span>Create Automation</span>
+        </button>
+      )}
     </motion.div>
   );
 }
@@ -165,6 +194,7 @@ export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
     prev.message === next.message &&
     prev.isLastAssistant === next.isLastAssistant &&
     prev.onRetry === next.onRetry &&
-    prev.onFeedback === next.onFeedback
+    prev.onFeedback === next.onFeedback &&
+    prev.userQuestion === next.userQuestion
   );
 });

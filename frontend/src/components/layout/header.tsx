@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/tooltip";
 import { AppLogo } from "@/components/ui/app-logo";
 import { DatasetSelector } from "./dataset-selector";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 
 export const Header = React.memo(function Header() {
   const isMobile = useIsMobile();
@@ -45,6 +46,9 @@ export const Header = React.memo(function Header() {
         <div className="hidden md:flex ml-1 rounded-md bg-black/5 dark:bg-white/5 px-0.5 py-0.5">
           <DatasetSelector />
         </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <NotificationBell />
       </div>
     </header>
   );

@@ -55,15 +55,28 @@ export function MessageList({ onRetry }: MessageListProps) {
       className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 sm:py-6"
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
-        {messages.map((msg, idx) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            isLastAssistant={idx === lastAssistantIdx}
-            onRetry={handleRetry}
-            onFeedback={handleFeedback}
-          />
-        ))}
+        {messages.map((msg, idx) => {
+          // Find the preceding user message for the "Create Automation" context
+          let userQuestion: string | undefined;
+          if (msg.role === "assistant") {
+            for (let i = idx - 1; i >= 0; i--) {
+              if (messages[i].role === "user") {
+                userQuestion = messages[i].content;
+                break;
+              }
+            }
+          }
+          return (
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              isLastAssistant={idx === lastAssistantIdx}
+              onRetry={handleRetry}
+              onFeedback={handleFeedback}
+              userQuestion={userQuestion}
+            />
+          );
+        })}
 
       </div>
     </div>

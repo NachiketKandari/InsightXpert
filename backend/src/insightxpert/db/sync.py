@@ -27,6 +27,9 @@ SYNC_TABLES = [
     "dataset_columns",
     "example_queries",
     "messages",
+    "automations",
+    "automation_runs",
+    "notifications",
 ]
 
 

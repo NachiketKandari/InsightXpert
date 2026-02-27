@@ -123,3 +123,67 @@ class ExampleQuery(Base):
     category: Mapped[str | None] = mapped_column(String(100), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class Automation(Base):
+    __tablename__ = "automations"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    nl_query: Mapped[str] = mapped_column(Text, nullable=False)
+    sql_query: Mapped[str] = mapped_column(Text, nullable=False)
+    cron_expression: Mapped[str] = mapped_column(String(100), nullable=False)
+    trigger_conditions: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class AutomationRun(Base):
+    __tablename__ = "automation_runs"
+    __table_args__ = (
+        Index("ix_automation_runs_auto_created", "automation_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    automation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("automations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    status: Mapped[str] = mapped_column(String(20), nullable=False)
+    result_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    execution_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    triggers_fired: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class Notification(Base):
+    __tablename__ = "notifications"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    automation_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("automations.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    run_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("automation_runs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    title: Mapped[str] = mapped_column(String(500), nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    severity: Mapped[str] = mapped_column(String(20), default="info")
+    is_read: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

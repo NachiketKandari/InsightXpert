@@ -3,7 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown } from "lucide-react";
+import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown, Zap } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { useChatStore } from "@/stores/chat-store";
@@ -109,6 +109,14 @@ export const UserMenu = React.memo(function UserMenu() {
               <Link href="/admin">
                 <Settings className="size-4" />
                 Admin Panel
+              </Link>
+            </DropdownMenuItem>
+          )}
+          {isAdmin && (
+            <DropdownMenuItem asChild>
+              <Link href="/admin/automations">
+                <Zap className="size-4" />
+                Automations
               </Link>
             </DropdownMenuItem>
           )}
