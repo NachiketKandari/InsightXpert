@@ -11,6 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from insightxpert.agents.orchestrator import orchestrator_loop
 from insightxpert.api.models import (
+    ChatAnswerResponse,
     ChatChunk,
     ChatRequest,
     ConfigResponse,
@@ -334,6 +335,60 @@ async def chat_poll(
 
     logger.info("POST /chat/poll done: %d chunks", len(chunks))
     return {"chunks": chunks}
+
+
+@router.post("/chat/answer", response_model=ChatAnswerResponse)
+async def chat_answer(
+    chat_req: ChatRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Run the full pipeline and return only the final answer, conversation ID, and SQL."""
+    logger.info("POST /chat/answer message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
+    features = _resolve_user_features(request, user)
+    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
+
+    all_chunks: list[dict] = []
+    final_answer = ""
+    executed_sql: list[str] = []
+    counting_llm = _TokenCountingLLM(llm)
+    start_time = time.time()
+    async for chunk in orchestrator_loop(
+        question=chat_req.message,
+        llm=counting_llm,
+        db=db,
+        rag=rag,
+        config=settings,
+        conversation_id=cid or persistent_cid,
+        history=history,
+        agent_mode=chat_req.agent_mode,
+        dataset_service=dataset_service,
+        skip_clarification=effective_skip_clarification,
+    ):
+        all_chunks.append(chunk.model_dump())
+        if chunk.type == "sql" and chunk.sql:
+            executed_sql.append(chunk.sql)
+        if chunk.type == "answer" and chunk.content:
+            final_answer = chunk.content
+
+    generation_time_ms = int((time.time() - start_time) * 1000)
+    store_cid = cid or (all_chunks[0]["conversation_id"] if all_chunks else "")
+    await asyncio.to_thread(
+        _persist_response,
+        conv_store, persistent_store, store_cid, persistent_cid, user.id,
+        final_answer, executed_sql, json.dumps(all_chunks),
+        counting_llm.input_tokens or None,
+        counting_llm.output_tokens or None,
+        generation_time_ms,
+    )
+
+    logger.info("POST /chat/answer done: answer_len=%d", len(final_answer))
+    return ChatAnswerResponse(
+        answer=final_answer,
+        conversation_id=persistent_cid,
+        sql=executed_sql,
+    )
 
 
 @router.post("/train", response_model=TrainResponse)

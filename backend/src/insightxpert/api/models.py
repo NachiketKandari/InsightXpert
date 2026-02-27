@@ -176,3 +176,9 @@ class ErrorResponse(BaseModel):
 
 class StarRequest(BaseModel):
     starred: bool = True
+
+
+class ChatAnswerResponse(BaseModel):
+    answer: str
+    conversation_id: str
+    sql: list[str] = []
