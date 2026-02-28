@@ -85,6 +85,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+
+
 class UserResponse(BaseModel):
     id: str
     email: str

@@ -11,7 +11,9 @@ interface AuthState {
   user: AuthUser | null;
   isLoading: boolean;
   error: string | null;
+  clearError: () => void;
   login: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   checkAuth: () => Promise<void>;
 }
@@ -20,6 +22,8 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: true,
   error: null,
+
+  clearError: () => set({ error: null }),
 
   login: async (email: string, password: string) => {
     set({ error: null, isLoading: true });
@@ -32,6 +36,28 @@ export const useAuthStore = create<AuthState>((set) => ({
         const data = await res.json().catch(() => null);
         set({
           error: data?.detail || "Invalid email or password",
+          isLoading: false,
+        });
+        return;
+      }
+      const data = await res.json();
+      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, isLoading: false });
+    } catch {
+      set({ error: "Network error. Please try again.", isLoading: false });
+    }
+  },
+
+  register: async (email: string, password: string) => {
+    set({ error: null, isLoading: true });
+    try {
+      const res = await apiFetch("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({ email, password }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => null);
+        set({
+          error: data?.detail || "Registration failed",
           isLoading: false,
         });
         return;
