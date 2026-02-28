@@ -34,7 +34,14 @@ logger = logging.getLogger("insightxpert")
 
 
 def _migrate_schema(engine) -> None:
-    """Add new columns to existing tables (idempotent, no Alembic needed)."""
+    """Add new columns to existing tables (idempotent, no Alembic needed).
+
+    Column additions and index definitions are shared with
+    ``TursoSyncManager.ensure_remote_schema`` via ``_MIGRATION_COLUMNS``
+    and ``_SCHEMA_INDEXES`` in ``db.sync`` to avoid duplication.
+    """
+    from insightxpert.db.sync import _MIGRATION_COLUMNS, _SCHEMA_INDEXES
+
     insp = inspect(engine)
     dialect = engine.dialect.name
 
@@ -53,75 +60,28 @@ def _migrate_schema(engine) -> None:
             except Exception:
                 logger.debug("Column %s.%s already exists (dialect=%s)", table, column, dialect)
 
-        _add_column("users", "is_admin", "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
-        _add_column("users", "last_active", "DATETIME")
-        _add_column("conversations", "is_starred",
-                     "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
-        _add_column("messages", "feedback", "BOOLEAN")
-        _add_column("messages", "feedback_comment", "TEXT")
-        _add_column("messages", "input_tokens", "INTEGER")
-        _add_column("messages", "output_tokens", "INTEGER")
-        _add_column("messages", "generation_time_ms", "INTEGER")
+        # PostgreSQL uses different boolean syntax
+        pg_overrides = {
+            ("users", "is_admin"): "BOOLEAN DEFAULT FALSE NOT NULL",
+            ("conversations", "is_starred"): "BOOLEAN DEFAULT FALSE NOT NULL",
+        }
 
-        # Indexes for frequently-queried foreign keys
-        for idx_sql in [
-            "CREATE INDEX IF NOT EXISTS ix_conversations_user_id ON conversations (user_id)",
-            "CREATE INDEX IF NOT EXISTS ix_messages_conversation_id ON messages (conversation_id)",
-            "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at)",
-        ]:
-            try:
-                conn.execute(text(idx_sql))
-            except Exception as e:
-                logger.debug("Index creation skipped: %s", e)
+        for table, column, col_def in _MIGRATION_COLUMNS:
+            if dialect == "postgresql" and (table, column) in pg_overrides:
+                col_def = pg_overrides[(table, column)]
+            _add_column(table, column, col_def)
 
-        _add_column("automations", "workflow_json", "TEXT")
-        _add_column("users", "org_id", "VARCHAR(100)")
-        _add_column("users", "updated_at", "DATETIME")
         # Backfill updated_at = created_at for existing rows that don't have it
         conn.execute(text(
             "UPDATE users SET updated_at = created_at WHERE updated_at IS NULL"
         ))
-        _add_column("conversations", "org_id", "VARCHAR(100)")
 
-        # Index for org-scoped conversation queries
-        try:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_conversations_org_id ON conversations (org_id)"))
-        except Exception as e:
-            logger.debug("Index creation skipped: %s", e)
-
-        # Indexes for automation tables
-        for idx_sql in [
-            "CREATE INDEX IF NOT EXISTS ix_automation_runs_automation_id ON automation_runs (automation_id)",
-            "CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id)",
-        ]:
+        # All indexes and unique constraints (shared with Turso schema sync)
+        for idx_sql in _SCHEMA_INDEXES:
             try:
                 conn.execute(text(idx_sql))
             except Exception as e:
                 logger.debug("Index creation skipped: %s", e)
-
-        # Indexes for dataset_stats (created by AuthBase.metadata.create_all, but ensure idempotently)
-        for idx_sql in [
-            "CREATE INDEX IF NOT EXISTS ix_dataset_stats_stat_group ON dataset_stats (stat_group)",
-            "CREATE INDEX IF NOT EXISTS ix_dataset_stats_group_dim ON dataset_stats (stat_group, dimension)",
-        ]:
-            try:
-                conn.execute(text(idx_sql))
-            except Exception as e:
-                logger.debug("Index creation skipped: %s", e)
-
-        # Add organization_id to datasets table
-        _add_column(
-            "datasets",
-            "organization_id",
-            "VARCHAR(100) REFERENCES organizations(id) ON DELETE SET NULL",
-        )
-        try:
-            conn.execute(text(
-                "CREATE INDEX IF NOT EXISTS ix_datasets_organization_id "
-                "ON datasets (organization_id)"
-            ))
-        except Exception as e:
-            logger.debug("Index creation skipped: %s", e)
 
         # Sync delete tracking table (for Turso background sync)
         conn.execute(text("""
@@ -133,6 +93,14 @@ def _migrate_schema(engine) -> None:
                 synced BOOLEAN NOT NULL DEFAULT 0
             )
         """))
+
+        # Transaction timestamp index (table may not exist yet at migration time)
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_timestamp ON transactions (timestamp)"
+            ))
+        except Exception:
+            logger.debug("transactions table not present yet, skipping idx_timestamp")
 
         # Drop legacy tables
         existing_tables = set(insp.get_table_names())
@@ -356,7 +324,7 @@ async def lifespan(app: FastAPI):
         logger.error("Auth table setup failed: %s", e, exc_info=True)
 
     # 3. Startup sync: pull auth data from Turso (if configured)
-    if settings.turso_url and settings.sync_on_startup:
+    if settings.turso_url:
         try:
             from insightxpert.db.sync import TursoSyncManager
             sync_manager = TursoSyncManager(
@@ -364,20 +332,12 @@ async def lifespan(app: FastAPI):
                 turso_url=settings.turso_url,
                 turso_auth_token=settings.turso_auth_token,
             )
-            await asyncio.to_thread(sync_manager.pull_from_turso)
+            # Ensure Turso schema matches local (tables, indexes, constraints)
+            await asyncio.to_thread(sync_manager.ensure_remote_schema)
+            if settings.sync_on_startup:
+                await asyncio.to_thread(sync_manager.pull_from_turso)
         except Exception as e:
-            logger.error("Startup sync from Turso failed (continuing with local data): %s", e, exc_info=True)
-    elif settings.turso_url:
-        # Turso configured but startup sync disabled — still create manager for background push
-        try:
-            from insightxpert.db.sync import TursoSyncManager
-            sync_manager = TursoSyncManager(
-                local_engine=auth_engine,
-                turso_url=settings.turso_url,
-                turso_auth_token=settings.turso_auth_token,
-            )
-        except Exception as e:
-            logger.error("Failed to create Turso sync manager: %s", e)
+            logger.error("Turso startup sync failed (continuing with local data): %s", e, exc_info=True)
     else:
         logger.info("No TURSO_URL configured — running in pure local mode")
 

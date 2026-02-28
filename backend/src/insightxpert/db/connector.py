@@ -10,10 +10,11 @@ from sqlalchemy.pool import NullPool
 logger = logging.getLogger("insightxpert.db")
 
 
-def _enable_sqlite_fks(dbapi_conn, connection_record):
-    """Enable foreign key enforcement for every new SQLite connection."""
+def _enable_sqlite_pragmas(dbapi_conn, connection_record):
+    """Enable foreign key enforcement and WAL mode for every new SQLite connection."""
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.execute("PRAGMA journal_mode = WAL")
     cursor.close()
 
 
@@ -82,7 +83,7 @@ class DatabaseConnector:
 
         # Only enable PRAGMA foreign_keys for local SQLite (PRAGMAs fail on remote Turso)
         if url.startswith("sqlite") and not self._is_libsql_remote:
-            event.listen(self._engine, "connect", _enable_sqlite_fks)
+            event.listen(self._engine, "connect", _enable_sqlite_pragmas)
 
         safe_url = self._engine.url.render_as_string(hide_password=True)
         logger.debug("Engine created for %s (dialect=%s)", safe_url, self._engine.dialect.name)

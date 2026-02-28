@@ -4,7 +4,7 @@ import logging as _logging
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy import text as _sa_text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, Session
@@ -102,8 +102,15 @@ class ConversationRecord(Base):
     __tablename__ = "conversations"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
-    org_id: Mapped[str | None] = mapped_column(String(100), nullable=True, index=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
+    org_id: Mapped[str | None] = mapped_column(
+        String(100),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     is_starred: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
@@ -167,6 +174,9 @@ class Dataset(Base):
 
 class DatasetColumn(Base):
     __tablename__ = "dataset_columns"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "column_name", name="uq_dataset_columns_ds_col"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     dataset_id: Mapped[str] = mapped_column(
@@ -185,6 +195,9 @@ class DatasetColumn(Base):
 
 class ExampleQuery(Base):
     __tablename__ = "example_queries"
+    __table_args__ = (
+        UniqueConstraint("dataset_id", "question", name="uq_example_queries_ds_question"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     dataset_id: Mapped[str] = mapped_column(
@@ -201,6 +214,9 @@ class ExampleQuery(Base):
 
 class Automation(Base):
     __tablename__ = "automations"
+    __table_args__ = (
+        Index("ix_automations_active_next_run", "is_active", "next_run_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -212,7 +228,9 @@ class Automation(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_by: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False)
+    created_by: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
+    )
     source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     workflow_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -244,9 +262,14 @@ class AutomationRun(Base):
 
 class Notification(Base):
     __tablename__ = "notifications"
+    __table_args__ = (
+        Index("ix_notifications_user_read", "user_id", "is_read", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
+    )
     automation_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("automations.id", ondelete="CASCADE"),

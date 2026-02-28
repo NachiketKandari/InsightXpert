@@ -36,6 +36,46 @@ SYNC_TABLES = [
 ]
 
 
+
+# Migration columns: (table, column, column_def).
+# Applied idempotently to both local (_migrate_schema) and remote (ensure_remote_schema).
+_MIGRATION_COLUMNS = [
+    ("users", "is_admin", "BOOLEAN DEFAULT 0 NOT NULL"),
+    ("users", "last_active", "DATETIME"),
+    ("users", "org_id", "VARCHAR(100)"),
+    ("users", "updated_at", "DATETIME"),
+    ("conversations", "is_starred", "BOOLEAN DEFAULT 0 NOT NULL"),
+    ("conversations", "org_id", "VARCHAR(100)"),
+    ("messages", "feedback", "BOOLEAN"),
+    ("messages", "feedback_comment", "TEXT"),
+    ("messages", "input_tokens", "INTEGER"),
+    ("messages", "output_tokens", "INTEGER"),
+    ("messages", "generation_time_ms", "INTEGER"),
+    ("automations", "workflow_json", "TEXT"),
+    ("datasets", "organization_id", "VARCHAR(100)"),
+]
+
+# All indexes and unique constraints that must exist on every database.
+_SCHEMA_INDEXES = [
+    "CREATE INDEX IF NOT EXISTS ix_conversations_user_id ON conversations (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_conversations_updated_at ON conversations (updated_at)",
+    "CREATE INDEX IF NOT EXISTS ix_conversations_org_id ON conversations (org_id)",
+    "CREATE INDEX IF NOT EXISTS ix_messages_conversation_id ON messages (conversation_id)",
+    "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_messages_conv_created ON messages (conversation_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_automation_runs_automation_id ON automation_runs (automation_id)",
+    "CREATE INDEX IF NOT EXISTS ix_automation_runs_auto_created ON automation_runs (automation_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_automations_active_next_run ON automations (is_active, next_run_at)",
+    "CREATE INDEX IF NOT EXISTS ix_notifications_user_id ON notifications (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_notifications_user_read ON notifications (user_id, is_read, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_dataset_stats_stat_group ON dataset_stats (stat_group)",
+    "CREATE INDEX IF NOT EXISTS ix_dataset_stats_group_dim ON dataset_stats (stat_group, dimension)",
+    "CREATE INDEX IF NOT EXISTS ix_datasets_organization_id ON datasets (organization_id)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_dataset_columns_ds_col ON dataset_columns (dataset_id, column_name)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS uq_example_queries_ds_question ON example_queries (dataset_id, question)",
+]
+
+
 class TursoSyncManager:
     """Bidirectional sync between local SQLite and remote Turso."""
 
@@ -49,6 +89,61 @@ class TursoSyncManager:
         self._turso = create_turso_engine(turso_url, turso_auth_token)
         self._last_sync: datetime | None = None
         self._bg_task: asyncio.Task | None = None
+
+    # ------------------------------------------------------------------
+    # Schema sync: ensure Turso matches local structure
+    # ------------------------------------------------------------------
+
+    def ensure_remote_schema(self) -> None:
+        """Ensure Turso has the same tables, columns, indexes, and constraints as local.
+
+        Idempotent — safe to call on every startup.
+
+        1. ``create_all`` creates any *missing* tables with full FK / index /
+           unique-constraint definitions from the ORM models.
+        2. ``ALTER TABLE ADD COLUMN`` adds columns that were introduced by
+           migrations on existing tables.
+        3. ``CREATE INDEX IF NOT EXISTS`` ensures every required index exists.
+        """
+        from insightxpert.auth.models import Base as AuthBase
+
+        # 1. Create missing tables (no-op for tables that already exist)
+        try:
+            AuthBase.metadata.create_all(self._turso)
+            logger.info("Turso schema: tables ensured via create_all")
+        except Exception as e:
+            logger.error("Turso create_all failed: %s", e)
+
+        with self._turso.begin() as conn:
+            # 2. Add migration columns to existing tables
+            for table, column, col_def in _MIGRATION_COLUMNS:
+                try:
+                    conn.execute(text(
+                        f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
+                    ))
+                    logger.info("Turso migration: added %s.%s", table, column)
+                except Exception:
+                    pass  # Column already exists
+
+            # 3. Create all indexes and unique constraints
+            for idx_sql in _SCHEMA_INDEXES:
+                try:
+                    conn.execute(text(idx_sql))
+                except Exception as e:
+                    logger.debug("Turso index skipped: %s", e)
+
+            # 4. Sync delete tracking table
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS _sync_deletes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    table_name TEXT NOT NULL,
+                    record_id TEXT NOT NULL,
+                    deleted_at DATETIME NOT NULL,
+                    synced BOOLEAN NOT NULL DEFAULT 0
+                )
+            """))
+
+        logger.info("Turso schema sync complete")
 
     # ------------------------------------------------------------------
     # Startup pull: Turso -> Local

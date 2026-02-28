@@ -1,17 +1,34 @@
 import pytest
-from sqlalchemy import create_engine, text, inspect
+from sqlalchemy import create_engine, event, text, inspect
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import Base as AuthBase, PromptTemplate
 from insightxpert.main import _migrate_schema, _seed_prompts
 
 
+def _sqlite_engine(db_path):
+    """Create a SQLite engine with FK enforcement (matches production connector)."""
+    engine = create_engine(f"sqlite:///{db_path}")
+    event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys = ON"))
+    return engine
+
+
 @pytest.fixture
 def migration_engine(tmp_path):
     """Create a SQLite engine with minimal base tables (no new columns)."""
     db_path = tmp_path / "migrate.db"
-    engine = create_engine(f"sqlite:///{db_path}")
+    engine = _sqlite_engine(db_path)
     with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE organizations (
+                id VARCHAR(100) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                features_json TEXT NOT NULL DEFAULT '{}',
+                branding_json TEXT NOT NULL DEFAULT '{}',
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+        """))
         conn.execute(text("""
             CREATE TABLE users (
                 id VARCHAR(36) PRIMARY KEY,
@@ -19,6 +36,18 @@ def migration_engine(tmp_path):
                 hashed_password VARCHAR(255) NOT NULL,
                 is_active BOOLEAN DEFAULT 1,
                 created_at DATETIME
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE datasets (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                description TEXT,
+                ddl TEXT NOT NULL,
+                documentation TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                created_at DATETIME,
+                updated_at DATETIME
             )
         """))
         conn.execute(text("""
@@ -91,25 +120,29 @@ def migration_engine(tmp_path):
             )
         """))
         conn.execute(text("""
-            CREATE TABLE organizations (
-                id VARCHAR(100) PRIMARY KEY,
-                name VARCHAR(255) NOT NULL,
-                features_json TEXT NOT NULL DEFAULT '{}',
-                branding_json TEXT NOT NULL DEFAULT '{}',
+            CREATE TABLE dataset_columns (
+                id VARCHAR(36) PRIMARY KEY,
+                dataset_id VARCHAR(36) NOT NULL,
+                column_name VARCHAR(255) NOT NULL,
+                column_type VARCHAR(50) NOT NULL,
+                description TEXT,
+                domain_values TEXT,
+                domain_rules TEXT,
+                ordinal_position INTEGER DEFAULT 0,
                 created_at DATETIME,
-                updated_at DATETIME
+                FOREIGN KEY (dataset_id) REFERENCES datasets(id)
             )
         """))
         conn.execute(text("""
-            CREATE TABLE datasets (
+            CREATE TABLE example_queries (
                 id VARCHAR(36) PRIMARY KEY,
-                name VARCHAR(255) NOT NULL UNIQUE,
-                description TEXT,
-                ddl TEXT NOT NULL,
-                documentation TEXT NOT NULL,
+                dataset_id VARCHAR(36) NOT NULL,
+                question TEXT NOT NULL,
+                sql TEXT NOT NULL,
+                category VARCHAR(100),
                 is_active BOOLEAN DEFAULT 1,
                 created_at DATETIME,
-                updated_at DATETIME
+                FOREIGN KEY (dataset_id) REFERENCES datasets(id)
             )
         """))
     yield engine
@@ -139,6 +172,11 @@ def _get_table_names(engine) -> set[str]:
 # ---------- _migrate_schema tests ----------
 
 
+def _get_index_names(engine, table: str) -> set[str]:
+    insp = inspect(engine)
+    return {idx["name"] for idx in insp.get_indexes(table)}
+
+
 def test_migrate_schema_adds_columns(migration_engine):
     """New columns are added to users, conversations, and messages tables."""
     # Precondition: new columns do not exist yet
@@ -164,6 +202,35 @@ def test_migrate_schema_adds_columns(migration_engine):
 
     ds_cols = _get_column_names(migration_engine, "datasets")
     assert "organization_id" in ds_cols
+
+
+def test_migrate_schema_creates_indexes(migration_engine):
+    """Critical indexes are created by _migrate_schema."""
+    _migrate_schema(migration_engine)
+
+    # Composite index on messages for "messages by conversation ordered by time"
+    msg_indexes = _get_index_names(migration_engine, "messages")
+    assert "ix_messages_conv_created" in msg_indexes
+
+    # conversations.updated_at for ORDER BY sorting
+    conv_indexes = _get_index_names(migration_engine, "conversations")
+    assert "ix_conversations_updated_at" in conv_indexes
+    assert "ix_conversations_org_id" in conv_indexes
+
+    # Scheduler index on automations
+    auto_indexes = _get_index_names(migration_engine, "automations")
+    assert "ix_automations_active_next_run" in auto_indexes
+
+    # Notification inbox index
+    notif_indexes = _get_index_names(migration_engine, "notifications")
+    assert "ix_notifications_user_read" in notif_indexes
+
+    # Unique constraints on dataset children
+    dc_indexes = _get_index_names(migration_engine, "dataset_columns")
+    assert "uq_dataset_columns_ds_col" in dc_indexes
+
+    eq_indexes = _get_index_names(migration_engine, "example_queries")
+    assert "uq_example_queries_ds_question" in eq_indexes
 
 
 def test_migrate_schema_idempotent(migration_engine):
