@@ -90,6 +90,28 @@ def migration_engine(tmp_path):
                 FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """))
+        conn.execute(text("""
+            CREATE TABLE organizations (
+                id VARCHAR(100) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                features_json TEXT NOT NULL DEFAULT '{}',
+                branding_json TEXT NOT NULL DEFAULT '{}',
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+        """))
+        conn.execute(text("""
+            CREATE TABLE datasets (
+                id VARCHAR(36) PRIMARY KEY,
+                name VARCHAR(255) NOT NULL UNIQUE,
+                description TEXT,
+                ddl TEXT NOT NULL,
+                documentation TEXT NOT NULL,
+                is_active BOOLEAN DEFAULT 1,
+                created_at DATETIME,
+                updated_at DATETIME
+            )
+        """))
     yield engine
     engine.dispose()
 
@@ -139,6 +161,9 @@ def test_migrate_schema_adds_columns(migration_engine):
     msg_cols = _get_column_names(migration_engine, "messages")
     assert "feedback" in msg_cols
     assert "feedback_comment" in msg_cols
+
+    ds_cols = _get_column_names(migration_engine, "datasets")
+    assert "organization_id" in ds_cols
 
 
 def test_migrate_schema_idempotent(migration_engine):
