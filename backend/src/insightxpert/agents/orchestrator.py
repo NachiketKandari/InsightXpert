@@ -24,7 +24,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import time
 from typing import AsyncGenerator
 
 from insightxpert.agents.advanced_agent import advanced_analytics_loop
@@ -53,6 +52,7 @@ async def orchestrator_loop(
     dataset_service=None,
     skip_clarification: bool = False,
     stats_context_injection: bool = False,
+    clarification_enabled: bool = False,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst -> downstream agent pipeline.
 
@@ -74,41 +74,9 @@ async def orchestrator_loop(
                 dataset_service.build_documentation_markdown, active_ds["id"],
             )
 
-    # --- Clarification pre-check ---
-    if not skip_clarification:
-        from insightxpert.agents.clarifier import clarification_check
-
-        # Emit an immediate status chunk so the browser receives the first SSE
-        # event right away and the "Thinking…" spinner is replaced before the
-        # (slow) clarification LLM call starts.
-        yield ChatChunk(
-            type="status",
-            content="Analyzing your question...",
-            conversation_id=conversation_id or "",
-            timestamp=time.time(),
-        )
-
-        clarify_ddl = ddl_override or DDL
-        clarify_docs = docs_override or DOCUMENTATION
-        try:
-            result = await clarification_check(
-                question=question,
-                ddl=clarify_ddl,
-                documentation=clarify_docs,
-                llm=llm,
-                history=history,
-            )
-            if result.action == "clarify" and result.question:
-                yield ChatChunk(
-                    type="clarification",
-                    content=result.question,
-                    data={"skip_allowed": True},
-                    conversation_id=conversation_id or "",
-                    timestamp=time.time(),
-                )
-                return
-        except Exception as e:
-            logger.warning("Clarification check failed, proceeding: %s", e)
+    # Resolve effective clarification_enabled: if skip_clarification is True
+    # (user clicked "Just answer"), disable clarification for this request.
+    effective_clarification = clarification_enabled and not skip_clarification
 
     # --- Stats context pre-fetch ---
     stats_context: str | None = None
@@ -143,6 +111,7 @@ async def orchestrator_loop(
         documentation_override=docs_override,
         stats_context=stats_context,
         stats_groups=stats_groups,
+        clarification_enabled=effective_clarification,
     ):
         # Intercept SQL and result chunks for Phase 2 hand-off.
         # We keep the *last* SQL and result set because the analyst may

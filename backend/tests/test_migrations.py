@@ -292,11 +292,12 @@ def test_seed_prompts_idempotent(seed_engine):
 
 
 def test_seed_prompts_preserves_existing(seed_engine):
-    """If a template already exists with different content, it is not overwritten,
+    """If a template already exists with up-to-date content, it is not overwritten,
     but missing templates are still seeded."""
     from insightxpert.auth.models import _uuid, _utcnow
 
-    custom_content = "This is custom user-edited content."
+    # Include "clarification_enabled" so _seed_prompts considers it up-to-date
+    custom_content = "This is custom user-edited content with clarification_enabled block."
     with Session(seed_engine) as session:
         session.add(PromptTemplate(
             id=_uuid(),

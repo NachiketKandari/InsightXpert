@@ -82,6 +82,11 @@ export function useSSEChat() {
           // must NOT mark the previous step done.
           if (chunk.type === "status") {
             markLastRunningDone();
+            // Track agent phase for the input toolbar chip
+            const agentPhase = chunk.data?.agent as string | undefined;
+            if (agentPhase) {
+              useChatStore.getState().setCurrentAgentPhase(agentPhase);
+            }
             const stepId = generateStepId();
             const ragContext = chunk.data?.rag_context as string[] | undefined;
             const step: AgentStep = {

@@ -21,6 +21,12 @@
       "value": "",
       "type": "string",
       "description": "Set to a dataset ID from List Datasets"
+    },
+    {
+      "key": "automation_id",
+      "value": "",
+      "type": "string",
+      "description": "Set to an automation ID from List Automations"
     }
   ],
   "item": [
@@ -83,6 +89,45 @@
           ]
         },
         {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"newuser@example.com\",\n  \"password\": \"password123\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/auth/register",
+              "host": ["{{base_url}}"],
+              "path": ["api", "auth", "register"]
+            },
+            "description": "Create a new user account and auto-login. Sets an httpOnly `__session` cookie on success.\n\nPassword must be at least 8 characters. Returns 409 if the email is already registered."
+          },
+          "response": [
+            {
+              "name": "201 Created",
+              "status": "Created",
+              "code": 201,
+              "body": "{\n  \"id\": \"new-user-uuid\",\n  \"email\": \"newuser@example.com\",\n  \"is_admin\": false\n}"
+            },
+            {
+              "name": "409 Conflict",
+              "status": "Conflict",
+              "code": 409,
+              "body": "{\n  \"detail\": \"An account with this email already exists\"\n}"
+            },
+            {
+              "name": "422 Validation Error",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "body": "{\n  \"detail\": \"Password must be at least 8 characters\"\n}"
+            }
+          ]
+        },
+        {
           "name": "Get Current User",
           "request": {
             "method": "GET",
@@ -119,6 +164,27 @@
               "path": ["api", "health"]
             },
             "description": "Returns server status and timestamp. Use this to verify the server is running. No authentication required."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"timestamp\": 1707840000.0\n}"
+            }
+          ]
+        },
+        {
+          "name": "Health Check (Alternate)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/health",
+              "host": ["{{base_url}}"],
+              "path": ["health"]
+            },
+            "description": "Alternate health check endpoint at root path. No authentication required."
           },
           "response": [
             {
@@ -534,6 +600,33 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"ddl\": \"CREATE TABLE transactions (\\n  transaction_id TEXT,\\n  timestamp TEXT,\\n  ...\\n);\",\n  \"tables\": [\"transactions\"]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Stats",
+      "description": "Pre-computed dataset statistics.",
+      "item": [
+        {
+          "name": "Get Dataset Stats",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/stats",
+              "host": ["{{base_url}}"],
+              "path": ["api", "stats"]
+            },
+            "description": "Return all pre-computed dataset statistics grouped by stat_group and dimension.\n\nRequires authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"stat_group\": \"transaction_type\",\n    \"dimension\": \"P2P Transfer\",\n    \"metrics\": {\"count\": 52341, \"avg_amount\": 1847.23}\n  }\n]"
             }
           ]
         }
@@ -1056,6 +1149,33 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"organizations\": [\n    {\"org_id\": \"org-001\", \"org_name\": \"Acme Corp\"}\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Organization",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"org_name\": \"New Organization\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/organizations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "organizations"]
+            },
+            "description": "Create a new organization. Returns the new organization with its generated org_id.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"org_id\": \"generated-uuid\",\n  \"org_name\": \"New Organization\",\n  \"features\": {\n    \"sql_executor\": true,\n    \"model_switching\": true,\n    \"rag_training\": true,\n    \"chart_rendering\": true,\n    \"conversation_export\": true,\n    \"agent_process_sidebar\": true,\n    \"clarification_enabled\": false\n  },\n  \"branding\": {\n    \"display_name\": null,\n    \"logo_url\": null,\n    \"theme\": null\n  }\n}"
             }
           ]
         },
@@ -1641,6 +1761,543 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"status\": \"ok\",\n  \"items_trained\": 12\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Automations",
+      "description": "Create and manage scheduled SQL automations with trigger conditions.\n\nAll endpoints require admin authentication.",
+      "item": [
+        {
+          "name": "Generate SQL from Prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Show me the daily transaction count for the last 7 days\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/automations/generate-sql",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "generate-sql"]
+            },
+            "description": "Generate a SQL query from a natural-language prompt using the analyst agent. Use this to help users create automation SQL queries.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"sql\": \"SELECT DATE(timestamp) AS day, COUNT(*) AS txn_count FROM transactions GROUP BY DATE(timestamp) ORDER BY day DESC LIMIT 7\",\n  \"explanation\": \"This query groups transactions by date and counts them for the most recent 7 days.\"\n}"
+            },
+            {
+              "name": "422 Could not generate",
+              "status": "Unprocessable Entity",
+              "code": 422,
+              "body": "{\n  \"detail\": \"Could not generate SQL from the given prompt\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Compile NL Trigger",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"nl_text\": \"Alert me when the failure rate exceeds 15%\",\n  \"available_columns\": [\"failure_rate_pct\", \"total_count\", \"success_count\"]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/automations/compile-trigger",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "compile-trigger"]
+            },
+            "description": "Compile a natural-language trigger description into a structured trigger condition using the LLM.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"type\": \"threshold\",\n  \"column\": \"failure_rate_pct\",\n  \"operator\": \"gt\",\n  \"value\": 15.0,\n  \"nl_text\": \"Alert me when the failure rate exceeds 15%\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create Automation",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Daily Failure Rate Monitor\",\n  \"description\": \"Check transaction failure rate daily and alert if above threshold\",\n  \"nl_query\": \"What is the transaction failure rate?\",\n  \"sql_queries\": [\n    \"SELECT ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct FROM transactions\"\n  ],\n  \"schedule_preset\": \"daily\",\n  \"trigger_conditions\": [\n    {\n      \"type\": \"threshold\",\n      \"column\": \"failure_rate_pct\",\n      \"operator\": \"gt\",\n      \"value\": 15.0\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/automations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations"]
+            },
+            "description": "Create a new scheduled automation.\n\n- `schedule_preset`: one of `hourly`, `daily`, `weekly`, `monthly`\n- `cron_expression`: custom 5-field cron (alternative to preset)\n- `sql_queries`: ordered list of SQL SELECT queries to execute\n- `trigger_conditions`: optional conditions that must be met to fire notifications\n  - Types: `threshold`, `change_detection`, `row_count`, `column_expression`, `slope`\n  - Operators: `gt`, `gte`, `lt`, `lte`, `eq`, `ne`\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"auto-uuid-here\",\n  \"name\": \"Daily Failure Rate Monitor\",\n  \"description\": \"Check transaction failure rate daily\",\n  \"nl_query\": \"What is the transaction failure rate?\",\n  \"sql_query\": \"SELECT ROUND(...) AS failure_rate_pct FROM transactions\",\n  \"sql_queries\": [\"SELECT ROUND(...) AS failure_rate_pct FROM transactions\"],\n  \"cron_expression\": \"0 9 * * *\",\n  \"trigger_conditions\": [{\"type\": \"threshold\", \"column\": \"failure_rate_pct\", \"operator\": \"gt\", \"value\": 15.0}],\n  \"is_active\": true,\n  \"last_run_at\": null,\n  \"next_run_at\": \"2026-03-02T09:00:00Z\",\n  \"created_by\": \"user-uuid\",\n  \"created_at\": \"2026-03-01T12:00:00Z\",\n  \"updated_at\": \"2026-03-01T12:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Automations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/automations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations"]
+            },
+            "description": "List all automations for the current user.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"auto-uuid-here\",\n    \"name\": \"Daily Failure Rate Monitor\",\n    \"is_active\": true,\n    \"cron_expression\": \"0 9 * * *\",\n    \"last_run_at\": \"2026-03-01T09:00:00Z\",\n    \"next_run_at\": \"2026-03-02T09:00:00Z\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Get Automation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/automations/{{automation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "{{automation_id}}"]
+            },
+            "description": "Get full automation details including recent runs.\n\nSet `{{automation_id}}` collection variable to a valid automation ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"auto-uuid-here\",\n  \"name\": \"Daily Failure Rate Monitor\",\n  \"description\": \"Check transaction failure rate daily\",\n  \"nl_query\": \"What is the transaction failure rate?\",\n  \"sql_queries\": [\"SELECT ...\"],\n  \"cron_expression\": \"0 9 * * *\",\n  \"trigger_conditions\": [],\n  \"is_active\": true,\n  \"recent_runs\": [\n    {\n      \"id\": \"run-uuid\",\n      \"status\": \"success\",\n      \"row_count\": 1,\n      \"execution_time_ms\": 45,\n      \"created_at\": \"2026-03-01T09:00:00Z\"\n    }\n  ]\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Automation not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Automation",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Monitor Name\",\n  \"schedule_preset\": \"hourly\",\n  \"sql_queries\": [\n    \"SELECT COUNT(*) AS failed_count FROM transactions WHERE transaction_status = 'FAILED'\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/automations/{{automation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "{{automation_id}}"]
+            },
+            "description": "Update an automation. All fields are optional — only include fields you want to change.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"auto-uuid-here\",\n  \"name\": \"Updated Monitor Name\",\n  \"cron_expression\": \"0 * * * *\",\n  \"is_active\": true\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Automation",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/automations/{{automation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "{{automation_id}}"]
+            },
+            "description": "Delete an automation and remove it from the scheduler.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Automation not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Toggle Automation (Enable/Disable)",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/automations/{{automation_id}}/toggle",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "{{automation_id}}", "toggle"]
+            },
+            "description": "Toggle an automation on or off. When disabled, the scheduler pauses the job.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"auto-uuid-here\",\n  \"is_active\": false\n}"
+            }
+          ]
+        },
+        {
+          "name": "Trigger Manual Run",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/automations/{{automation_id}}/run",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "{{automation_id}}", "run"]
+            },
+            "description": "Trigger an immediate manual run of an automation, bypassing the cron schedule.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"message\": \"Manual run triggered for 'Daily Failure Rate Monitor'\",\n  \"run\": {\n    \"id\": \"run-uuid\",\n    \"automation_id\": \"auto-uuid\",\n    \"status\": \"success\",\n    \"row_count\": 1,\n    \"execution_time_ms\": 45,\n    \"created_at\": \"2026-03-01T12:00:00Z\"\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Automation Runs",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/automations/{{automation_id}}/runs?limit=20",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "{{automation_id}}", "runs"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Number of runs to return (1-100, default 20)"
+                }
+              ]
+            },
+            "description": "List execution runs for an automation.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"run-uuid\",\n    \"automation_id\": \"auto-uuid\",\n    \"status\": \"success\",\n    \"result_json\": {\"columns\": [\"failure_rate_pct\"], \"rows\": [{\"failure_rate_pct\": 12.5}]},\n    \"row_count\": 1,\n    \"execution_time_ms\": 45,\n    \"triggers_fired\": [],\n    \"error_message\": null,\n    \"created_at\": \"2026-03-01T09:00:00Z\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Get Automation Run",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/automations/{{automation_id}}/runs/run-uuid-here",
+              "host": ["{{base_url}}"],
+              "path": ["api", "automations", "{{automation_id}}", "runs", "run-uuid-here"]
+            },
+            "description": "Get details of a specific automation run. Replace `run-uuid-here` in the path with the actual run ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"run-uuid\",\n  \"automation_id\": \"auto-uuid\",\n  \"status\": \"success\",\n  \"result_json\": {\"columns\": [\"failure_rate_pct\"], \"rows\": [{\"failure_rate_pct\": 12.5}]},\n  \"row_count\": 1,\n  \"execution_time_ms\": 45,\n  \"triggers_fired\": [\n    {\n      \"condition\": {\"type\": \"threshold\", \"column\": \"failure_rate_pct\", \"operator\": \"gt\", \"value\": 15.0},\n      \"fired\": false,\n      \"actual_value\": 12.5,\n      \"message\": \"Value 12.5 did not exceed threshold 15.0\"\n    }\n  ],\n  \"error_message\": null,\n  \"created_at\": \"2026-03-01T09:00:00Z\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Run not found\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Notifications",
+      "description": "User notification endpoints. Notifications are generated by automation trigger conditions.\n\nAll endpoints require authentication.",
+      "item": [
+        {
+          "name": "List My Notifications",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications?unread_only=false",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications"],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "false",
+                  "description": "Set to true to only return unread notifications"
+                }
+              ]
+            },
+            "description": "Get the current user's own notifications."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"notif-uuid\",\n    \"user_id\": \"user-uuid\",\n    \"automation_id\": \"auto-uuid\",\n    \"run_id\": \"run-uuid\",\n    \"title\": \"Trigger fired: Daily Failure Rate Monitor\",\n    \"message\": \"Failure rate 16.2% exceeded threshold 15.0%\",\n    \"severity\": \"warning\",\n    \"is_read\": false,\n    \"automation_name\": \"Daily Failure Rate Monitor\",\n    \"created_at\": \"2026-03-01T09:00:05Z\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "List All Notifications (Role-Scoped)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/all?unread_only=false",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "all"],
+              "query": [
+                {
+                  "key": "unread_only",
+                  "value": "false",
+                  "description": "Set to true to only return unread notifications"
+                }
+              ]
+            },
+            "description": "Get notifications scoped by role:\n- Regular user: own notifications only\n- Org admin: all notifications for users in their org\n- Super admin: all notifications across the platform"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"notif-uuid\",\n    \"user_id\": \"user-uuid\",\n    \"automation_id\": \"auto-uuid\",\n    \"title\": \"Trigger fired: Daily Failure Rate Monitor\",\n    \"message\": \"Failure rate exceeded threshold\",\n    \"severity\": \"warning\",\n    \"is_read\": false,\n    \"created_at\": \"2026-03-01T09:00:05Z\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Get Unread Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/count",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "count"]
+            },
+            "description": "Get the current user's unread notification count."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"count\": 3\n}"
+            }
+          ]
+        },
+        {
+          "name": "Mark Notification as Read",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/notif-uuid-here/read",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "notif-uuid-here", "read"]
+            },
+            "description": "Mark a single notification as read. Replace `notif-uuid-here` in the path with the notification ID."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Notification not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Mark All as Read",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/notifications/mark-all-read",
+              "host": ["{{base_url}}"],
+              "path": ["api", "notifications", "mark-all-read"]
+            },
+            "description": "Mark all of the current user's notifications as read."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"count\": 3\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Trigger Templates",
+      "description": "Reusable trigger condition templates for automations.\n\nAll endpoints require admin authentication.",
+      "item": [
+        {
+          "name": "List Templates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trigger-templates",
+              "host": ["{{base_url}}"],
+              "path": ["api", "trigger-templates"]
+            },
+            "description": "List all saved trigger templates.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"tmpl-uuid\",\n    \"name\": \"High Failure Rate Alert\",\n    \"description\": \"Triggers when failure rate exceeds 15%\",\n    \"conditions\": [\n      {\n        \"type\": \"threshold\",\n        \"column\": \"failure_rate_pct\",\n        \"operator\": \"gt\",\n        \"value\": 15.0\n      }\n    ],\n    \"created_by\": \"user-uuid\",\n    \"created_at\": \"2026-03-01T10:00:00Z\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Create Template",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"High Failure Rate Alert\",\n  \"description\": \"Triggers when failure rate exceeds 15%\",\n  \"conditions\": [\n    {\n      \"type\": \"threshold\",\n      \"column\": \"failure_rate_pct\",\n      \"operator\": \"gt\",\n      \"value\": 15.0\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/trigger-templates",
+              "host": ["{{base_url}}"],
+              "path": ["api", "trigger-templates"]
+            },
+            "description": "Create a reusable trigger template with one or more conditions.\n\nCondition types: `threshold`, `change_detection`, `row_count`, `column_expression`, `slope`.\nOperators: `gt`, `gte`, `lt`, `lte`, `eq`, `ne`.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"tmpl-uuid\",\n  \"name\": \"High Failure Rate Alert\",\n  \"description\": \"Triggers when failure rate exceeds 15%\",\n  \"conditions\": [{\"type\": \"threshold\", \"column\": \"failure_rate_pct\", \"operator\": \"gt\", \"value\": 15.0}],\n  \"created_by\": \"user-uuid\",\n  \"created_at\": \"2026-03-01T10:00:00Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Template",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Updated Template Name\",\n  \"conditions\": [\n    {\n      \"type\": \"threshold\",\n      \"column\": \"failure_rate_pct\",\n      \"operator\": \"gt\",\n      \"value\": 20.0\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/trigger-templates/tmpl-uuid-here",
+              "host": ["{{base_url}}"],
+              "path": ["api", "trigger-templates", "tmpl-uuid-here"]
+            },
+            "description": "Update a trigger template. All fields are optional — only include fields you want to change. Replace `tmpl-uuid-here` in the path with the template ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"tmpl-uuid\",\n  \"name\": \"Updated Template Name\",\n  \"conditions\": [{\"type\": \"threshold\", \"column\": \"failure_rate_pct\", \"operator\": \"gt\", \"value\": 20.0}]\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Template not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Template",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/trigger-templates/tmpl-uuid-here",
+              "host": ["{{base_url}}"],
+              "path": ["api", "trigger-templates", "tmpl-uuid-here"]
+            },
+            "description": "Delete a trigger template. Replace `tmpl-uuid-here` in the path with the template ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Template not found\"\n}"
             }
           ]
         }

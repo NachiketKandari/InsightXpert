@@ -19,12 +19,21 @@ interface ToolResultChunkProps {
   parsedData?: { columns: string[]; rows: Record<string, unknown>[]; rowCount: number } | null;
 }
 
+/** Derive a human-readable badge label from the tool name. */
+function toolBadgeLabel(toolName?: string): string {
+  if (!toolName || toolName === "run_sql") return "Query Results";
+  return toolName
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 const ToolResultChunkInner = function ToolResultChunk({ chunk, parsedData }: ToolResultChunkProps) {
   const parsed = useMemo(
     () => parsedData !== undefined ? parsedData : parseToolResult(chunk),
     [chunk, parsedData],
   );
-  const [open, setOpen] = useState(true);
+  const isAdvanced = chunk.data?.agent === "advanced" || chunk.data?.agent === "statistician";
+  const [open, setOpen] = useState(!isAdvanced);
 
   if (!parsed) {
     const raw =
@@ -39,6 +48,8 @@ const ToolResultChunkInner = function ToolResultChunk({ chunk, parsedData }: Too
     );
   }
 
+  const label = toolBadgeLabel(chunk.tool_name ?? chunk.data?.tool as string | undefined);
+
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <div className="rounded-lg border border-border bg-card/50 overflow-hidden">
@@ -52,7 +63,7 @@ const ToolResultChunkInner = function ToolResultChunk({ chunk, parsedData }: Too
             />
             <Table2 className="size-4 shrink-0 text-muted-foreground" />
             <Badge variant="secondary" className="text-xs">
-              Query Results
+              {label}
             </Badge>
             <span className="text-xs text-muted-foreground">
               {parsed.rowCount} row{parsed.rowCount !== 1 ? "s" : ""}

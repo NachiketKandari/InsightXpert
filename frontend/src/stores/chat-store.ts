@@ -26,6 +26,7 @@ interface ChatState {
   pendingInput: string | null;
   pendingClarification: string | null;
   skipClarificationNext: boolean;
+  currentAgentPhase: string | null;
 
   isLoadingConversation: boolean;
 
@@ -61,6 +62,7 @@ interface ChatState {
   setPendingInput: (text: string | null) => void;
   setPendingClarification: (text: string | null) => void;
   setSkipClarificationNext: (skip: boolean) => void;
+  setCurrentAgentPhase: (phase: string | null) => void;
 }
 
 export const useChatStore = create<ChatState>()(persist((set, get) => ({
@@ -77,6 +79,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
   pendingInput: null,
   pendingClarification: null,
   skipClarificationNext: false,
+  currentAgentPhase: null,
   isLoadingConversation: false,
 
   activeConversation: () => {
@@ -345,7 +348,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
       if (conversationId && state.streamingConversationId && conversationId !== state.streamingConversationId) {
         return state;
       }
-      return { isStreaming: false, streamingConversationId: null };
+      return { isStreaming: false, streamingConversationId: null, currentAgentPhase: null };
     });
   },
 
@@ -362,7 +365,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
   },
 
   clearAgentSteps: () => {
-    set({ agentSteps: [] });
+    set({ agentSteps: [], currentAgentPhase: null });
   },
 
   updateLastAssistantTime: (wallTimeMs, convId) => {
@@ -424,6 +427,10 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
 
   setSkipClarificationNext: (skip) => {
     set({ skipClarificationNext: skip });
+  },
+
+  setCurrentAgentPhase: (phase) => {
+    set({ currentAgentPhase: phase });
   },
 }), {
   name: "insightxpert-chat",

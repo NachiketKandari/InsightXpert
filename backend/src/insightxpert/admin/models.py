@@ -10,7 +10,7 @@ class FeatureToggles(BaseModel):
     chart_rendering: bool = True
     conversation_export: bool = True
     agent_process_sidebar: bool = True
-    clarification_enabled: bool = False
+    clarification_enabled: bool = True
     stats_context_injection: bool = False
 
 

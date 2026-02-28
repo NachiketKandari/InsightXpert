@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  Download,
   Loader2,
   Rows3,
   AlertTriangle,
@@ -17,7 +18,13 @@ import {
   DialogContent,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { apiFetch, apiCall } from "@/lib/api";
+import { downloadCsv } from "@/lib/utils";
 import type { QueryResult } from "@/types/api";
 
 const PAGE_SIZE = 100;
@@ -195,6 +202,26 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
                   Page {currentPage} of {totalPages}
                 </span>
               )}
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      downloadCsv(
+                        data!.columns,
+                        data!.rows,
+                        `insightxpert-dataset-${tableName}.csv`,
+                      )
+                    }
+                    className="gap-1 h-7 px-2.5 text-xs"
+                    aria-label="Download CSV"
+                  >
+                    <Download className="size-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="top">Download CSV</TooltipContent>
+              </Tooltip>
               <Button
                 variant="outline"
                 size="sm"

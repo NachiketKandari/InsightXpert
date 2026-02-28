@@ -44,9 +44,24 @@ export function parseToolResult(chunk: ChatChunk): ToolResultData | null {
         return { columns, rows: parsed.rows, rowCount: parsed.row_count || parsed.rows.length };
       }
 
+      // Nested array field (e.g. ranked_segments, anomalies, peaks, pairs)
+      // Common in advanced analytics tool outputs
+      const keys = Object.keys(parsed);
+      const arrayField = keys.find(
+        (k) =>
+          Array.isArray(parsed[k]) &&
+          parsed[k].length > 0 &&
+          typeof parsed[k][0] === "object" &&
+          parsed[k][0] !== null,
+      );
+      if (arrayField) {
+        const rows = parsed[arrayField] as Record<string, unknown>[];
+        const columns = Object.keys(rows[0]);
+        return { columns, rows, rowCount: rows.length };
+      }
+
       // Flat key-value object (e.g. descriptive stats, correlation results)
       // Convert to a 2-column table when there are enough fields
-      const keys = Object.keys(parsed);
       if (keys.length >= 3 && keys.every((k) => !Array.isArray(parsed[k]) && typeof parsed[k] !== "object")) {
         const rows = keys.map((k) => ({ Metric: k, Value: parsed[k] }));
         return { columns: ["Metric", "Value"], rows, rowCount: rows.length };

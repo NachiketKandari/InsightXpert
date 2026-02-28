@@ -258,6 +258,12 @@ def _seed_prompts(engine) -> None:
                 logger.warning("Template file not found: %s", filename)
                 continue
             if existing:
+                # Update stale DB prompts that predate the clarification feature
+                if "clarification_enabled" not in (existing.content or ""):
+                    existing.content = content
+                    existing.updated_at = _utcnow()
+                    seeded += 1
+                    logger.info("Updated prompt template: %s (added clarification block)", name)
                 continue
             prompt = PromptTemplate(
                 id=_uuid(),

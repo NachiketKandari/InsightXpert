@@ -6,6 +6,8 @@ import {
   Paperclip,
   TerminalSquare,
   FlaskConical,
+  BrainCircuit,
+  Sparkles,
   Check,
   ChevronDown,
   ArrowUp,
@@ -54,9 +56,9 @@ export function InputToolbar({
 
   const agentMode = useSettingsStore((s) => s.agentMode);
   const setAgentMode = useSettingsStore((s) => s.setAgentMode);
-  const statsEnabled = agentMode === "auto";
 
   const setSqlExecutorOpen = useChatStore((s) => s.setSqlExecutorOpen);
+  const currentAgentPhase = useChatStore((s) => s.currentAgentPhase);
 
   const currentProvider = useSettingsStore((s) => s.currentProvider);
   const currentModel = useSettingsStore((s) => s.currentModel);
@@ -77,53 +79,178 @@ export function InputToolbar({
     switchModel(provider, model);
   };
 
+  // Resolve what the agent mode tag should display
+  const showPhase = isStreaming && !!currentAgentPhase;
+  const activeKey = showPhase
+    ? currentAgentPhase!
+    : agentMode === "statistician"
+      ? "auto"
+      : agentMode;
+
+  const modeConfig = {
+    analyst: {
+      label: "Analyst",
+      icon: Sparkles,
+      color: "text-amber-500",
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/30",
+    },
+    auto: {
+      label: "Statistician",
+      icon: FlaskConical,
+      color: "text-blue-500",
+      bg: "bg-blue-500/10",
+      border: "border-blue-500/30",
+    },
+    statistician: {
+      label: "Statistician",
+      icon: FlaskConical,
+      color: "text-blue-500",
+      bg: "bg-blue-500/10",
+      border: "border-blue-500/30",
+    },
+    advanced: {
+      label: "Advanced",
+      icon: BrainCircuit,
+      color: "text-purple-500",
+      bg: "bg-purple-500/10",
+      border: "border-purple-500/30",
+    },
+  } as const;
+
+  const active = modeConfig[activeKey as keyof typeof modeConfig] ?? modeConfig.analyst;
+  const ActiveIcon = active.icon;
+
   return (
     <div className="flex items-center justify-between pt-1">
-      {/* Left: + menu */}
-      <DropdownMenu>
-        <Tooltip>
-          <TooltipTrigger asChild>
+      {/* Left: + menu and agent mode tag */}
+      <div className="flex items-center gap-1">
+        {/* + menu */}
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  className="flex items-center justify-center size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors outline-none"
+                  aria-label="More options"
+                >
+                  <Plus className="size-4" />
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="top">Attach, tools & agents</TooltipContent>
+          </Tooltip>
+          <DropdownMenuContent side="top" align="start" className="min-w-[200px]">
+            <DropdownMenuItem disabled>
+              <Paperclip className="size-4" />
+              Upload CSV
+              <span className="ml-auto text-[10px] text-muted-foreground/60">Soon</span>
+            </DropdownMenuItem>
+
+            {showSqlExecutor && (
+              <DropdownMenuItem onSelect={() => setSqlExecutorOpen(true)}>
+                <TerminalSquare className="size-4" />
+                SQL Executor
+              </DropdownMenuItem>
+            )}
+
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-muted-foreground">
+              Analysis Mode
+            </DropdownMenuLabel>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                setAgentMode("analyst");
+              }}
+            >
+              <Sparkles className="size-4" />
+              SQL Only
+              {agentMode === "analyst" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                setAgentMode("auto");
+              }}
+            >
+              <FlaskConical className="size-4" />
+              Statistician
+              {(agentMode === "auto" || agentMode === "statistician") && <Check className="size-3.5 ml-auto text-emerald-500" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                setAgentMode("advanced");
+              }}
+            >
+              <BrainCircuit className="size-4" />
+              Advanced Analytics
+              {agentMode === "advanced" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+
+        {/* Agent mode selector tag */}
+        {showPhase ? (
+          /* During streaming: show active phase as a static pill (no dropdown) */
+          <div
+            className={`flex items-center gap-1.5 rounded-lg px-2.5 py-0.5 text-xs font-medium border transition-colors ${active.bg} ${active.border} ${active.color}`}
+          >
+            <ActiveIcon className="size-3 animate-pulse" />
+            <span>{active.label}</span>
+          </div>
+        ) : (
+          /* When idle: clickable dropdown selector */
+          <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
-                className="flex items-center justify-center size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors outline-none"
-                aria-label="More options"
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-0.5 text-xs font-medium border transition-colors outline-none hover:brightness-110 ${active.bg} ${active.border} ${active.color}`}
               >
-                <Plus className="size-4" />
+                <ActiveIcon className="size-3" />
+                <span>{active.label}</span>
+                <ChevronDown className="size-3 opacity-60" />
               </button>
             </DropdownMenuTrigger>
-          </TooltipTrigger>
-          <TooltipContent side="top">Attach, tools & agents</TooltipContent>
-        </Tooltip>
-        <DropdownMenuContent side="top" align="start" className="min-w-[200px]">
-          <DropdownMenuItem disabled>
-            <Paperclip className="size-4" />
-            Upload CSV
-            <span className="ml-auto text-[10px] text-muted-foreground/60">Soon</span>
-          </DropdownMenuItem>
-
-          {showSqlExecutor && (
-            <DropdownMenuItem onSelect={() => setSqlExecutorOpen(true)}>
-              <TerminalSquare className="size-4" />
-              SQL Executor
-            </DropdownMenuItem>
-          )}
-
-          <DropdownMenuSeparator />
-          <DropdownMenuLabel className="text-xs text-muted-foreground">
-            Agents
-          </DropdownMenuLabel>
-          <DropdownMenuItem
-            onSelect={(e) => {
-              e.preventDefault();
-              setAgentMode(statsEnabled ? "analyst" : "auto");
-            }}
-          >
-            <FlaskConical className="size-4" />
-            Statistician
-            {statsEnabled && <Check className="size-3.5 ml-auto text-emerald-500" />}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+            <DropdownMenuContent side="top" align="start" className="min-w-[170px]">
+              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                Agent Mode
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setAgentMode("analyst");
+                }}
+              >
+                <Sparkles className="size-4 text-amber-500" />
+                Analyst
+                {agentMode === "analyst" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setAgentMode("auto");
+                }}
+              >
+                <FlaskConical className="size-4 text-blue-500" />
+                Statistician
+                {(agentMode === "auto" || agentMode === "statistician") && <Check className="size-3.5 ml-auto text-emerald-500" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setAgentMode("advanced");
+                }}
+              >
+                <BrainCircuit className="size-4 text-purple-500" />
+                Advanced
+                {agentMode === "advanced" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
 
       {/* Right: Model selector + Send/Stop */}
       <div className="flex items-center gap-1">
