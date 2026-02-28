@@ -108,7 +108,6 @@ export default function AdminPage() {
     // Both are async — setState happens in callbacks, not synchronously
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadConfig();
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     loadUsers();
   }, [loadConfig, loadUsers]);
 

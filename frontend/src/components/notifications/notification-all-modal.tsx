@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useCallback, useState } from "react";
 import { Bell, ExternalLink, Clock, Zap } from "lucide-react";
 import {
   Dialog,
@@ -39,10 +39,11 @@ export function NotificationAllModal({ open, onOpenChange }: NotificationAllModa
     if (open) fetchAllNotifications();
   }, [open, fetchAllNotifications]);
 
-  // Clear selection when modal closes
-  useEffect(() => {
-    if (!open) setSelectedNotification(null);
-  }, [open]);
+  // Clear selection when modal closes — driven by event, not effect
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    if (!nextOpen) setSelectedNotification(null);
+    onOpenChange(nextOpen);
+  }, [onOpenChange]);
 
   const unreadCount = allNotifications.filter((n) => !n.is_read).length;
   const filtered = filter === "unread"
@@ -66,7 +67,7 @@ export function NotificationAllModal({ open, onOpenChange }: NotificationAllModa
   const isSuperAdmin = isAdmin && !orgId;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="w-[95vw] max-w-4xl h-[80vh] flex flex-col p-0 bg-card border-border/60 shadow-2xl">
         <DialogHeader className="px-6 pt-5 pb-3 shrink-0">
           <DialogTitle className="flex items-center gap-2">
