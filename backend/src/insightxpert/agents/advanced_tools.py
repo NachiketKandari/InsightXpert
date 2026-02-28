@@ -1052,8 +1052,8 @@ class ComputePercentileRankTool(DataFrameTool):
                     "description": "Categorical column identifying each segment.",
                 },
                 "n_bins": {
-                    "type": "integer",
-                    "enum": [4, 10],
+                    "type": "string",
+                    "enum": ["4", "10"],
                     "description": "Number of bins: 4 (quartile) or 10 (decile). Default: 4.",
                 },
             },

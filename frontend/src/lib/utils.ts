@@ -27,3 +27,33 @@ export function formatDate(timestamp: number): string {
     ...(sameYear ? {} : { year: "numeric" }),
   });
 }
+
+/** Generate a CSV string from columns + rows and trigger a browser download. */
+export function downloadCsv(
+  columns: string[],
+  rows: Record<string, unknown>[],
+  filename: string,
+) {
+  const header = columns.join(",");
+  const body = rows
+    .map((row) =>
+      columns
+        .map((col) => {
+          const val = row[col];
+          const str = val == null ? "" : String(val);
+          return str.includes(",") || str.includes('"') || str.includes("\n")
+            ? `"${str.replace(/"/g, '""')}"`
+            : str;
+        })
+        .join(","),
+    )
+    .join("\n");
+  const csv = header + "\n" + body;
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}

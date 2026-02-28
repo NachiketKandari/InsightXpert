@@ -111,9 +111,7 @@ def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
                         features = org.features
                     break
 
-    # Clarification is disabled for everyone until it's production-ready.
-    # Override regardless of admin config or org settings.
-    return features.model_copy(update={"clarification_enabled": False})
+    return features
 
 
 def _get_deps(request: Request):
@@ -220,7 +218,6 @@ async def chat_sse(
     logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
     llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
     features = _resolve_user_features(request, user)
-    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
 
     final_answer: list[str] = []
     all_chunks: list[str] = []
@@ -240,8 +237,9 @@ async def chat_sse(
             history=history,
             agent_mode=chat_req.agent_mode,
             dataset_service=dataset_service,
-            skip_clarification=effective_skip_clarification,
+            skip_clarification=chat_req.skip_clarification,
             stats_context_injection=features.stats_context_injection,
+            clarification_enabled=features.clarification_enabled,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -298,7 +296,6 @@ async def _run_orchestrator_to_completion(
     """
     llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, body, user)
     features = _resolve_user_features(request, user)
-    effective_skip_clarification = body.skip_clarification or not features.clarification_enabled
 
     all_chunks: list[dict] = []
     final_answer = ""
@@ -315,8 +312,9 @@ async def _run_orchestrator_to_completion(
         history=history,
         agent_mode=body.agent_mode,
         dataset_service=dataset_service,
-        skip_clarification=effective_skip_clarification,
+        skip_clarification=body.skip_clarification,
         stats_context_injection=features.stats_context_injection,
+        clarification_enabled=features.clarification_enabled,
     ):
         all_chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:

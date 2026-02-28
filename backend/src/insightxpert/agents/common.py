@@ -20,7 +20,10 @@ def summarize_results(results: list[dict], max_rows: int = 20) -> str:
         return "(no data)"
     cols = list(results[0].keys())
     n = len(results)
-    header = f"Columns: {cols}\nTotal rows: {n}\n"
+    header = (
+        f"**AVAILABLE COLUMNS (use these EXACT names):** {cols}\n"
+        f"Total rows: {n}\n"
+    )
     preview_rows = results[:max_rows]
     lines = [", ".join(f"{k}={str(v)[:50]}" for k, v in row.items()) for row in preview_rows]
     preview = "\n".join(lines)

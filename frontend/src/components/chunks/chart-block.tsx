@@ -14,7 +14,7 @@ import {
   Cell,
   Legend,
 } from "recharts";
-import { BarChart3, ChevronRight, Loader2 } from "lucide-react";
+import { BarChart3, ChevronRight, Download, Loader2 } from "lucide-react";
 import {
   ChartContainer,
   ChartTooltip,
@@ -28,7 +28,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { cn } from "@/lib/utils";
+import { cn, downloadCsv } from "@/lib/utils";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 import { detectChartType, getChartConfig, pivotData, hasStateCategories, abbreviateState } from "@/lib/chart-detector";
 import { VALID_CHART_TYPES } from "@/lib/constants";
 import { useIsMobile } from "@/hooks/use-media-query";
@@ -259,20 +264,37 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
   return (
     <Collapsible open={open} onOpenChange={setOpen}>
       <Card className="glass overflow-hidden py-0 gap-0">
-        <CollapsibleTrigger asChild>
-          <button className="flex items-center gap-2 w-full px-4 pt-3 pb-2 hover:bg-accent/30 transition-colors text-left">
-            <ChevronRight
-              className={cn(
-                "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
-                open && "rotate-90"
-              )}
-            />
-            <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
-            <Badge variant="secondary" className="text-xs">
-              Visualization
-            </Badge>
-          </button>
-        </CollapsibleTrigger>
+        <div className="flex items-center justify-between pr-2">
+          <CollapsibleTrigger asChild>
+            <button className="flex items-center gap-2 flex-1 px-4 pt-3 pb-2 hover:bg-accent/30 transition-colors text-left">
+              <ChevronRight
+                className={cn(
+                  "size-4 shrink-0 text-muted-foreground transition-transform duration-200",
+                  open && "rotate-90"
+                )}
+              />
+              <BarChart3 className="size-4 shrink-0 text-muted-foreground" />
+              <Badge variant="secondary" className="text-xs">
+                Visualization
+              </Badge>
+            </button>
+          </CollapsibleTrigger>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadCsv(columns, rows, "insightxpert-chart-data.csv");
+                }}
+                className="flex items-center justify-center size-7 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors shrink-0"
+                aria-label="Download CSV"
+              >
+                <Download className="size-3.5" />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Download CSV</TooltipContent>
+          </Tooltip>
+        </div>
         <CollapsibleContent>
           <CardContent className="px-2 pt-1 pb-2">
             {chartContent}

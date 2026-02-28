@@ -88,6 +88,37 @@ class GetSchemaTool(Tool):
             return ddl
 
 
+class ClarifyTool(Tool):
+    """Ask the user a clarifying question when their request is ambiguous."""
+
+    @property
+    def name(self) -> str:
+        return "clarify"
+
+    @property
+    def description(self) -> str:
+        return (
+            "Ask the user a clarifying question when their request references "
+            "data that doesn't exist in the schema or is ambiguous. Suggest "
+            "the closest available column as an option."
+        )
+
+    def get_args_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "The clarifying question to ask the user",
+                },
+            },
+            "required": ["question"],
+        }
+
+    async def execute(self, context: ToolContext, args: dict) -> str:
+        return json.dumps({"clarification": args["question"]})
+
+
 class SearchSimilarTool(Tool):
     @property
     def name(self) -> str:
@@ -132,10 +163,12 @@ class SearchSimilarTool(Tool):
         return json.dumps(items, default=str)
 
 
-def default_registry() -> ToolRegistry:
+def default_registry(*, clarification_enabled: bool = False) -> ToolRegistry:
     """Create and return a ToolRegistry pre-loaded with all built-in tools."""
     registry = ToolRegistry()
     registry.register(RunSqlTool())
     registry.register(GetSchemaTool())
     registry.register(SearchSimilarTool())
+    if clarification_enabled:
+        registry.register(ClarifyTool())
     return registry

@@ -24,6 +24,7 @@ into an evidence-backed answer:
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -92,6 +93,7 @@ async def analyst_loop(
     documentation_override: str | None = None,
     stats_context: str | None = None,
     stats_groups: list[str] | None = None,
+    clarification_enabled: bool = False,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst agentic loop for a single user question.
 
@@ -129,7 +131,7 @@ async def analyst_loop(
 
     # Build tool registry and context
     if tool_registry is None:
-        tool_registry = default_registry()
+        tool_registry = default_registry(clarification_enabled=clarification_enabled)
     tool_context = ToolContext(db=db, rag=rag, row_limit=config.sql_row_limit)
 
     logger.info("=" * 60)
@@ -139,6 +141,7 @@ async def analyst_loop(
     yield ChatChunk(
         type="status",
         content="Searching knowledge base for context...",
+        data={"agent": "analyst"},
         conversation_id=cid,
         timestamp=time.time(),
     )
@@ -192,6 +195,7 @@ async def analyst_loop(
         similar_qa=similar_qa,
         relevant_findings=[],
         stats_context=stats_context,
+        clarification_enabled=clarification_enabled,
     )
 
     # Fallback: if the DB-sourced template predates the stats_context feature
@@ -278,13 +282,18 @@ async def analyst_loop(
                     "role": "assistant",
                     "content": response.content or "",
                 })
+                force_msg = (
+                    "You MUST use a tool before answering. "
+                    "Use run_sql to query the database, or use clarify if the "
+                    "question is ambiguous. Do not answer from memory or prior context."
+                ) if clarification_enabled else (
+                    "You MUST use the run_sql tool to query the database before "
+                    "answering. Do not answer from memory or prior context. "
+                    "Please write and execute a SQL query now."
+                )
                 messages.append({
                     "role": "user",
-                    "content": (
-                        "You MUST use the run_sql tool to query the database before "
-                        "answering. Do not answer from memory or prior context. "
-                        "Please write and execute a SQL query now."
-                    ),
+                    "content": force_msg,
                 })
                 continue
 
@@ -348,6 +357,21 @@ async def analyst_loop(
                 tool_ms = (time.time() - tool_start) * 1000
                 tools_executed = True
                 logger.info("Tool %s completed (%.0fms): %s", tc.name, tool_ms, result[:200])
+
+                # Handle clarification tool — emit clarification chunk and stop
+                if tc.name == "clarify":
+                    try:
+                        clarify_data = json.loads(result)
+                    except (json.JSONDecodeError, TypeError):
+                        clarify_data = {"clarification": result}
+                    yield ChatChunk(
+                        type="clarification",
+                        content=clarify_data.get("clarification", ""),
+                        data={"skip_allowed": True},
+                        conversation_id=cid,
+                        timestamp=time.time(),
+                    )
+                    return
 
                 messages.append({
                     "role": "tool",
