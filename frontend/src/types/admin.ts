@@ -6,12 +6,14 @@ export interface FeatureToggles {
   conversation_export: boolean;
   agent_process_sidebar: boolean;
   clarification_enabled: boolean;
+  stats_context_injection: boolean;
 }
 
 export interface OrgBranding {
   display_name: string | null;
   logo_url: string | null;
   theme: Record<string, string> | null;
+  color_mode: "dark" | "light" | null;
 }
 
 export interface OrgConfig {

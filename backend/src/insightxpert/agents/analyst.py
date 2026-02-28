@@ -90,6 +90,8 @@ async def analyst_loop(
     tool_registry: ToolRegistry | None = None,
     ddl_override: str | None = None,
     documentation_override: str | None = None,
+    stats_context: str | None = None,
+    stats_groups: list[str] | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst agentic loop for a single user question.
 
@@ -189,7 +191,20 @@ async def analyst_loop(
         documentation=active_docs,
         similar_qa=similar_qa,
         relevant_findings=[],
+        stats_context=stats_context,
     )
+
+    # Fallback: if the DB-sourced template predates the stats_context feature
+    # it won't have the {% if stats_context %} block, so inject directly.
+    if stats_context and "Pre-Computed Dataset Statistics" not in system_prompt:
+        system_prompt = (
+            system_prompt
+            + "\n\n## Pre-Computed Dataset Statistics (use these before running SQL if sufficient)\n\n"
+            + stats_context
+            + "\n\nIf the answer can be derived directly from the statistics above, you may answer"
+            " without running a SQL query. If you need finer-grained data (filters, sub-segments,"
+            " time slices beyond what's shown), use run_sql as normal."
+        )
 
     # -- Step 3: Message list assembly --
     # The ordering matters for LLM context:
@@ -237,24 +252,41 @@ async def analyst_loop(
         # actual database.  Once any tool has been executed (tools_executed
         # becomes True), subsequent text-only responses are accepted as the
         # final answer.
+        # Exception: when pre-computed stats context was injected, the LLM
+        # is permitted to answer directly from those stats without SQL.
         if not response.tool_calls and not tools_executed:
-            logger.warning(
-                "LLM answered without tool calls on iteration %d — forcing tool use",
-                iteration + 1,
-            )
-            messages.append({
-                "role": "assistant",
-                "content": response.content or "",
-            })
-            messages.append({
-                "role": "user",
-                "content": (
-                    "You MUST use the run_sql tool to query the database before "
-                    "answering. Do not answer from memory or prior context. "
-                    "Please write and execute a SQL query now."
-                ),
-            })
-            continue
+            if stats_context:
+                logger.info(
+                    "LLM answered without tool calls on iteration %d — permitted (stats_context provided)",
+                    iteration + 1,
+                )
+                # Emit stats context chunk for frontend transparency
+                yield ChatChunk(
+                    type="stats_context",
+                    content=stats_context,
+                    data={"groups": stats_groups or []},
+                    conversation_id=cid,
+                    timestamp=time.time(),
+                )
+                # Fall through to the final-answer branch below
+            else:
+                logger.warning(
+                    "LLM answered without tool calls on iteration %d — forcing tool use",
+                    iteration + 1,
+                )
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content or "",
+                })
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "You MUST use the run_sql tool to query the database before "
+                        "answering. Do not answer from memory or prior context. "
+                        "Please write and execute a SQL query now."
+                    ),
+                })
+                continue
 
         if response.tool_calls:
             tool_names = [tc.name for tc in response.tool_calls]

@@ -53,6 +53,7 @@ TRANSACTION_INDEXES = [
     ("idx_hour", "transactions", "hour_of_day"),
     ("idx_weekend", "transactions", "is_weekend"),
     ("idx_state", "transactions", "sender_state"),
+    ("idx_timestamp", "transactions", "timestamp"),
 ]
 
 

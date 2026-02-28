@@ -56,13 +56,14 @@ export function MessageList({ onRetry }: MessageListProps) {
     >
       <div className="mx-auto flex max-w-3xl flex-col gap-6">
         {messages.map((msg, idx) => (
-          <MessageBubble
-            key={msg.id}
-            message={msg}
-            isLastAssistant={idx === lastAssistantIdx}
-            onRetry={handleRetry}
-            onFeedback={handleFeedback}
-          />
+            <MessageBubble
+              key={msg.id}
+              message={msg}
+              isLastAssistant={idx === lastAssistantIdx}
+              onRetry={handleRetry}
+              onResend={msg.role === "user" ? onRetry : undefined}
+              onFeedback={handleFeedback}
+            />
         ))}
 
       </div>

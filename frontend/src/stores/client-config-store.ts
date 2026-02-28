@@ -30,8 +30,20 @@ export const useClientConfigStore = create<ClientConfigState>((set) => ({
       isLoading: false,
     });
 
+    const root = document.documentElement;
+
+    if (data.config?.branding?.color_mode) {
+      // Org has a forced color mode — override user preference
+      if (data.config.branding.color_mode === "dark") {
+        root.classList.add("dark");
+        localStorage.setItem("theme", "dark");
+      } else {
+        root.classList.remove("dark");
+        localStorage.setItem("theme", "light");
+      }
+    }
+
     if (data.config?.branding?.theme) {
-      const root = document.documentElement;
       for (const [key, value] of Object.entries(data.config.branding.theme)) {
         root.style.setProperty(key, value as string);
       }

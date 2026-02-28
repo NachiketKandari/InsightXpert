@@ -11,12 +11,14 @@ class FeatureToggles(BaseModel):
     conversation_export: bool = True
     agent_process_sidebar: bool = True
     clarification_enabled: bool = False
+    stats_context_injection: bool = False
 
 
 class OrgBranding(BaseModel):
     display_name: str | None = None
     logo_url: str | None = None
     theme: dict[str, str] | None = None  # CSS variable overrides
+    color_mode: str | None = None  # "dark" | "light" | None (user preference)
 
 
 class OrgConfig(BaseModel):
@@ -41,6 +43,12 @@ class ClientConfig(BaseModel):
     user_org_mappings: list[UserOrgMapping] = []
     organizations: dict[str, OrgConfig] = {}
     defaults: DefaultConfig = DefaultConfig()
+
+
+class GlobalSettingsUpdate(BaseModel):
+    admin_domains: list[str] | None = None
+    user_org_mappings: list[UserOrgMapping] | None = None
+    defaults: DefaultConfig | None = None
 
 
 class ResolvedClientConfig(BaseModel):

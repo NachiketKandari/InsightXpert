@@ -41,6 +41,7 @@ class DatasetService:
                 "ddl": ds.ddl,
                 "documentation": ds.documentation,
                 "is_active": ds.is_active,
+                "organization_id": ds.organization_id,
                 "created_at": str(ds.created_at),
                 "updated_at": str(ds.updated_at),
             }
@@ -60,6 +61,7 @@ class DatasetService:
                 "ddl": ds.ddl,
                 "documentation": ds.documentation,
                 "is_active": ds.is_active,
+                "organization_id": ds.organization_id,
                 "created_at": str(ds.created_at),
                 "updated_at": str(ds.updated_at),
             }
@@ -74,6 +76,7 @@ class DatasetService:
                     "name": ds.name,
                     "description": ds.description,
                     "is_active": ds.is_active,
+                    "organization_id": ds.organization_id,
                     "created_at": str(ds.created_at),
                     "updated_at": str(ds.updated_at),
                 }

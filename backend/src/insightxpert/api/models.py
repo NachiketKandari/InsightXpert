@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
-    agent_mode: Literal["auto", "analyst", "statistician"] = "auto"
+    agent_mode: Literal["auto", "analyst", "statistician", "advanced"] = "auto"
     skip_clarification: bool = False
 
 
@@ -176,3 +176,9 @@ class ErrorResponse(BaseModel):
 
 class StarRequest(BaseModel):
     starred: bool = True
+
+
+class ChatAnswerResponse(BaseModel):
+    answer: str
+    conversation_id: str
+    sql: list[str] = []

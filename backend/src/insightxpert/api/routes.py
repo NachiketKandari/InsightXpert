@@ -11,6 +11,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from insightxpert.agents.orchestrator import orchestrator_loop
 from insightxpert.api.models import (
+    ChatAnswerResponse,
     ChatChunk,
     ChatRequest,
     ConfigResponse,
@@ -56,21 +57,21 @@ logger = logging.getLogger("insightxpert.api")
 
 router = APIRouter(prefix="/api")
 
-# Simple TTL cache for the admin config file — avoids a filesystem read on
-# every chat request.  60-second TTL means config changes propagate quickly.
+# TTL cache for the admin config — avoids a DB read on every chat request.
+# 60-second TTL means config changes propagate quickly.
 _config_cache: dict[str, tuple[float, ClientConfig]] = {}
 _CONFIG_TTL = 60.0
+_CONFIG_CACHE_KEY = "__db__"
 
 
-def _get_cached_config(config_path) -> ClientConfig:
-    key = str(config_path)
-    cached = _config_cache.get(key)
+def _get_cached_config(engine) -> ClientConfig:
+    cached = _config_cache.get(_CONFIG_CACHE_KEY)
     if cached is not None:
         cached_at, config = cached
         if time.time() - cached_at < _CONFIG_TTL:
             return config
-    config = read_config(config_path)
-    _config_cache[key] = (time.time(), config)
+    config = read_config(engine)
+    _config_cache[_CONFIG_CACHE_KEY] = (time.time(), config)
     return config
 
 
@@ -95,16 +96,14 @@ class _TokenCountingLLM:
 
 def _resolve_user_features(request: Request, user: User) -> FeatureToggles:
     """Return the resolved FeatureToggles for the given user based on admin config."""
-    config = _get_cached_config(request.app.state.config_path)
-    if user.is_admin:
-        features = FeatureToggles()
-    else:
+    config = _get_cached_config(request.app.state.auth_engine)
+    # Everyone starts from defaults (including admins and admin-domain users).
+    # Org-mapped users get their org-specific overrides on top.
+    features = config.defaults.features
+    if not user.is_admin:
         domain = user.email.split("@")[1].lower()
-        if domain in [d.lower() for d in config.admin_domains]:
-            features = FeatureToggles()
-        else:
+        if domain not in [d.lower() for d in config.admin_domains]:
             email_lower = user.email.lower()
-            features = config.defaults.features
             for mapping in config.user_org_mappings:
                 if mapping.email.lower() == email_lower:
                     org = config.organizations.get(mapping.org_id)
@@ -164,12 +163,12 @@ async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     if cid:
         persistent_cid = cid
         try:
-            await asyncio.to_thread(persistent_store.get_or_create_conversation, cid, user.id, title)
+            await asyncio.to_thread(persistent_store.get_or_create_conversation, cid, user.id, title, user.org_id)
         except Exception as e:
             logger.error("Failed to ensure persistent conversation: %s", e, exc_info=True)
             raise DatabaseError(f"Failed to create conversation: {e}")
     else:
-        convo = await asyncio.to_thread(persistent_store.create_conversation, user.id, title)
+        convo = await asyncio.to_thread(persistent_store.create_conversation, user.id, title, user.org_id)
         persistent_cid = convo["id"]
 
     try:
@@ -242,6 +241,7 @@ async def chat_sse(
             agent_mode=chat_req.agent_mode,
             dataset_service=dataset_service,
             skip_clarification=effective_skip_clarification,
+            stats_context_injection=features.stats_context_injection,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -287,6 +287,62 @@ async def chat_sse(
     return EventSourceResponse(event_generator())
 
 
+async def _run_orchestrator_to_completion(
+    request: Request,
+    body: ChatRequest,
+    user: User,
+) -> dict:
+    """Run the orchestrator loop to completion and persist the response.
+
+    Returns dict with keys: chunks, final_answer, sql, conversation_id
+    """
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, body, user)
+    features = _resolve_user_features(request, user)
+    effective_skip_clarification = body.skip_clarification or not features.clarification_enabled
+
+    all_chunks: list[dict] = []
+    final_answer = ""
+    executed_sql: list[str] = []
+    counting_llm = _TokenCountingLLM(llm)
+    start_time = time.time()
+    async for chunk in orchestrator_loop(
+        question=body.message,
+        llm=counting_llm,
+        db=db,
+        rag=rag,
+        config=settings,
+        conversation_id=cid or persistent_cid,
+        history=history,
+        agent_mode=body.agent_mode,
+        dataset_service=dataset_service,
+        skip_clarification=effective_skip_clarification,
+        stats_context_injection=features.stats_context_injection,
+    ):
+        all_chunks.append(chunk.model_dump())
+        if chunk.type == "sql" and chunk.sql:
+            executed_sql.append(chunk.sql)
+        if chunk.type == "answer" and chunk.content:
+            final_answer = chunk.content
+
+    generation_time_ms = int((time.time() - start_time) * 1000)
+    store_cid = cid or (all_chunks[0]["conversation_id"] if all_chunks else "")
+    await asyncio.to_thread(
+        _persist_response,
+        conv_store, persistent_store, store_cid, persistent_cid, user.id,
+        final_answer, executed_sql, json.dumps(all_chunks),
+        counting_llm.input_tokens or None,
+        counting_llm.output_tokens or None,
+        generation_time_ms,
+    )
+
+    return {
+        "chunks": all_chunks,
+        "final_answer": final_answer,
+        "sql": executed_sql,
+        "conversation_id": persistent_cid,
+    }
+
+
 @router.post("/chat/poll")
 async def chat_poll(
     chat_req: ChatRequest,
@@ -294,46 +350,26 @@ async def chat_poll(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
-    features = _resolve_user_features(request, user)
-    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
+    result = await _run_orchestrator_to_completion(request, chat_req, user)
+    logger.info("POST /chat/poll done: %d chunks", len(result["chunks"]))
+    return {"chunks": result["chunks"]}
 
-    chunks: list[dict] = []
-    final_answer = ""
-    poll_executed_sql: list[str] = []
-    poll_counting_llm = _TokenCountingLLM(llm)
-    start_time = time.time()
-    async for chunk in orchestrator_loop(
-        question=chat_req.message,
-        llm=poll_counting_llm,
-        db=db,
-        rag=rag,
-        config=settings,
-        conversation_id=cid or persistent_cid,
-        history=history,
-        agent_mode=chat_req.agent_mode,
-        dataset_service=dataset_service,
-        skip_clarification=effective_skip_clarification,
-    ):
-        chunks.append(chunk.model_dump())
-        if chunk.type == "sql" and chunk.sql:
-            poll_executed_sql.append(chunk.sql)
-        if chunk.type == "answer" and chunk.content:
-            final_answer = chunk.content
 
-    generation_time_ms = int((time.time() - start_time) * 1000)
-    store_cid = cid or (chunks[0]["conversation_id"] if chunks else "")
-    await asyncio.to_thread(
-        _persist_response,
-        conv_store, persistent_store, store_cid, persistent_cid, user.id,
-        final_answer, poll_executed_sql, json.dumps(chunks),
-        poll_counting_llm.input_tokens or None,
-        poll_counting_llm.output_tokens or None,
-        generation_time_ms,
+@router.post("/chat/answer", response_model=ChatAnswerResponse)
+async def chat_answer(
+    chat_req: ChatRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Run the full pipeline and return only the final answer, conversation ID, and SQL."""
+    logger.info("POST /chat/answer message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
+    result = await _run_orchestrator_to_completion(request, chat_req, user)
+    logger.info("POST /chat/answer done: answer_len=%d", len(result["final_answer"]))
+    return ChatAnswerResponse(
+        answer=result["final_answer"],
+        conversation_id=result["conversation_id"],
+        sql=result["sql"],
     )
-
-    logger.info("POST /chat/poll done: %d chunks", len(chunks))
-    return {"chunks": chunks}
 
 
 @router.post("/train", response_model=TrainResponse)
@@ -549,7 +585,7 @@ async def list_conversations(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    convos = await asyncio.to_thread(persistent_store.get_conversations, user.id)
+    convos = await asyncio.to_thread(persistent_store.get_conversations, user.id, user.org_id)
     response.headers["Cache-Control"] = "private, max-age=5"
     return [ConversationSummary(**c) for c in convos]
 
@@ -564,7 +600,7 @@ async def search_conversations(
     if len(q) < 2:
         return []
     persistent_store = request.app.state.persistent_conv_store
-    results = await asyncio.to_thread(persistent_store.search_conversations, user.id, q)
+    results = await asyncio.to_thread(persistent_store.search_conversations, user.id, q, org_id=user.org_id)
     return [SearchResultItem(**r) for r in results]
 
 
@@ -773,6 +809,48 @@ async def ollama_delete_model(
         return {"status": status, "model": model_name}
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to delete model '{model_name}': {e}")
+
+
+# --- Dataset Stats -------------------------------------------------------
+
+
+@router.get("/stats")
+async def get_dataset_stats(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Return all pre-computed dataset statistics grouped by stat_group and dimension."""
+    auth_engine = request.app.state.auth_engine
+
+    def _fetch_stats():
+        from sqlalchemy import text as sa_text
+        with auth_engine.connect() as conn:
+            result = conn.execute(sa_text(
+                "SELECT stat_group, dimension, metric, value, string_value, updated_at "
+                "FROM dataset_stats ORDER BY stat_group, dimension, metric"
+            ))
+            return [dict(zip(result.keys(), row)) for row in result.fetchall()]
+
+    try:
+        rows = await asyncio.to_thread(_fetch_stats)
+    except Exception as e:
+        logger.error("Failed to fetch dataset stats: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch dataset stats")
+
+    # Nest into groups -> dimensions -> metrics
+    groups: dict[str, dict[str, dict]] = {}
+    computed_at: str | None = None
+    for row in rows:
+        grp = row["stat_group"]
+        dim = row["dimension"] or ""
+        metric = row["metric"]
+        val = row["string_value"] if row["string_value"] is not None else row["value"]
+        if row.get("updated_at") and computed_at is None:
+            computed_at = str(row["updated_at"])
+
+        groups.setdefault(grp, {}).setdefault(dim, {})[metric] = val
+
+    return {"groups": groups, "computed_at": computed_at}
 
 
 # --- Feedback -----------------------------------------------------------

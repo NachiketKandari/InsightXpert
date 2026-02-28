@@ -35,6 +35,7 @@ interface ChatState {
   // Actions
   initFromStorage: () => Promise<void>;
   newConversation: () => string;
+  clearActiveConversation: () => void;
   setActiveConversation: (id: string) => void;
   loadConversationMessages: (id: string) => Promise<void>;
   deleteConversation: (id: string) => void;
@@ -101,9 +102,14 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
         })
       );
       set((state) => {
-        // Merge: preserve locally-created conversations that aren't on the server yet
+        // Merge: only preserve locally-created conversations that are very recent
+        // (i.e. created within the last 30s and haven't been persisted yet).
+        // Older local-only conversations are stale — the server is the source of truth.
         const serverIds = new Set(conversations.map((c: Conversation) => c.id));
-        const localOnly = state.conversations.filter((c) => !serverIds.has(c.id));
+        const LOCAL_ONLY_TTL = 30_000;
+        const localOnly = state.conversations.filter(
+          (c) => !serverIds.has(c.id) && Date.now() - c.createdAt < LOCAL_ONLY_TTL
+        );
         const merged = [...localOnly, ...conversations];
 
         // If activeConversationId points to a conversation that no longer exists, clear it
@@ -137,6 +143,10 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
     return id;
   },
 
+  clearActiveConversation: () => {
+    set({ activeConversationId: null, agentSteps: [] });
+  },
+
   setActiveConversation: (id) => {
     set({ activeConversationId: id, agentSteps: [] });
     // Lazy-load messages from the server if the conversation was loaded
@@ -158,7 +168,17 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
       const res = await apiFetch(`/api/conversations/${id}`);
       if (!res.ok) {
         console.error("[chat-store] Failed to load messages for", id, ":", res.status, res.statusText);
-        set({ isLoadingConversation: false });
+        if (res.status === 404) {
+          // Conversation doesn't exist on the server — remove the stale local entry
+          set((state) => ({
+            conversations: state.conversations.filter((c) => c.id !== id),
+            activeConversationId:
+              state.activeConversationId === id ? null : state.activeConversationId,
+            isLoadingConversation: false,
+          }));
+        } else {
+          set({ isLoadingConversation: false });
+        }
         return;
       }
       const data = await res.json();
@@ -428,6 +448,5 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
       ...c,
       messages: [] as Message[],
     })),
-    activeConversationId: state.activeConversationId,
   }) as unknown as ChatState,
 }));

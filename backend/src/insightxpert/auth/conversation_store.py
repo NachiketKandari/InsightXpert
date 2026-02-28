@@ -5,11 +5,11 @@ import uuid
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import desc, func, select, text
-from sqlalchemy.exc import OperationalError
+from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.expression import true as sa_true
 
-from insightxpert.auth.models import ConversationRecord, MessageRecord
+from insightxpert.auth.models import ConversationRecord, MessageRecord, _record_delete
 
 logger = logging.getLogger("insightxpert.auth")
 
@@ -26,6 +26,7 @@ def _to_ist(dt: datetime) -> str:
 def _conv_to_dict(convo: ConversationRecord) -> dict:
     return {
         "id": convo.id,
+        "org_id": convo.org_id,
         "title": convo.title,
         "is_starred": convo.is_starred,
         "created_at": _to_ist(convo.created_at),
@@ -33,31 +34,11 @@ def _conv_to_dict(convo: ConversationRecord) -> dict:
     }
 
 
-def _record_delete(session: Session, table_name: str, record_ids: list[str]) -> None:
-    """Record deletions in _sync_deletes so background sync can propagate to Turso."""
-    if not record_ids:
-        return
-    now = datetime.now(timezone.utc).isoformat()
-    try:
-        for rid in record_ids:
-            session.execute(
-                text(
-                    "INSERT INTO _sync_deletes (table_name, record_id, deleted_at, synced) "
-                    "VALUES (:table, :rid, :ts, 0)"
-                ),
-                {"table": table_name, "rid": rid, "ts": now},
-            )
-    except OperationalError:
-        # _sync_deletes table may not exist (e.g. in tests or pure-local mode).
-        # This is non-critical — only needed for Turso background sync.
-        logger.debug("Skipping delete tracking: _sync_deletes table not available")
-
-
 class PersistentConversationStore:
     def __init__(self, engine):
         self.engine = engine
 
-    def get_conversations(self, user_id: str) -> list[dict]:
+    def get_conversations(self, user_id: str, org_id: str | None = None) -> list[dict]:
         with Session(self.engine) as session:
             # Subquery: latest message created_at per conversation
             latest_msg = (
@@ -69,7 +50,7 @@ class PersistentConversationStore:
                 .subquery()
             )
 
-            rows = (
+            q = (
                 session.query(
                     ConversationRecord,
                     MessageRecord.content.label("last_content"),
@@ -84,9 +65,12 @@ class PersistentConversationStore:
                     & (MessageRecord.created_at == latest_msg.c.max_created),
                 )
                 .filter(ConversationRecord.user_id == user_id)
-                .order_by(desc(ConversationRecord.updated_at))
-                .all()
             )
+
+            if org_id is not None:
+                q = q.filter(ConversationRecord.org_id == org_id)
+
+            rows = q.order_by(desc(ConversationRecord.updated_at)).all()
 
             return [
                 {**_conv_to_dict(c), "last_message": last_content[:200] if last_content else None}
@@ -124,7 +108,7 @@ class PersistentConversationStore:
                 ],
             }
 
-    def get_or_create_conversation(self, conversation_id: str, user_id: str, title: str) -> dict:
+    def get_or_create_conversation(self, conversation_id: str, user_id: str, title: str, org_id: str | None = None) -> dict:
         with Session(self.engine) as session:
             convo = session.get(ConversationRecord, conversation_id)
             if convo is not None:
@@ -136,6 +120,7 @@ class PersistentConversationStore:
             convo = ConversationRecord(
                 id=conversation_id,
                 user_id=user_id,
+                org_id=org_id,
                 title=title,
                 created_at=now,
                 updated_at=now,
@@ -144,11 +129,12 @@ class PersistentConversationStore:
             session.commit()
             return _conv_to_dict(convo)
 
-    def create_conversation(self, user_id: str, title: str) -> dict:
+    def create_conversation(self, user_id: str, title: str, org_id: str | None = None) -> dict:
         now = datetime.now(timezone.utc)
         convo = ConversationRecord(
             id=str(uuid.uuid4()),
             user_id=user_id,
+            org_id=org_id,
             title=title,
             created_at=now,
             updated_at=now,
@@ -226,16 +212,21 @@ class PersistentConversationStore:
             session.commit()
             return True
 
-    def search_conversations(self, user_id: str, query: str, limit: int = 20) -> list[dict]:
+    def search_conversations(self, user_id: str, query: str, limit: int = 20, org_id: str | None = None) -> list[dict]:
         """Search conversations by title and message content."""
         pattern = f"%{query}%"
         with Session(self.engine) as session:
+            # Base filter: user + optional org scope
+            base_filter = [ConversationRecord.user_id == user_id]
+            if org_id is not None:
+                base_filter.append(ConversationRecord.org_id == org_id)
+
             # Find conversations with matching titles
             title_matches = set(
                 row[0]
                 for row in session.execute(
                     select(ConversationRecord.id)
-                    .where(ConversationRecord.user_id == user_id)
+                    .where(*base_filter)
                     .where(ConversationRecord.title.ilike(pattern))
                 ).all()
             )
@@ -252,7 +243,7 @@ class PersistentConversationStore:
                     ConversationRecord,
                     MessageRecord.conversation_id == ConversationRecord.id,
                 )
-                .filter(ConversationRecord.user_id == user_id)
+                .filter(*base_filter)
                 .filter(MessageRecord.content.ilike(pattern))
                 .order_by(MessageRecord.created_at.desc())
                 .all()
@@ -336,6 +327,8 @@ class PersistentConversationStore:
             )
             return {
                 **_conv_to_dict(convo),
+                "user_id": convo.user_id,
+                "org_id": convo.org_id,
                 "messages": [
                     {
                         "id": m.id,
@@ -353,11 +346,20 @@ class PersistentConversationStore:
                 ],
             }
 
-    def get_all_users_with_stats(self) -> list[dict]:
-        """Return all users with conversation/message counts (admin use)."""
+    def get_all_users_with_stats(self, user_ids: set[str] | None = None, org_id: str | None = None) -> list[dict]:
+        """Return all users with conversation/message counts (admin use).
+
+        If *user_ids* is provided, only those users are returned (org-scoped admin).
+        If *org_id* is provided, only conversations belonging to that org are counted.
+        """
         from insightxpert.auth.models import User as UserModel
         with Session(self.engine) as session:
-            results = (
+            # Build the conversation join condition — optionally org-scoped
+            conv_join = UserModel.id == ConversationRecord.user_id
+            if org_id is not None:
+                conv_join = and_(conv_join, ConversationRecord.org_id == org_id)
+
+            query = (
                 session.query(
                     UserModel.id,
                     UserModel.email,
@@ -366,11 +368,12 @@ class PersistentConversationStore:
                     func.count(MessageRecord.id).label("message_count"),
                     func.max(ConversationRecord.updated_at).label("last_active"),
                 )
-                .outerjoin(ConversationRecord, UserModel.id == ConversationRecord.user_id)
+                .outerjoin(ConversationRecord, conv_join)
                 .outerjoin(MessageRecord, ConversationRecord.id == MessageRecord.conversation_id)
-                .group_by(UserModel.id)
-                .all()
             )
+            if user_ids is not None:
+                query = query.filter(UserModel.id.in_(user_ids))
+            results = query.group_by(UserModel.id).all()
             return [
                 {
                     "id": r.id,
@@ -410,17 +413,60 @@ class PersistentConversationStore:
             session.commit()
             return len(conv_ids)
 
+    def _delete_convs_by_filter(self, session: Session, conv_filter) -> int:
+        """Delete conversations matching the given SQLAlchemy filter expression, plus their messages."""
+        conv_ids = [
+            c.id for c in
+            session.query(ConversationRecord.id).filter(conv_filter).all()
+        ]
+        if not conv_ids:
+            session.commit()
+            return 0
+        msg_ids = [
+            m.id for m in
+            session.query(MessageRecord.id)
+            .filter(MessageRecord.conversation_id.in_(conv_ids))
+            .all()
+        ]
+        _record_delete(session, "messages", msg_ids)
+        _record_delete(session, "conversations", conv_ids)
+        session.query(MessageRecord).filter(
+            MessageRecord.conversation_id.in_(conv_ids)
+        ).delete(synchronize_session=False)
+        session.query(ConversationRecord).filter(
+            ConversationRecord.id.in_(conv_ids)
+        ).delete(synchronize_session=False)
+        session.commit()
+        return len(conv_ids)
+
+    def delete_conversations_for_users(self, user_ids: list[str]) -> int:
+        """Delete ALL conversations for multiple users. Returns count deleted."""
+        if not user_ids:
+            return 0
+        with Session(self.engine) as session:
+            return self._delete_convs_by_filter(
+                session, ConversationRecord.user_id.in_(user_ids)
+            )
+
+    def delete_conversations_by_org(self, user_id: str, org_id: str) -> int:
+        """Delete conversations for a user that belong to a specific org. Returns count deleted."""
+        with Session(self.engine) as session:
+            return self._delete_convs_by_filter(
+                session,
+                (ConversationRecord.user_id == user_id) & (ConversationRecord.org_id == org_id),
+            )
+
+    def delete_conversations_by_org_all(self, org_id: str) -> int:
+        """Delete ALL conversations belonging to an org. Returns count deleted."""
+        with Session(self.engine) as session:
+            return self._delete_convs_by_filter(
+                session, ConversationRecord.org_id == org_id
+            )
+
     def delete_all_conversations(self) -> int:
         """Delete ALL conversations across all users. Returns count deleted."""
         with Session(self.engine) as session:
-            conv_ids = [c.id for c in session.query(ConversationRecord.id).all()]
-            msg_ids = [m.id for m in session.query(MessageRecord.id).all()]
-            _record_delete(session, "messages", msg_ids)
-            _record_delete(session, "conversations", conv_ids)
-            session.query(MessageRecord).delete(synchronize_session=False)
-            session.query(ConversationRecord).delete(synchronize_session=False)
-            session.commit()
-            return len(conv_ids)
+            return self._delete_convs_by_filter(session, sa_true())
 
     def update_message_feedback(
         self,

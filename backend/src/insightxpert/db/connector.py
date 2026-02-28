@@ -10,10 +10,11 @@ from sqlalchemy.pool import NullPool
 logger = logging.getLogger("insightxpert.db")
 
 
-def _enable_sqlite_fks(dbapi_conn, connection_record):
-    """Enable foreign key enforcement for every new SQLite connection."""
+def _enable_sqlite_pragmas(dbapi_conn, connection_record):
+    """Enable foreign key enforcement and WAL mode for every new SQLite connection."""
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA foreign_keys = ON")
+    cursor.execute("PRAGMA journal_mode = WAL")
     cursor.close()
 
 
@@ -82,7 +83,7 @@ class DatabaseConnector:
 
         # Only enable PRAGMA foreign_keys for local SQLite (PRAGMAs fail on remote Turso)
         if url.startswith("sqlite") and not self._is_libsql_remote:
-            event.listen(self._engine, "connect", _enable_sqlite_fks)
+            event.listen(self._engine, "connect", _enable_sqlite_pragmas)
 
         safe_url = self._engine.url.render_as_string(hide_password=True)
         logger.debug("Engine created for %s (dialect=%s)", safe_url, self._engine.dialect.name)
@@ -97,20 +98,29 @@ class DatabaseConnector:
         self, sql: str, *, row_limit: int = 1000, timeout: int = 30, read_only: bool = False
     ) -> list[dict]:
         start = time.time()
+        _sqlite_local = self.dialect in ("sqlite",) and not self._is_libsql_remote
         with self.engine.connect() as conn:
-            if read_only and self.dialect in ("sqlite",) and not self._is_libsql_remote:
+            if read_only and _sqlite_local:
                 conn.execute(text("PRAGMA query_only = ON"))
-            result = conn.execute(text(sql))
-            if result.returns_rows:
-                columns = list(result.keys())
-                rows = [dict(zip(columns, row)) for row in result.fetchmany(row_limit)]
+            try:
+                result = conn.execute(text(sql))
+                if result.returns_rows:
+                    columns = list(result.keys())
+                    rows = [dict(zip(columns, row)) for row in result.fetchmany(row_limit)]
+                    ms = (time.time() - start) * 1000
+                    logger.debug("SQL (%.0fms, %d rows): %s", ms, len(rows), sql[:200])
+                    return rows
+                conn.commit()
                 ms = (time.time() - start) * 1000
-                logger.debug("SQL (%.0fms, %d rows): %s", ms, len(rows), sql[:200])
-                return rows
-            conn.commit()
-            ms = (time.time() - start) * 1000
-            logger.debug("SQL (%.0fms, %d affected): %s", ms, result.rowcount, sql[:200])
-            return [{"affected_rows": result.rowcount}]
+                logger.debug("SQL (%.0fms, %d affected): %s", ms, result.rowcount, sql[:200])
+                return [{"affected_rows": result.rowcount}]
+            finally:
+                # Reset query_only so the connection isn't returned to the pool in
+                # read-only state, which would cause writes from other callers sharing
+                # the same engine (e.g. PersistentConversationStore) to fail with
+                # "attempt to write a readonly database".
+                if read_only and _sqlite_local:
+                    conn.execute(text("PRAGMA query_only = OFF"))
 
     def get_tables(self) -> list[str]:
         from sqlalchemy import inspect

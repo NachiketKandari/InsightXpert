@@ -24,31 +24,12 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import type {
   ClientConfig,
   OrgConfig,
-  FeatureToggles,
-  OrgBranding,
 } from "@/types/admin";
-
-const DEFAULT_FEATURES: FeatureToggles = {
-  sql_executor: true,
-  model_switching: true,
-  rag_training: true,
-  chart_rendering: true,
-  conversation_export: true,
-  agent_process_sidebar: false,
-  clarification_enabled: false,
-};
-
-const DEFAULT_BRANDING: OrgBranding = {
-  display_name: null,
-  logo_url: null,
-  theme: null,
-};
 
 export default function AdminPage() {
   const [fullConfig, setFullConfig] = useState<ClientConfig | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string>("");
   const [editingConfig, setEditingConfig] = useState<OrgConfig | null>(null);
-  const [newOrgId, setNewOrgId] = useState("");
   const [newOrgName, setNewOrgName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isFlushing, setIsFlushing] = useState(false);
@@ -109,16 +90,40 @@ export default function AdminPage() {
     }
   }, []);
 
+  const loadUsers = useCallback(async () => {
+    setIsLoadingUsers(true);
+    try {
+      const res = await apiFetch("/api/admin/users");
+      if (res.ok) {
+        const data = await res.json();
+        setUsers(data.users);
+      }
+    } catch {
+      // ignore
+    }
+    setIsLoadingUsers(false);
+  }, []);
+
   useEffect(() => {
-    // loadConfig is async — setState happens in a callback, not synchronously
+    // Both are async — setState happens in callbacks, not synchronously
     // eslint-disable-next-line react-hooks/set-state-in-effect
     loadConfig();
-  }, [loadConfig]);
+    loadUsers();
+  }, [loadConfig, loadUsers]);
 
   const handleOrgChange = (orgId: string) => {
     setSelectedOrgId(orgId);
     if (!fullConfig || !orgId) {
       setEditingConfig(null);
+      return;
+    }
+    if (orgId === "__all__") {
+      setEditingConfig({
+        org_id: "__all__",
+        org_name: "All (Default)",
+        features: { ...fullConfig.defaults.features },
+        branding: { ...fullConfig.defaults.branding },
+      });
       return;
     }
     const org = fullConfig.organizations[orgId];
@@ -140,6 +145,31 @@ export default function AdminPage() {
       });
       if (res.ok) {
         showMessage("success", "Organization config saved");
+        await loadConfig();
+      } else {
+        showMessage("error", "Failed to save");
+      }
+    } catch {
+      showMessage("error", "Network error");
+    }
+    setIsSaving(false);
+  };
+
+  const saveDefaultsConfig = async () => {
+    if (!editingConfig || !fullConfig) return;
+    setIsSaving(true);
+    try {
+      const updatedDefaults = { ...fullConfig.defaults, features: editingConfig.features };
+      const res = await apiFetch("/api/admin/config", {
+        method: "PUT",
+        body: JSON.stringify({
+          admin_domains: fullConfig.admin_domains,
+          user_org_mappings: fullConfig.user_org_mappings,
+          defaults: updatedDefaults,
+        }),
+      });
+      if (res.ok) {
+        showMessage("success", "Default settings saved");
         await loadConfig();
       } else {
         showMessage("error", "Failed to save");
@@ -173,29 +203,21 @@ export default function AdminPage() {
   };
 
   const createOrg = async () => {
-    const id = newOrgId.trim();
     const name = newOrgName.trim();
-    if (!id || !name) return;
-
-    const org: OrgConfig = {
-      org_id: id,
-      org_name: name,
-      features: { ...DEFAULT_FEATURES },
-      branding: { ...DEFAULT_BRANDING },
-    };
+    if (!name) return;
 
     setIsSaving(true);
     try {
-      const res = await apiFetch(`/api/admin/config/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(org),
+      const res = await apiFetch("/api/admin/organizations", {
+        method: "POST",
+        body: JSON.stringify({ org_name: name }),
       });
       if (res.ok) {
-        setNewOrgId("");
+        const created = await res.json();
         setNewOrgName("");
         showMessage("success", "Organization created");
         await loadConfig();
-        setSelectedOrgId(id);
+        setSelectedOrgId(created.org_id);
       } else {
         showMessage("error", "Failed to create");
       }
@@ -228,20 +250,6 @@ export default function AdminPage() {
     }
     setIsSaving(false);
   };
-
-  const loadUsers = useCallback(async () => {
-    setIsLoadingUsers(true);
-    try {
-      const res = await apiFetch("/api/admin/users");
-      if (res.ok) {
-        const data = await res.json();
-        setUsers(data.users);
-      }
-    } catch {
-      // ignore
-    }
-    setIsLoadingUsers(false);
-  }, []);
 
   const deleteUserConversations = async (userId: string, email: string) => {
     if (!await confirm({ title: "Delete user conversations", description: `Delete all conversations for ${email}? This cannot be undone.`, confirmLabel: "Delete all", variant: "destructive" })) return;
@@ -477,18 +485,6 @@ export default function AdminPage() {
             <div className="rounded-lg border border-border p-4 space-y-3">
               <h3 className="text-sm font-medium">Create Organization</h3>
               <div className="flex items-end gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor="new-org-id" className="text-xs">
-                    ID
-                  </Label>
-                  <Input
-                    id="new-org-id"
-                    placeholder="acme"
-                    value={newOrgId}
-                    onChange={(e) => setNewOrgId(e.target.value)}
-                    className="w-32"
-                  />
-                </div>
                 <div className="flex-1 space-y-1">
                   <Label htmlFor="new-org-name" className="text-xs">
                     Name
@@ -502,7 +498,7 @@ export default function AdminPage() {
                 </div>
                 <Button
                   onClick={createOrg}
-                  disabled={!newOrgId.trim() || !newOrgName.trim() || isSaving}
+                  disabled={!newOrgName.trim() || isSaving}
                 >
                   <Plus className="size-4 mr-1" />
                   Create
@@ -511,34 +507,35 @@ export default function AdminPage() {
             </div>
 
             {/* Org selector + editor */}
-            {orgList.length > 0 && (
-              <div className="space-y-4">
-                <div className="flex items-center gap-3">
-                  <Select
-                    value={selectedOrgId}
-                    onValueChange={handleOrgChange}
-                  >
-                    <SelectTrigger className="w-64">
-                      <SelectValue placeholder="Select organization" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {orgList.map((org) => (
-                        <SelectItem key={org.org_id} value={org.org_id}>
-                          {org.org_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Select
+                  value={selectedOrgId}
+                  onValueChange={handleOrgChange}
+                >
+                  <SelectTrigger className="w-64">
+                    <SelectValue placeholder="Select organization" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__all__">All (Default)</SelectItem>
+                    {orgList.map((org) => (
+                      <SelectItem key={org.org_id} value={org.org_id}>
+                        {org.org_name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
 
-                  {selectedOrgId && editingConfig && (
-                    <div className="flex items-center gap-2">
-                      <Button
-                        onClick={saveOrgConfig}
-                        disabled={isSaving}
-                      >
-                        <Save className="size-4 mr-1" />
-                        Save
-                      </Button>
+                {selectedOrgId && editingConfig && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      onClick={selectedOrgId === "__all__" ? saveDefaultsConfig : saveOrgConfig}
+                      disabled={isSaving}
+                    >
+                      <Save className="size-4 mr-1" />
+                      {selectedOrgId === "__all__" ? "Save Defaults" : "Save"}
+                    </Button>
+                    {selectedOrgId !== "__all__" && (
                       <Button
                         variant="destructive"
                         onClick={deleteOrg}
@@ -547,24 +544,28 @@ export default function AdminPage() {
                         <Trash2 className="size-4 mr-1" />
                         Delete
                       </Button>
-                    </div>
-                  )}
-                </div>
+                    )}
+                  </div>
+                )}
+              </div>
 
-                {editingConfig && (
-                  <Tabs defaultValue="features" className="space-y-4">
-                    <TabsList>
-                      <TabsTrigger value="features">Features</TabsTrigger>
+              {editingConfig && (
+                <Tabs defaultValue="features" className="space-y-4">
+                  <TabsList>
+                    <TabsTrigger value="features">Features</TabsTrigger>
+                    {selectedOrgId !== "__all__" && (
                       <TabsTrigger value="branding">Branding</TabsTrigger>
-                    </TabsList>
-                    <TabsContent value="features">
-                      <FeatureTogglesEditor
-                        features={editingConfig.features}
-                        onChange={(features) =>
-                          setEditingConfig({ ...editingConfig, features })
-                        }
-                      />
-                    </TabsContent>
+                    )}
+                  </TabsList>
+                  <TabsContent value="features">
+                    <FeatureTogglesEditor
+                      features={editingConfig.features}
+                      onChange={(features) =>
+                        setEditingConfig({ ...editingConfig, features })
+                      }
+                    />
+                  </TabsContent>
+                  {selectedOrgId !== "__all__" && (
                     <TabsContent value="branding">
                       <BrandingEditor
                         branding={editingConfig.branding}
@@ -573,10 +574,10 @@ export default function AdminPage() {
                         }
                       />
                     </TabsContent>
-                  </Tabs>
-                )}
-              </div>
-            )}
+                  )}
+                </Tabs>
+              )}
+            </div>
           </TabsContent>
 
           {/* Global Settings Tab */}
@@ -591,6 +592,7 @@ export default function AdminPage() {
             <UserOrgMappingsEditor
               mappings={fullConfig.user_org_mappings}
               organizations={fullConfig.organizations}
+              users={users}
               onChange={(user_org_mappings) =>
                 setFullConfig({ ...fullConfig, user_org_mappings })
               }
@@ -914,6 +916,14 @@ export default function AdminPage() {
                           })}
                         >
                           Edit
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => resetPrompt(p.name)}
+                          title="Reset to default"
+                        >
+                          <RotateCcw className="size-3" />
                         </Button>
                         <Button
                           variant="ghost"

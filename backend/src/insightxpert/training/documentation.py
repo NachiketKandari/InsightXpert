@@ -4,7 +4,8 @@ DOCUMENTATION = """
 ## Dataset Overview
 
 The `transactions` table contains 250,000 Indian UPI digital payment
-transactions from 2024 with 17 columns.
+transactions spanning the full calendar year 2024, with 17 columns.
+Transaction statuses are SUCCESS or FAILED. Amounts are in Indian Rupees (₹).
 
 ## Column Descriptions
 

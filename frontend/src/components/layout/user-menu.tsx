@@ -3,7 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown } from "lucide-react";
+import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown, Zap } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { useChatStore } from "@/stores/chat-store";
@@ -44,7 +44,7 @@ function getDisplayName(email: string): string {
 
 export const UserMenu = React.memo(function UserMenu() {
   const { user, logout } = useAuthStore();
-  const { isAdmin } = useClientConfig();
+  const { isAdmin, config } = useClientConfig();
   const router = useRouter();
   const isMobile = useIsMobile();
   const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
@@ -112,14 +112,24 @@ export const UserMenu = React.memo(function UserMenu() {
               </Link>
             </DropdownMenuItem>
           )}
+          {isAdmin && (
+            <DropdownMenuItem asChild>
+              <Link href="/admin/automations">
+                <Zap className="size-4" />
+                Automations
+              </Link>
+            </DropdownMenuItem>
+          )}
 <DropdownMenuItem onClick={() => setSampleQuestionsOpen(true)}>
             <ListChecks className="size-4" />
             Sample Questions
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={toggleTheme}>
-            {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
-            {theme === "dark" ? "Light Mode" : "Dark Mode"}
-          </DropdownMenuItem>
+          {!config?.branding?.color_mode && (
+            <DropdownMenuItem onClick={toggleTheme}>
+              {theme === "dark" ? <Sun className="size-4" /> : <Moon className="size-4" />}
+              {theme === "dark" ? "Light Mode" : "Dark Mode"}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleLogout} variant="destructive">
             <LogOut className="size-4" />

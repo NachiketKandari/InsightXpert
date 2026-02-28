@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "InsightXpert API",
-    "description": "API collection for InsightXpert — AI data analyst for Indian digital payment transactions.\n\nBase URL: http://localhost:8000\n\n**Authentication:** Most endpoints require a valid session cookie. Call `Auth > Login` first — Postman will automatically store the `__session` cookie and send it with subsequent requests.",
+    "description": "API collection for InsightXpert — AI data analyst for Indian digital payment transactions.\n\nBase URL: http://localhost:8000\n\n**Authentication:** Most endpoints require a valid session cookie. Call `Auth > Login` first — Postman will automatically store the `__session` httpOnly cookie and send it with subsequent requests.\n\n**Admin endpoints** require a session from a user with `is_admin=true` in the database.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -14,7 +14,13 @@
       "key": "conversation_id",
       "value": "",
       "type": "string",
-      "description": "Set this to a conversation ID from the List Conversations response"
+      "description": "Set to a conversation ID from List Conversations"
+    },
+    {
+      "key": "dataset_id",
+      "value": "",
+      "type": "string",
+      "description": "Set to a dataset ID from List Datasets"
     }
   ],
   "item": [
@@ -45,7 +51,7 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"id\": \"abc-123\",\n  \"email\": \"admin@insightxpert.com\"\n}"
+              "body": "{\n  \"id\": \"abc-123\",\n  \"email\": \"admin@insightxpert.com\",\n  \"is_admin\": true\n}"
             },
             {
               "name": "401 Unauthorized",
@@ -93,7 +99,7 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"id\": \"abc-123\",\n  \"email\": \"admin@insightxpert.com\"\n}"
+              "body": "{\n  \"id\": \"abc-123\",\n  \"email\": \"admin@insightxpert.com\",\n  \"is_admin\": true\n}"
             }
           ]
         }
@@ -144,14 +150,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"message\": \"What is the average transaction amount for bill payments?\",\n  \"conversation_id\": null\n}"
+              "raw": "{\n  \"message\": \"What is the average transaction amount for bill payments?\",\n  \"conversation_id\": null,\n  \"agent_mode\": \"auto\",\n  \"skip_clarification\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/chat",
               "host": ["{{base_url}}"],
               "path": ["api", "chat"]
             },
-            "description": "Send a natural language question and receive Server-Sent Events (SSE) stream.\n\nChunk types in the stream:\n- `status` — progress update (e.g., \"Searching knowledge base...\")\n- `tool_call` — agent is calling a tool (run_sql, get_schema, search_similar)\n- `sql` — the SQL query being executed\n- `tool_result` — result from tool execution\n- `answer` — final natural language answer\n- `error` — error message\n\nStream ends with `data: [DONE]`.\n\n**Note:** Postman doesn't render SSE well. Use curl for best results:\n```\ncurl -N -X POST http://localhost:8000/api/chat \\\n  -H 'Content-Type: application/json' \\\n  -d '{\"message\":\"What is the average transaction amount?\"}'\n```"
+            "description": "Send a natural language question and receive Server-Sent Events (SSE) stream.\n\n`agent_mode` values: `\"auto\"` (default), `\"analyst\"`, `\"statistician\"`.\n\nChunk types in the stream:\n- `status` — progress update (e.g., \"Searching knowledge base...\")\n- `tool_call` — agent is calling a tool (run_sql, get_schema, search_similar)\n- `sql` — the SQL query being executed\n- `tool_result` — result from tool execution\n- `answer` — final natural language answer\n- `error` — error message\n- `metrics` — token usage and timing: `{\"input_tokens\": 1234, \"output_tokens\": 567, \"generation_time_ms\": 4200}`\n\nStream ends with `data: [DONE]`.\n\n**Note:** Postman does not render SSE streams well. Use curl for best results:\n```\ncurl -N -X POST http://localhost:8000/api/chat \\\n  -H 'Content-Type: application/json' \\\n  -b '__session=YOUR_SESSION' \\\n  -d '{\"message\":\"What is the average transaction amount?\",\"agent_mode\":\"auto\",\"skip_clarification\":false}'\n```"
           },
           "response": [
             {
@@ -164,7 +170,7 @@
                   "value": "text/event-stream"
                 }
               ],
-              "body": "data: {\"type\":\"status\",\"content\":\"Searching knowledge base for context...\",\"conversation_id\":\"a1b2c3\"}\n\ndata: {\"type\":\"tool_call\",\"content\":\"Calling run_sql...\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"sql\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"tool_result\",\"data\":{\"tool\":\"run_sql\",\"result\":\"{\\\"rows\\\":[{\\\"avg_amount\\\":1847.23}],\\\"row_count\\\":1}\"}}\n\ndata: {\"type\":\"answer\",\"content\":\"The average transaction amount for bill payments is INR 1,847.23.\"}\n\ndata: [DONE]"
+              "body": "data: {\"type\":\"status\",\"content\":\"Searching knowledge base for context...\",\"conversation_id\":\"a1b2c3\"}\n\ndata: {\"type\":\"tool_call\",\"content\":\"Calling run_sql...\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"sql\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"tool_result\",\"data\":{\"tool\":\"run_sql\",\"result\":\"{\\\"rows\\\":[{\\\"avg_amount\\\":1847.23}],\\\"row_count\\\":1}\"}}\n\ndata: {\"type\":\"answer\",\"content\":\"The average transaction amount for bill payments is INR 1,847.23.\"}\n\ndata: {\"type\":\"metrics\",\"input_tokens\":1234,\"output_tokens\":87,\"generation_time_ms\":3850}\n\ndata: [DONE]"
             }
           ]
         },
@@ -180,21 +186,51 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"message\": \"How do failure rates compare between Android and iOS users?\",\n  \"conversation_id\": null\n}"
+              "raw": "{\n  \"message\": \"How do failure rates compare between Android and iOS users?\",\n  \"conversation_id\": null,\n  \"agent_mode\": \"auto\",\n  \"skip_clarification\": false\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/chat/poll",
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "poll"]
             },
-            "description": "Send a question and get all response chunks at once (non-streaming).\n\nReturns a JSON object with a `chunks` array containing all the same chunk types as the SSE endpoint, but collected into a single response.\n\nBetter for Postman testing since it returns normal JSON."
+            "description": "Send a question and get all response chunks at once (non-streaming).\n\nReturns a JSON object with a `chunks` array containing all the same chunk types as the SSE endpoint, but collected into a single response. Better for Postman testing since it returns normal JSON."
           },
           "response": [
             {
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"chunks\": [\n    {\n      \"type\": \"status\",\n      \"content\": \"Searching knowledge base for context...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840000.0\n    },\n    {\n      \"type\": \"sql\",\n      \"content\": null,\n      \"data\": null,\n      \"sql\": \"SELECT device_type, COUNT(*) AS total_txns, ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct FROM transactions WHERE device_type IN ('Android', 'iOS') GROUP BY device_type\",\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840001.0\n    },\n    {\n      \"type\": \"answer\",\n      \"content\": \"Android and iOS users show similar failure rates...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.0\n    }\n  ]\n}"
+              "body": "{\n  \"chunks\": [\n    {\n      \"type\": \"status\",\n      \"content\": \"Searching knowledge base for context...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840000.0\n    },\n    {\n      \"type\": \"sql\",\n      \"content\": null,\n      \"data\": null,\n      \"sql\": \"SELECT device_type, COUNT(*) AS total_txns, ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct FROM transactions WHERE device_type IN ('Android', 'iOS') GROUP BY device_type\",\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840001.0\n    },\n    {\n      \"type\": \"answer\",\n      \"content\": \"Android and iOS users show similar failure rates...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.0\n    },\n    {\n      \"type\": \"metrics\",\n      \"input_tokens\": 1456,\n      \"output_tokens\": 102,\n      \"generation_time_ms\": 4120,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.1\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Chat (Answer Only)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message\": \"What is the overall transaction success rate?\",\n  \"conversation_id\": null,\n  \"agent_mode\": \"auto\",\n  \"skip_clarification\": false\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/chat/answer",
+              "host": ["{{base_url}}"],
+              "path": ["api", "chat", "answer"]
+            },
+            "description": "Run the full pipeline and return only the final answer text, conversation ID, and any SQL that was executed.\n\nUse this when you only need the answer string and don't care about intermediate status/tool chunks.\n\nResponse fields:\n- `answer` — the final natural language answer\n- `conversation_id` — use this to continue the conversation in subsequent requests\n- `sql` — list of SQL queries executed (may be empty for non-SQL questions)"
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"answer\": \"The overall transaction success rate is 87.3%. Out of 250,000 transactions, 218,250 were successful and 31,750 failed.\",\n  \"conversation_id\": \"a1b2c3d4-e5f6-7890-abcd-ef1234567890\",\n  \"sql\": [\n    \"SELECT ROUND(SUM(CASE WHEN transaction_status = 'SUCCESS' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 1) AS success_rate FROM transactions\"\n  ]\n}"
             }
           ]
         }
@@ -335,7 +371,7 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "[\n  {\n    \"id\": \"conv-abc-123\",\n    \"title\": \"What is the average transaction amount?\",\n    \"created_at\": \"2026-02-15T10:30:00Z\",\n    \"updated_at\": \"2026-02-15T10:31:00Z\",\n    \"last_message\": \"The average transaction amount is INR 1,847.23.\"\n  }\n]"
+              "body": "[\n  {\n    \"id\": \"conv-abc-123\",\n    \"title\": \"What is the average transaction amount?\",\n    \"is_starred\": false,\n    \"created_at\": \"2026-02-15T10:30:00Z\",\n    \"updated_at\": \"2026-02-15T10:31:00Z\",\n    \"last_message\": \"The average transaction amount is INR 1,847.23.\"\n  }\n]"
             }
           ]
         },
@@ -377,14 +413,14 @@
               "host": ["{{base_url}}"],
               "path": ["api", "conversations", "{{conversation_id}}"]
             },
-            "description": "Get a single conversation with all its messages and chunk data.\n\nReplace `{{conversation_id}}` with an actual conversation ID from the List endpoint."
+            "description": "Get a single conversation with all its messages and chunk data.\n\nSet the `{{conversation_id}}` collection variable to an actual conversation ID from the List endpoint."
           },
           "response": [
             {
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"id\": \"conv-abc-123\",\n  \"title\": \"Average transaction amount\",\n  \"messages\": [\n    {\n      \"id\": \"msg-001\",\n      \"role\": \"user\",\n      \"content\": \"What is the average transaction amount?\",\n      \"chunks\": null,\n      \"created_at\": \"2026-02-15T10:30:00Z\"\n    },\n    {\n      \"id\": \"msg-002\",\n      \"role\": \"assistant\",\n      \"content\": \"The average transaction amount is INR 1,847.23.\",\n      \"chunks\": [{\"type\": \"answer\", \"content\": \"The average transaction amount is INR 1,847.23.\"}],\n      \"created_at\": \"2026-02-15T10:30:05Z\"\n    }\n  ],\n  \"created_at\": \"2026-02-15T10:30:00Z\",\n  \"updated_at\": \"2026-02-15T10:30:05Z\"\n}"
+              "body": "{\n  \"id\": \"conv-abc-123\",\n  \"title\": \"Average transaction amount\",\n  \"is_starred\": false,\n  \"messages\": [\n    {\n      \"id\": \"msg-001\",\n      \"role\": \"user\",\n      \"content\": \"What is the average transaction amount?\",\n      \"chunks\": null,\n      \"created_at\": \"2026-02-15T10:30:00Z\"\n    },\n    {\n      \"id\": \"msg-002\",\n      \"role\": \"assistant\",\n      \"content\": \"The average transaction amount is INR 1,847.23.\",\n      \"chunks\": [{\"type\": \"answer\", \"content\": \"The average transaction amount is INR 1,847.23.\"}],\n      \"created_at\": \"2026-02-15T10:30:05Z\"\n    }\n  ],\n  \"created_at\": \"2026-02-15T10:30:00Z\",\n  \"updated_at\": \"2026-02-15T10:30:05Z\"\n}"
             },
             {
               "name": "404 Not Found",
@@ -410,7 +446,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "conversations", "{{conversation_id}}"]
             },
-            "description": "Rename a conversation. Replace `{{conversation_id}}` with the conversation ID."
+            "description": "Rename a conversation. Set `{{conversation_id}}` to the target conversation ID."
           },
           "response": [
             {
@@ -418,6 +454,33 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Star / Unstar Conversation",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"starred\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/conversations/{{conversation_id}}/star",
+              "host": ["{{base_url}}"],
+              "path": ["api", "conversations", "{{conversation_id}}", "star"]
+            },
+            "description": "Star or unstar a conversation. Set `starred` to `false` to unstar.\n\nSet `{{conversation_id}}` to the target conversation ID."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"starred\": true\n}"
             }
           ]
         },
@@ -431,7 +494,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "conversations", "{{conversation_id}}"]
             },
-            "description": "Permanently delete a conversation and all its messages. Replace `{{conversation_id}}` with the conversation ID."
+            "description": "Permanently delete a conversation and all its messages. Set `{{conversation_id}}` to the target conversation ID."
           },
           "response": [
             {
@@ -496,7 +559,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "sql", "execute"]
             },
-            "description": "Execute a read-only SQL query against the database.\n\nOnly SELECT, WITH, and EXPLAIN queries are allowed. INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked (403).\n\nResults are capped at 1000 rows with a 30-second timeout (configurable via server settings)."
+            "description": "Execute a read-only SQL query against the database. No authentication required.\n\nOnly SELECT, WITH, and EXPLAIN queries are allowed. INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked (403).\n\nResults are capped at 1000 rows with a 30-second timeout."
           },
           "response": [
             {
@@ -562,7 +625,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "config", "switch"]
             },
-            "description": "Switch the active LLM provider and model at runtime. Takes effect immediately for all subsequent chat requests.\n\nChange `model` to any available Gemini model: gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite, gemini-2.0-flash, gemini-2.0-flash-lite."
+            "description": "Switch the active LLM provider and model at runtime. Takes effect immediately for all subsequent chat requests.\n\nAvailable Gemini models: gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite, gemini-2.0-flash, gemini-2.0-flash-lite."
           },
           "response": [
             {
@@ -728,14 +791,14 @@
             ],
             "body": {
               "mode": "raw",
-              "raw": "{\n  \"conversation_id\": \"conv-abc-123\",\n  \"message_id\": \"msg-002\",\n  \"rating\": \"up\",\n  \"comment\": \"Accurate SQL and clear explanation\"\n}"
+              "raw": "{\n  \"message_id\": \"msg-002\",\n  \"feedback\": true,\n  \"comment\": \"Accurate SQL and clear explanation\"\n}"
             },
             "url": {
               "raw": "{{base_url}}/api/feedback",
               "host": ["{{base_url}}"],
               "path": ["api", "feedback"]
             },
-            "description": "Submit feedback on an assistant message.\n\n- `rating`: `\"up\"` or `\"down\"`\n- `comment`: optional free-text feedback\n- `conversation_id` and `message_id` identify the specific message"
+            "description": "Submit feedback on an assistant message.\n\n- `message_id`: ID of the assistant message to rate\n- `feedback`: `true` = thumbs up, `false` = thumbs down, `null` = clear existing feedback\n- `comment`: optional free-text feedback"
           },
           "response": [
             {
@@ -885,6 +948,699 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"status\": \"success\",\n  \"model\": \"ministral:3b\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Client Config",
+      "description": "Retrieve the resolved feature configuration for the current authenticated user.",
+      "item": [
+        {
+          "name": "Get Client Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/client-config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "client-config"]
+            },
+            "description": "Returns the resolved feature configuration for the current authenticated user based on their org membership.\n\nAdmin users receive `{\"config\": null, \"is_admin\": true, \"org_id\": null}` since they bypass feature restrictions."
+          },
+          "response": [
+            {
+              "name": "200 OK — Regular user",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"config\": {\n    \"org_id\": \"default\",\n    \"org_name\": \"Default\",\n    \"features\": {\n      \"sql_executor\": true,\n      \"model_switching\": true,\n      \"rag_training\": true,\n      \"chart_rendering\": true,\n      \"conversation_export\": true,\n      \"agent_process_sidebar\": true,\n      \"clarification_enabled\": false\n    },\n    \"branding\": {\n      \"display_name\": null,\n      \"logo_url\": null,\n      \"theme\": null\n    }\n  },\n  \"is_admin\": false,\n  \"org_id\": null\n}"
+            },
+            {
+              "name": "200 OK — Admin user",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"config\": null,\n  \"is_admin\": true,\n  \"org_id\": null\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin — Config",
+      "description": "Admin-only endpoints for managing global and per-organization client configuration.\n\nRequires admin authentication.",
+      "item": [
+        {
+          "name": "Get Global Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "config"]
+            },
+            "description": "Get the full client configuration including admin domains, user-org mappings, organizations, and defaults.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"admin_domains\": [\"insightxpert.ai\"],\n  \"user_org_mappings\": [\n    {\"email\": \"user@company.com\", \"org_id\": \"org-001\"}\n  ],\n  \"organizations\": [\n    {\n      \"org_id\": \"org-001\",\n      \"org_name\": \"Acme Corp\",\n      \"features\": {\n        \"sql_executor\": true,\n        \"model_switching\": false,\n        \"rag_training\": false,\n        \"chart_rendering\": true,\n        \"conversation_export\": true,\n        \"agent_process_sidebar\": true,\n        \"clarification_enabled\": false\n      },\n      \"branding\": {\"display_name\": \"Acme Analytics\", \"logo_url\": null, \"theme\": null}\n    }\n  ],\n  \"defaults\": {\n    \"features\": {\n      \"sql_executor\": true,\n      \"model_switching\": true,\n      \"rag_training\": true,\n      \"chart_rendering\": true,\n      \"conversation_export\": true,\n      \"agent_process_sidebar\": true,\n      \"clarification_enabled\": false\n    },\n    \"branding\": {\"display_name\": null, \"logo_url\": null, \"theme\": null}\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Global Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"admin_domains\": [\"insightxpert.ai\"],\n  \"user_org_mappings\": [\n    {\"email\": \"user@company.com\", \"org_id\": \"org-001\"}\n  ],\n  \"defaults\": {\n    \"features\": {\n      \"sql_executor\": true,\n      \"model_switching\": true,\n      \"rag_training\": true,\n      \"chart_rendering\": true,\n      \"conversation_export\": true,\n      \"agent_process_sidebar\": true,\n      \"clarification_enabled\": false\n    },\n    \"branding\": {\n      \"display_name\": null,\n      \"logo_url\": null,\n      \"theme\": null\n    }\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/config",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "config"]
+            },
+            "description": "Update the global client configuration including admin domains, user-org mappings, and default feature flags.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Organizations",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/organizations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "organizations"]
+            },
+            "description": "List all configured organizations.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"organizations\": [\n    {\"org_id\": \"org-001\", \"org_name\": \"Acme Corp\"}\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Org Config",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/config/org-001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "config", "org-001"]
+            },
+            "description": "Get the feature configuration for a specific organization. Replace `org-001` in the path with the target org ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"org_id\": \"org-001\",\n  \"org_name\": \"Acme Corp\",\n  \"features\": {\n    \"sql_executor\": true,\n    \"model_switching\": false,\n    \"rag_training\": false,\n    \"chart_rendering\": true,\n    \"conversation_export\": true,\n    \"agent_process_sidebar\": true,\n    \"clarification_enabled\": false\n  },\n  \"branding\": {\n    \"display_name\": \"Acme Analytics\",\n    \"logo_url\": null,\n    \"theme\": null\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "Upsert Org Config",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"org_id\": \"org-001\",\n  \"org_name\": \"Acme Corp\",\n  \"features\": {\n    \"sql_executor\": true,\n    \"model_switching\": false,\n    \"rag_training\": false,\n    \"chart_rendering\": true,\n    \"conversation_export\": true,\n    \"agent_process_sidebar\": true,\n    \"clarification_enabled\": false\n  },\n  \"branding\": {\n    \"display_name\": \"Acme Analytics\",\n    \"logo_url\": null,\n    \"theme\": null\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/config/org-001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "config", "org-001"]
+            },
+            "description": "Create or update the feature configuration for a specific organization. Replace `org-001` in the path with the target org ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Org Config",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/config/org-001",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "config", "org-001"]
+            },
+            "description": "Delete the configuration for a specific organization. The org's users will fall back to the global defaults. Replace `org-001` in the path with the target org ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin — Users & Conversations",
+      "description": "Admin-only endpoints for viewing and managing users and their conversations.\n\nRequires admin authentication.",
+      "item": [
+        {
+          "name": "List All Users",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/users",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "users"]
+            },
+            "description": "List all registered users with usage statistics.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"users\": [\n    {\n      \"id\": \"user-123\",\n      \"email\": \"user@example.com\",\n      \"is_admin\": false,\n      \"conversation_count\": 5,\n      \"message_count\": 23,\n      \"last_active\": \"2026-02-15T10:30:00Z\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get User Conversations (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/users/user-123/conversations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "users", "user-123", "conversations"]
+            },
+            "description": "List all conversations for a specific user. No ownership check — admin can view any user's conversations. Replace `user-123` in the path with the target user ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"conversations\": [\n    {\n      \"id\": \"conv-abc-123\",\n      \"title\": \"Bill Payment Analysis\",\n      \"is_starred\": false,\n      \"created_at\": \"2026-02-15T10:30:00Z\",\n      \"updated_at\": \"2026-02-15T10:31:00Z\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Conversation (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/conversations/{{conversation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "conversations", "{{conversation_id}}"]
+            },
+            "description": "Get the full conversation including all messages. No ownership check — admin can retrieve any conversation.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"conv-abc-123\",\n  \"title\": \"Bill Payment Analysis\",\n  \"is_starred\": false,\n  \"messages\": [\n    {\n      \"id\": \"msg-001\",\n      \"role\": \"user\",\n      \"content\": \"What is the average transaction amount for bill payments?\",\n      \"chunks\": null,\n      \"created_at\": \"2026-02-15T10:30:00Z\"\n    },\n    {\n      \"id\": \"msg-002\",\n      \"role\": \"assistant\",\n      \"content\": \"The average transaction amount for bill payments is INR 1,847.23.\",\n      \"chunks\": [{\"type\": \"answer\", \"content\": \"The average transaction amount for bill payments is INR 1,847.23.\"}],\n      \"created_at\": \"2026-02-15T10:30:05Z\"\n    }\n  ],\n  \"created_at\": \"2026-02-15T10:30:00Z\",\n  \"updated_at\": \"2026-02-15T10:30:05Z\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Conversation (Admin)",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/conversations/{{conversation_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "conversations", "{{conversation_id}}"]
+            },
+            "description": "Delete a single conversation by ID. No ownership check — admin can delete any conversation.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete All Conversations for User",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/conversations/user/user-123",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "conversations", "user", "user-123"]
+            },
+            "description": "Delete all conversations belonging to a specific user. Replace `user-123` in the path with the target user ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"deleted_count\": 5\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete ALL Conversations",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/conversations",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "conversations"]
+            },
+            "description": "DESTRUCTIVE — deletes all conversations across all users. This cannot be undone.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"deleted_count\": 42\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin — RAG",
+      "description": "Admin-only endpoints for managing RAG (Retrieval-Augmented Generation) knowledge base content.\n\nRequires admin authentication.",
+      "item": [
+        {
+          "name": "Flush QA Pairs",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/rag/qa-pairs",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "rag", "qa-pairs"]
+            },
+            "description": "Delete only QA pairs from the RAG knowledge base. DDL schemas, documentation, and findings are kept intact.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"deleted_count\": 15\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Admin — Prompts",
+      "description": "Admin-only endpoints for managing agent system prompt templates.\n\nRequires admin authentication.",
+      "item": [
+        {
+          "name": "List Prompts",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/prompts",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "prompts"]
+            },
+            "description": "List all stored prompt templates. Templates stored here override the file-based defaults.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"prompts\": [\n    {\n      \"id\": \"prompt-uuid-here\",\n      \"name\": \"analyst\",\n      \"content\": \"You are an expert SQL analyst...\",\n      \"description\": \"Analyst agent prompt\",\n      \"is_active\": true,\n      \"created_at\": \"2026-02-01T00:00:00\",\n      \"updated_at\": \"2026-02-15T10:00:00\"\n    }\n  ]\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Prompt",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/prompts/analyst",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "prompts", "analyst"]
+            },
+            "description": "Get a single prompt template by name. Replace `analyst` in the path with the target prompt name.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"prompt-uuid-here\",\n  \"name\": \"analyst\",\n  \"content\": \"You are an expert SQL analyst...\",\n  \"description\": \"Analyst agent prompt\",\n  \"is_active\": true,\n  \"created_at\": \"2026-02-01T00:00:00\",\n  \"updated_at\": \"2026-02-15T10:00:00\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Create or Update Prompt",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"content\": \"You are an expert SQL analyst...\",\n  \"description\": \"Analyst agent system prompt\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/admin/prompts/analyst",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "prompts", "analyst"]
+            },
+            "description": "Create or update a named prompt template. Stored prompts override the file-based defaults. Replace `analyst` in the path with the target prompt name.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"name\": \"analyst\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Prompt",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/prompts/analyst",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "prompts", "analyst"]
+            },
+            "description": "Delete a stored prompt template. The agent will revert to the file-based default for that prompt name. Replace `analyst` in the path with the target prompt name.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"name\": \"analyst\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Reset Prompt to Default",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/admin/prompts/analyst/reset",
+              "host": ["{{base_url}}"],
+              "path": ["api", "admin", "prompts", "analyst", "reset"]
+            },
+            "description": "Reset a prompt template to the file-based default, discarding any DB-stored override. Replace `analyst` in the path with the target prompt name.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"name\": \"analyst\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Datasets",
+      "description": "Manage datasets and their metadata. Most endpoints require admin authentication. `GET /api/datasets/public` is accessible to any authenticated user.\n\nSet the `{{dataset_id}}` collection variable to a dataset ID from the List Datasets response.",
+      "item": [
+        {
+          "name": "List Datasets (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets"]
+            },
+            "description": "List all datasets with full metadata.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"dataset-uuid-here\",\n    \"name\": \"Indian Payments 2024\",\n    \"description\": \"250K synthetic Indian digital payment transactions\",\n    \"is_active\": true,\n    \"created_at\": \"2026-01-01T00:00:00\",\n    \"updated_at\": \"2026-02-15T10:00:00\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "List Datasets (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets/public",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "public"]
+            },
+            "description": "List available datasets with minimal public information. Accessible to any authenticated user."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"dataset-uuid-here\",\n    \"name\": \"Indian Payments 2024\",\n    \"description\": \"250K synthetic Indian digital payment transactions\",\n    \"is_active\": true,\n    \"table_name\": \"transactions\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Get Dataset",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}"]
+            },
+            "description": "Get full dataset details including column metadata and example queries.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"dataset-uuid-here\",\n  \"name\": \"Indian Payments 2024\",\n  \"description\": \"250K synthetic Indian digital payment transactions\",\n  \"ddl\": \"CREATE TABLE transactions (...);\",\n  \"documentation\": \"This dataset contains...\",\n  \"is_active\": true,\n  \"table_name\": \"transactions\",\n  \"columns\": [\n    {\n      \"id\": \"col-uuid-here\",\n      \"column_name\": \"amount_inr\",\n      \"column_type\": \"REAL\",\n      \"description\": \"Transaction amount in Indian Rupees\",\n      \"domain_values\": null,\n      \"domain_rules\": \"Always positive. Range: 1 to 100000.\",\n      \"ordinal_position\": 5\n    }\n  ],\n  \"example_queries\": [\n    {\n      \"id\": \"query-uuid-here\",\n      \"question\": \"What is the most common transaction type?\",\n      \"sql\": \"SELECT transaction_type, COUNT(*) AS cnt FROM transactions GROUP BY transaction_type ORDER BY cnt DESC LIMIT 1;\",\n      \"category\": \"descriptive\"\n    }\n  ],\n  \"created_at\": \"2026-01-01T00:00:00\",\n  \"updated_at\": \"2026-02-15T10:00:00\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Dataset",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Indian Payments 2024\",\n  \"description\": \"250K synthetic Indian digital payment transactions\",\n  \"ddl\": \"CREATE TABLE transactions (...);\",\n  \"documentation\": \"This dataset contains...\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}"]
+            },
+            "description": "Update dataset fields. All fields are optional — only include the fields you want to change.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Activate Dataset",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}/activate",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}", "activate"]
+            },
+            "description": "Set this dataset as the active dataset. Only one dataset can be active at a time.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"active_dataset_id\": \"dataset-uuid-here\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Add Column Metadata",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"column_name\": \"amount_inr\",\n  \"column_type\": \"REAL\",\n  \"description\": \"Transaction amount in Indian Rupees\",\n  \"domain_values\": null,\n  \"domain_rules\": \"Always positive. Range: 1 to 100000.\",\n  \"ordinal_position\": 5\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}/columns",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}", "columns"]
+            },
+            "description": "Add column-level metadata to a dataset. This metadata is used to enrich RAG context for the agent.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"id\": \"col-uuid-here\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Update Column Metadata",
+          "request": {
+            "method": "PUT",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"column_name\": \"amount_inr\",\n  \"column_type\": \"REAL\",\n  \"description\": \"Transaction amount in Indian Rupees\",\n  \"domain_values\": null,\n  \"domain_rules\": \"Always positive. Range: 1 to 100000.\",\n  \"ordinal_position\": 5\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}/columns/col-uuid-here",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}", "columns", "col-uuid-here"]
+            },
+            "description": "Update an existing column metadata entry. Replace `col-uuid-here` in the path with the column record ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Add Example Query",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"question\": \"What is the most common transaction type?\",\n  \"sql\": \"SELECT transaction_type, COUNT(*) AS cnt FROM transactions GROUP BY transaction_type ORDER BY cnt DESC LIMIT 1;\",\n  \"category\": \"descriptive\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}/queries",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}", "queries"]
+            },
+            "description": "Add an example question-SQL pair to the dataset. Example queries are used during RAG training.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"id\": \"query-uuid-here\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Example Query",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}/queries/query-uuid-here",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}", "queries", "query-uuid-here"]
+            },
+            "description": "Delete an example query from the dataset. Replace `query-uuid-here` in the path with the query record ID.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Retrain from Dataset",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}/retrain",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}", "retrain"]
+            },
+            "description": "Re-run RAG training using all metadata stored in the dataset (DDL, documentation, column descriptions, and example queries). Existing embeddings for this dataset are replaced.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"items_trained\": 12\n}"
             }
           ]
         }

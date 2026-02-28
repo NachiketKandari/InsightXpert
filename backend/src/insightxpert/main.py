@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
-from insightxpert.admin.config_store import read_config, write_config
+from insightxpert.admin.config_store import migrate_from_json
 from insightxpert.admin.routes import router as admin_router
 from insightxpert.api.routes import router
 from insightxpert.auth.conversation_store import PersistentConversationStore
@@ -34,7 +34,14 @@ logger = logging.getLogger("insightxpert")
 
 
 def _migrate_schema(engine) -> None:
-    """Add new columns to existing tables (idempotent, no Alembic needed)."""
+    """Add new columns to existing tables (idempotent, no Alembic needed).
+
+    Column additions and index definitions are shared with
+    ``TursoSyncManager.ensure_remote_schema`` via ``_MIGRATION_COLUMNS``
+    and ``_SCHEMA_INDEXES`` in ``db.sync`` to avoid duplication.
+    """
+    from insightxpert.db.sync import _MIGRATION_COLUMNS, _SCHEMA_INDEXES
+
     insp = inspect(engine)
     dialect = engine.dialect.name
 
@@ -53,22 +60,24 @@ def _migrate_schema(engine) -> None:
             except Exception:
                 logger.debug("Column %s.%s already exists (dialect=%s)", table, column, dialect)
 
-        _add_column("users", "is_admin", "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
-        _add_column("users", "last_active", "DATETIME")
-        _add_column("conversations", "is_starred",
-                     "BOOLEAN DEFAULT 0 NOT NULL" if dialect == "sqlite" else "BOOLEAN DEFAULT FALSE NOT NULL")
-        _add_column("messages", "feedback", "BOOLEAN")
-        _add_column("messages", "feedback_comment", "TEXT")
-        _add_column("messages", "input_tokens", "INTEGER")
-        _add_column("messages", "output_tokens", "INTEGER")
-        _add_column("messages", "generation_time_ms", "INTEGER")
+        # PostgreSQL uses different boolean syntax
+        pg_overrides = {
+            ("users", "is_admin"): "BOOLEAN DEFAULT FALSE NOT NULL",
+            ("conversations", "is_starred"): "BOOLEAN DEFAULT FALSE NOT NULL",
+        }
 
-        # Indexes for frequently-queried foreign keys
-        for idx_sql in [
-            "CREATE INDEX IF NOT EXISTS ix_conversations_user_id ON conversations (user_id)",
-            "CREATE INDEX IF NOT EXISTS ix_messages_conversation_id ON messages (conversation_id)",
-            "CREATE INDEX IF NOT EXISTS ix_messages_created_at ON messages (created_at)",
-        ]:
+        for table, column, col_def in _MIGRATION_COLUMNS:
+            if dialect == "postgresql" and (table, column) in pg_overrides:
+                col_def = pg_overrides[(table, column)]
+            _add_column(table, column, col_def)
+
+        # Backfill updated_at = created_at for existing rows that don't have it
+        conn.execute(text(
+            "UPDATE users SET updated_at = created_at WHERE updated_at IS NULL"
+        ))
+
+        # All indexes and unique constraints (shared with Turso schema sync)
+        for idx_sql in _SCHEMA_INDEXES:
             try:
                 conn.execute(text(idx_sql))
             except Exception as e:
@@ -85,6 +94,14 @@ def _migrate_schema(engine) -> None:
             )
         """))
 
+        # Transaction timestamp index (table may not exist yet at migration time)
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_timestamp ON transactions (timestamp)"
+            ))
+        except Exception:
+            logger.debug("transactions table not present yet, skipping idx_timestamp")
+
         # Drop legacy tables
         existing_tables = set(insp.get_table_names())
         if "feedback" in existing_tables:
@@ -93,6 +110,89 @@ def _migrate_schema(engine) -> None:
         if "alembic_version" in existing_tables:
             conn.execute(text("DROP TABLE alembic_version"))
             logger.info("Migration: dropped alembic_version table")
+
+
+def _migrate_trigger_conditions(engine) -> None:
+    """Migrate trigger_conditions JSON blobs into normalized automation_triggers rows.
+
+    Idempotent: skips automations that already have rows in automation_triggers.
+    """
+    import json as _json
+    from insightxpert.auth.models import AutomationTrigger, _uuid, _utcnow
+
+    with Session(engine) as session:
+        rows = (
+            session.execute(
+                text(
+                    "SELECT id, trigger_conditions FROM automations "
+                    "WHERE trigger_conditions IS NOT NULL AND trigger_conditions != '[]'"
+                )
+            ).fetchall()
+        )
+        migrated = 0
+        for auto_id, tc_json in rows:
+            # Skip if already migrated
+            existing = (
+                session.query(AutomationTrigger)
+                .filter(AutomationTrigger.automation_id == auto_id)
+                .first()
+            )
+            if existing:
+                continue
+
+            try:
+                conditions = _json.loads(tc_json)
+            except (ValueError, TypeError):
+                continue
+
+            if not isinstance(conditions, list):
+                continue
+
+            now = _utcnow()
+            for i, cond in enumerate(conditions):
+                session.add(AutomationTrigger(
+                    id=_uuid(),
+                    automation_id=auto_id,
+                    ordinal_position=i,
+                    type=cond.get("type", "threshold"),
+                    column=cond.get("column"),
+                    operator=cond.get("operator"),
+                    value=cond.get("value"),
+                    change_percent=cond.get("change_percent"),
+                    scope=cond.get("scope"),
+                    slope_window=cond.get("slope_window"),
+                    nl_text=cond.get("nl_text"),
+                    created_at=now,
+                    updated_at=now,
+                ))
+            migrated += 1
+
+        if migrated:
+            session.commit()
+            logger.info("Migrated trigger conditions for %d automations", migrated)
+        else:
+            logger.debug("No trigger conditions to migrate")
+
+
+def _backfill_conversation_org(engine) -> None:
+    """Stamp conversations.org_id from their owner's users.org_id (idempotent).
+
+    User-to-org assignments are managed via the admin panel.  This only
+    propagates the existing users.org_id onto conversations that were
+    created before the org_id column existed.
+    """
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "UPDATE conversations SET org_id = ("
+            "  SELECT users.org_id FROM users WHERE users.id = conversations.user_id"
+            ") WHERE conversations.org_id IS NULL"
+            "  AND EXISTS ("
+            "    SELECT 1 FROM users"
+            "    WHERE users.id = conversations.user_id AND users.org_id IS NOT NULL"
+            "  )"
+        ))
+        if result.rowcount:
+            logger.info("Backfilled org_id on %d conversations", result.rowcount)
 
 
 def _seed_datasets(engine) -> None:
@@ -163,29 +263,31 @@ def _seed_prompts(engine) -> None:
     templates = [
         ("analyst_system", "analyst_system.j2", "System prompt for the SQL analyst agent"),
         ("statistician_system", "statistician_system.j2", "System prompt for the statistician agent"),
+        ("advanced_system", "advanced_system.j2", "System prompt for the advanced analytics agent"),
     ]
     with Session(engine) as session:
         seeded = 0
         for name, filename, description in templates:
             existing = session.query(PromptTemplate).filter_by(name=name).first()
-            if existing:
-                continue
             try:
                 content = get_file_content(filename)
-                prompt = PromptTemplate(
-                    id=_uuid(),
-                    name=name,
-                    content=content,
-                    description=description,
-                    is_active=True,
-                    created_at=_utcnow(),
-                    updated_at=_utcnow(),
-                )
-                session.add(prompt)
-                seeded += 1
-                logger.info("Seeded prompt template: %s", name)
             except FileNotFoundError:
                 logger.warning("Template file not found: %s", filename)
+                continue
+            if existing:
+                continue
+            prompt = PromptTemplate(
+                id=_uuid(),
+                name=name,
+                content=content,
+                description=description,
+                is_active=True,
+                created_at=_utcnow(),
+                updated_at=_utcnow(),
+            )
+            session.add(prompt)
+            seeded += 1
+            logger.info("Seeded prompt template: %s", name)
         session.commit()
         if seeded == 0:
             logger.debug("All prompt templates already seeded")
@@ -277,13 +379,15 @@ async def lifespan(app: FastAPI):
     try:
         AuthBase.metadata.create_all(auth_engine)
         _migrate_schema(auth_engine)
+        _migrate_trigger_conditions(auth_engine)
         seed_admin(auth_engine, settings)
+        _backfill_conversation_org(auth_engine)
         logger.info("Auth tables initialized, admin user ensured")
     except Exception as e:
         logger.error("Auth table setup failed: %s", e, exc_info=True)
 
     # 3. Startup sync: pull auth data from Turso (if configured)
-    if settings.turso_url and settings.sync_on_startup:
+    if settings.turso_url:
         try:
             from insightxpert.db.sync import TursoSyncManager
             sync_manager = TursoSyncManager(
@@ -291,20 +395,12 @@ async def lifespan(app: FastAPI):
                 turso_url=settings.turso_url,
                 turso_auth_token=settings.turso_auth_token,
             )
-            await asyncio.to_thread(sync_manager.pull_from_turso)
+            # Ensure Turso schema matches local (tables, indexes, constraints)
+            await asyncio.to_thread(sync_manager.ensure_remote_schema)
+            if settings.sync_on_startup:
+                await asyncio.to_thread(sync_manager.pull_from_turso)
         except Exception as e:
-            logger.error("Startup sync from Turso failed (continuing with local data): %s", e, exc_info=True)
-    elif settings.turso_url:
-        # Turso configured but startup sync disabled — still create manager for background push
-        try:
-            from insightxpert.db.sync import TursoSyncManager
-            sync_manager = TursoSyncManager(
-                local_engine=auth_engine,
-                turso_url=settings.turso_url,
-                turso_auth_token=settings.turso_auth_token,
-            )
-        except Exception as e:
-            logger.error("Failed to create Turso sync manager: %s", e)
+            logger.error("Turso startup sync failed (continuing with local data): %s", e, exc_info=True)
     else:
         logger.info("No TURSO_URL configured — running in pure local mode")
 
@@ -326,6 +422,17 @@ async def lifespan(app: FastAPI):
         await asyncio.to_thread(_ensure_transactions_loaded, auth_engine)
     except Exception as e:
         logger.error("Transaction loading failed: %s", e, exc_info=True)
+
+    # 6. Pre-compute dataset statistics (idempotent)
+    try:
+        from insightxpert.db.stats_computer import compute_and_store_stats
+        n = await asyncio.to_thread(compute_and_store_stats, auth_engine)
+        if n:
+            logger.info("Dataset stats computed: %d rows written", n)
+        else:
+            logger.debug("Dataset stats already present, skipping computation")
+    except Exception as e:
+        logger.error("Dataset stats computation failed: %s", e, exc_info=True)
 
     # RAG vector store
     rag = VectorStore(persist_dir=settings.chroma_persist_dir)
@@ -362,14 +469,25 @@ async def lifespan(app: FastAPI):
     app.state.persistent_conv_store = persistent_conv_store
     app.state.dataset_service = dataset_service
 
-    # Admin config (JSON file)
-    config_path = Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    if not config_path.exists():
-        write_config(config_path, read_config(config_path))
-        logger.info("Default admin config created: %s", config_path)
-    app.state.config_path = config_path
-    logger.info("Admin config loaded: %s", config_path)
+    # Automation service + scheduler
+    from insightxpert.automations.service import AutomationService
+    from insightxpert.automations.scheduler import AutomationScheduler
+    app.state.automation_service = AutomationService(auth_engine)
+    automation_scheduler = AutomationScheduler(auth_engine, db)
+    try:
+        await automation_scheduler.start()
+        app.state.automation_scheduler = automation_scheduler
+        logger.info("Automation scheduler initialized")
+    except Exception as e:
+        logger.error("Automation scheduler startup failed: %s", e, exc_info=True)
+
+    # Admin config — stored in the DB; migrate from legacy JSON file if needed
+    legacy_config_path = Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
+    try:
+        migrate_from_json(auth_engine, legacy_config_path)
+        logger.info("Admin config ready (DB-backed)")
+    except Exception as e:
+        logger.error("Admin config migration failed: %s", e, exc_info=True)
 
     # 6. Start background sync (if Turso configured)
     if sync_manager is not None:
@@ -389,6 +507,8 @@ async def lifespan(app: FastAPI):
     yield
 
     # Shutdown
+    if hasattr(app.state, 'automation_scheduler'):
+        await app.state.automation_scheduler.shutdown()
     if sync_manager is not None:
         await sync_manager.shutdown()
     if not rag_task.done():
@@ -490,11 +610,15 @@ async def health_check():
 
 
 from insightxpert.datasets.routes import router as datasets_router
+from insightxpert.automations.routes import router as automations_router, notifications_router, templates_router
 
 app.include_router(router)
 app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(datasets_router)
+app.include_router(automations_router)
+app.include_router(notifications_router)
+app.include_router(templates_router)
 
 if __name__ == "__main__":
     import os

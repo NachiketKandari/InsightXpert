@@ -8,21 +8,25 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import { cn, relativeTime, formatDate } from "@/lib/utils";
 
 interface MessageActionsProps {
   role: "user" | "assistant";
   content: string;
+  timestamp?: number;
   isLastAssistant?: boolean;
   onRetry?: () => void;
+  onResend?: (content: string) => void;
   onFeedback?: (type: "up" | "down", comment?: string) => void;
 }
 
 export function MessageActions({
   role,
   content,
+  timestamp,
   isLastAssistant,
   onRetry,
+  onResend,
   onFeedback,
 }: MessageActionsProps) {
   const [copied, setCopied] = useState(false);
@@ -84,6 +88,36 @@ export function MessageActions({
             {copied ? "Copied!" : "Copy"}
           </TooltipContent>
         </Tooltip>
+
+        {/* User-only actions: Resend + Timestamp */}
+        {role === "user" && onResend && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => onResend(content)}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Resend"
+              >
+                <RotateCcw className="size-3" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">Resend</TooltipContent>
+          </Tooltip>
+        )}
+
+        {role === "user" && timestamp && (
+          <span className="text-[10px] text-muted-foreground/60 select-none ml-0.5">
+            {(() => {
+              const startOfToday = new Date();
+              startOfToday.setHours(0, 0, 0, 0);
+              return timestamp >= startOfToday.getTime()
+                ? relativeTime(timestamp)
+                : formatDate(timestamp);
+            })()}
+          </span>
+        )}
 
         {/* Assistant-only actions */}
         {role === "assistant" && (

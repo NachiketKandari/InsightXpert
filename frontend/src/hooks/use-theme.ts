@@ -3,13 +3,13 @@ import { useSyncExternalStore } from "react";
 type Theme = "light" | "dark";
 
 function getThemeSnapshot(): Theme {
-  if (typeof window === "undefined") return "dark";
+  if (typeof window === "undefined") return "light";
   const stored = localStorage.getItem("theme");
-  return stored === "light" ? "light" : "dark";
+  return stored === "dark" ? "dark" : "light";
 }
 
 function getServerSnapshot(): Theme {
-  return "dark";
+  return "light";
 }
 
 function subscribeTheme(callback: () => void) {

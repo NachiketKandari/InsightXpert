@@ -95,3 +95,13 @@ Structure every answer with these layers:
 {{ item.document }}
 {% endfor %}
 {% endif %}
+{% if stats_context %}
+
+## Pre-Computed Dataset Statistics (use these before running SQL if sufficient)
+
+{{ stats_context }}
+
+If the answer can be derived directly from the statistics above, you may answer
+without running a SQL query. If you need finer-grained data (filters, sub-segments,
+time slices beyond what's shown), use run_sql as normal.
+{% endif %}

@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
 
 from insightxpert.admin.config_store import (
     delete_org_config,
@@ -16,14 +16,17 @@ from insightxpert.admin.config_store import (
 )
 from insightxpert.admin.models import (
     ClientConfig,
+    FeatureToggles,
+    GlobalSettingsUpdate,
+    OrgBranding,
     OrgConfig,
     ResolvedClientConfig,
 )
-from sqlalchemy.orm import Session
-
 from insightxpert.auth.conversation_store import PersistentConversationStore
-from insightxpert.auth.dependencies import get_current_user
-from insightxpert.auth.models import PromptTemplate, User
+from insightxpert.auth.dependencies import get_current_user, require_admin
+from insightxpert.auth.models import Organization, PromptTemplate, User
+from insightxpert.auth.permissions import is_admin_user
+from insightxpert.auth.models import User as UserModel
 from insightxpert.prompts import get_file_content
 
 logger = logging.getLogger("insightxpert.admin")
@@ -37,42 +40,68 @@ class PromptUpdateBody(BaseModel):
     is_active: bool = True
 
 
-def _config_path(request: Request) -> Path:
-    return request.app.state.config_path
+class _AdminContext:
+    """Bundles admin-verified config + user so endpoints don't re-resolve the user."""
+    __slots__ = ("config", "user", "scoped_user_ids", "scoped_org_id")
+
+    def __init__(
+        self,
+        config: ClientConfig,
+        user: User,
+        scoped_user_ids: set[str] | None,
+        scoped_org_id: str | None,
+    ) -> None:
+        self.config = config
+        self.user = user
+        # None → super admin (sees everything); set → org-scoped admin
+        self.scoped_user_ids = scoped_user_ids
+        # The org_id this admin is scoped to (None for super admins)
+        self.scoped_org_id = scoped_org_id
 
 
-def is_admin_user(user: User, config: ClientConfig) -> bool:
-    if user.is_admin:
-        return True
-    domain = user.email.split("@")[1].lower()
-    return domain in [d.lower() for d in config.admin_domains]
+def _resolve_admin_scope(user: User, engine) -> tuple[set[str] | None, str | None]:
+    """Determine the set of user IDs an org-scoped admin may access.
+
+    Uses ``users.org_id`` FK directly — no need to scan email-based mappings.
+    Returns (None, None) for super admins (unrestricted) or (user_ids, org_id)
+    for org-scoped admins.
+    """
+    with Session(engine) as session:
+        db_user = session.get(UserModel, user.id)
+        if db_user is None or db_user.org_id is None:
+            return None, None  # super admin — unrestricted
+        admin_org_id = db_user.org_id
+        rows = session.query(UserModel.id).filter(UserModel.org_id == admin_org_id).all()
+        return {r.id for r in rows}, admin_org_id
 
 
-def _require_admin(user: User, config: ClientConfig) -> None:
-    if not is_admin_user(user, config):
+def _assert_user_in_scope(ctx: _AdminContext, user_id: str) -> None:
+    """Raise 403 if *user_id* is outside the org admin's scope."""
+    if ctx.scoped_user_ids is not None and user_id not in ctx.scoped_user_ids:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
+            detail="User not in your organization",
         )
 
 
-class _AdminContext:
-    """Bundles admin-verified config + user so endpoints don't re-resolve the user."""
-    __slots__ = ("config", "user")
-
-    def __init__(self, config: ClientConfig, user: User) -> None:
-        self.config = config
-        self.user = user
+def _assert_conversation_in_scope(ctx: _AdminContext, convo: dict) -> None:
+    """Raise 403 if the conversation's org doesn't match the admin's org."""
+    if ctx.scoped_org_id is not None and convo.get("org_id") != ctx.scoped_org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Conversation not in your organization",
+        )
 
 
 def _get_admin_context(
     request: Request,
     user: User = Depends(get_current_user),
 ) -> _AdminContext:
-    path = _config_path(request)
-    config = read_config(path)
-    _require_admin(user, config)
-    return _AdminContext(config, user)
+    engine = request.app.state.auth_engine
+    config = read_config(engine)
+    require_admin(user, config.admin_domains)
+    scoped_ids, scoped_org_id = _resolve_admin_scope(user, engine)
+    return _AdminContext(config, user, scoped_ids, scoped_org_id)
 
 
 # --- Admin endpoints (admin only) -------------------------------------------
@@ -87,25 +116,20 @@ async def get_full_config(
 
 @router.put("/api/admin/config")
 async def update_global_config(
-    body: dict,
+    body: GlobalSettingsUpdate,
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
     config = ctx.config
-    if "admin_domains" in body:
-        config.admin_domains = body["admin_domains"]
-    if "user_org_mappings" in body:
-        from insightxpert.admin.models import UserOrgMapping
+    if body.admin_domains is not None:
+        config.admin_domains = body.admin_domains
+    if body.user_org_mappings is not None:
+        config.user_org_mappings = body.user_org_mappings
+    if body.defaults is not None:
+        config.defaults = body.defaults
 
-        config.user_org_mappings = [
-            UserOrgMapping.model_validate(m) for m in body["user_org_mappings"]
-        ]
-    if "defaults" in body:
-        from insightxpert.admin.models import DefaultConfig
-
-        config.defaults = DefaultConfig.model_validate(body["defaults"])
-
-    write_config(_config_path(request), config)
+    engine = request.app.state.auth_engine
+    await asyncio.to_thread(write_config, engine, config)
     return config
 
 
@@ -119,6 +143,30 @@ async def list_organizations(
             for org in ctx.config.organizations.values()
         ]
     }
+
+
+class CreateOrgRequest(BaseModel):
+    org_name: str
+
+
+@router.post("/api/admin/organizations")
+async def create_org(
+    body: CreateOrgRequest,
+    request: Request,
+    _ctx: _AdminContext = Depends(_get_admin_context),
+):
+    import uuid as _uuid
+
+    engine = request.app.state.auth_engine
+    org_id = str(_uuid.uuid4())
+    org_config = OrgConfig(
+        org_id=org_id,
+        org_name=body.org_name,
+        features=FeatureToggles(),
+        branding=OrgBranding(),
+    )
+    updated = await asyncio.to_thread(set_org_config, engine, org_id, org_config)
+    return updated.organizations[org_id]
 
 
 @router.get("/api/admin/config/{org_id}")
@@ -140,7 +188,8 @@ async def upsert_org(
     _ctx: _AdminContext = Depends(_get_admin_context),
 ):
     body.org_id = org_id
-    updated = set_org_config(_config_path(request), org_id, body)
+    engine = request.app.state.auth_engine
+    updated = await asyncio.to_thread(set_org_config, engine, org_id, body)
     return updated.organizations[org_id]
 
 
@@ -153,7 +202,8 @@ async def delete_org(
     if org_id not in ctx.config.organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
 
-    delete_org_config(_config_path(request), org_id)
+    engine = request.app.state.auth_engine
+    await asyncio.to_thread(delete_org_config, engine, org_id)
     return {"status": "ok"}
 
 
@@ -179,24 +229,30 @@ async def flush_qa_pairs(
 async def list_user_conversations(
     user_id: str,
     request: Request,
-    _ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    """List all conversations for a specific user (admin view)."""
+    """List all conversations for a specific user (admin view, org-scoped)."""
+    _assert_user_in_scope(ctx, user_id)
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    return {"conversations": await asyncio.to_thread(store.get_conversations, user_id)}
+    convos = await asyncio.to_thread(store.get_conversations, user_id)
+    # Org-scoped admins only see conversations belonging to their org
+    if ctx.scoped_org_id is not None:
+        convos = [c for c in convos if c.get("org_id") == ctx.scoped_org_id]
+    return {"conversations": convos}
 
 
 @router.get("/api/admin/conversations/{conversation_id}")
 async def get_admin_conversation(
     conversation_id: str,
     request: Request,
-    _ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    """Get full conversation detail with messages (admin view, no ownership check)."""
+    """Get full conversation detail with messages (admin view, org-scoped)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
     convo = await asyncio.to_thread(store.get_conversation_admin, conversation_id)
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
+    _assert_conversation_in_scope(ctx, convo)
 
     messages = [
         {
@@ -229,8 +285,13 @@ async def delete_admin_conversation(
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    """Delete a single conversation (admin, no ownership check)."""
+    """Delete a single conversation (admin, org-scoped)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
+    if ctx.scoped_org_id is not None:
+        convo = await asyncio.to_thread(store.get_conversation_admin, conversation_id)
+        if convo is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        _assert_conversation_in_scope(ctx, convo)
     deleted = await asyncio.to_thread(store.delete_conversation_admin, conversation_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -245,7 +306,11 @@ async def list_users_with_stats(
 ):
     """List all users with conversation and message counts."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    return {"users": await asyncio.to_thread(store.get_all_users_with_stats)}
+    return {
+        "users": await asyncio.to_thread(
+            store.get_all_users_with_stats, ctx.scoped_user_ids, ctx.scoped_org_id
+        )
+    }
 
 
 @router.delete("/api/admin/conversations/user/{user_id}")
@@ -254,9 +319,15 @@ async def delete_user_conversations(
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    """Delete all conversations for a specific user."""
+    """Delete all conversations for a specific user (org-scoped)."""
+    _assert_user_in_scope(ctx, user_id)
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    count = await asyncio.to_thread(store.delete_user_conversations, user_id)
+    if ctx.scoped_org_id is not None:
+        count = await asyncio.to_thread(
+            store.delete_conversations_by_org, user_id, ctx.scoped_org_id
+        )
+    else:
+        count = await asyncio.to_thread(store.delete_user_conversations, user_id)
     logger.info("Admin %s deleted %d conversations for user %s", ctx.user.email, count, user_id)
     return {"status": "ok", "deleted_count": count}
 
@@ -266,10 +337,19 @@ async def delete_all_conversations(
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    """Delete ALL conversations across all users."""
+    """Delete ALL conversations (super admin) or org conversations (org admin)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
-    count = await asyncio.to_thread(store.delete_all_conversations)
-    logger.info("Admin %s deleted ALL conversations (%d total)", ctx.user.email, count)
+    if ctx.scoped_org_id is not None:
+        count = await asyncio.to_thread(
+            store.delete_conversations_by_org_all, ctx.scoped_org_id
+        )
+        logger.info(
+            "Org admin %s deleted %d conversations for org %s",
+            ctx.user.email, count, ctx.scoped_org_id,
+        )
+    else:
+        count = await asyncio.to_thread(store.delete_all_conversations)
+        logger.info("Admin %s deleted ALL conversations (%d total)", ctx.user.email, count)
     return {"status": "ok", "deleted_count": count}
 
 
@@ -427,25 +507,56 @@ async def resolve_client_config(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    path = _config_path(request)
-    config = read_config(path)
-    admin = is_admin_user(user, config)
+    engine = request.app.state.auth_engine
+    config = await asyncio.to_thread(read_config, engine)
+    admin = is_admin_user(user, config.admin_domains)
 
-    # Admins get null config (show everything)
     if admin:
-        return ResolvedClientConfig(config=None, is_admin=True, org_id=None)
+        with Session(engine) as session:
+            db_user = session.get(UserModel, user.id)
+            admin_org_id = db_user.org_id if db_user else None
 
-    # Check user-org mapping
-    email_lower = user.email.lower()
-    for mapping in config.user_org_mappings:
-        if mapping.email.lower() == email_lower:
-            org = config.organizations.get(mapping.org_id)
+            # Resolve branding for display even for admins
+            branding = config.defaults.branding
+            if admin_org_id:
+                org = session.get(Organization, admin_org_id)
+                if org:
+                    branding = OrgBranding.model_validate(json.loads(org.branding_json))
+
+            # Return config with all features enabled + resolved branding
+            all_features = FeatureToggles(
+                sql_executor=True,
+                model_switching=True,
+                rag_training=True,
+                chart_rendering=True,
+                conversation_export=True,
+                agent_process_sidebar=True,
+                clarification_enabled=True,
+                stats_context_injection=True,
+            )
+            admin_config = OrgConfig(
+                org_id=admin_org_id or "admin",
+                org_name="Admin",
+                features=all_features,
+                branding=branding,
+            )
+        return ResolvedClientConfig(config=admin_config, is_admin=True, org_id=admin_org_id)
+
+    # Non-admin: look up org directly from users.org_id FK
+    with Session(engine) as session:
+        db_user = session.get(UserModel, user.id)
+        if db_user and db_user.org_id:
+            org = session.get(Organization, db_user.org_id)
             if org:
-                return ResolvedClientConfig(
-                    config=org, is_admin=False, org_id=mapping.org_id
+                org_config = OrgConfig(
+                    org_id=org.id,
+                    org_name=org.name,
+                    features=FeatureToggles.model_validate(json.loads(org.features_json)),
+                    branding=OrgBranding.model_validate(json.loads(org.branding_json)),
                 )
+                return ResolvedClientConfig(config=org_config, is_admin=False, org_id=org.id)
 
-    # Default config
+    # Default config for users without an org mapping
     default_org = OrgConfig(
         org_id="default",
         org_name="Default",

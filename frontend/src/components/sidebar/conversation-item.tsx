@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useChatStore } from "@/stores/chat-store";
 import type { Conversation } from "@/types/chat";
-import { cn, relativeTime } from "@/lib/utils";
+import { cn, relativeTime, formatDate } from "@/lib/utils";
 
 interface ConversationItemProps {
   conversation: Conversation;
@@ -108,12 +108,20 @@ export const ConversationItem = React.memo(function ConversationItem({
     >
       <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
       <div className="flex-1 min-w-0">
-        <p className="text-sm truncate" title={conversation.title}>
-          {conversation.title}
-        </p>
-        <p className="text-xs text-muted-foreground mt-0.5 truncate">
-          {relativeTime(conversation.updatedAt)}
-        </p>
+        <div className="flex items-baseline gap-1.5">
+          <p className="text-sm truncate flex-1 min-w-0" title={conversation.title}>
+            {conversation.title}
+          </p>
+          <span className="text-[10px] text-muted-foreground/50 shrink-0">
+            {(() => {
+              const startOfToday = new Date();
+              startOfToday.setHours(0, 0, 0, 0);
+              return conversation.updatedAt >= startOfToday.getTime()
+                ? relativeTime(conversation.updatedAt)
+                : formatDate(conversation.updatedAt);
+            })()}
+          </span>
+        </div>
       </div>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
