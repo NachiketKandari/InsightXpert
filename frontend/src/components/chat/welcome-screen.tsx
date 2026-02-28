@@ -7,6 +7,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { SAMPLE_QUESTIONS } from "@/lib/sample-questions";
 import { InputToolbar } from "./input-toolbar";
 import { useChatStore } from "@/stores/chat-store";
+import { useClientConfigStore } from "@/stores/client-config-store";
 
 const ALL_QUESTIONS = SAMPLE_QUESTIONS.flatMap((cat) => cat.questions);
 
@@ -47,6 +48,7 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
   const [questions, setQuestions] = useState(() => pickRandom(3));
   const [shuffleKey, setShuffleKey] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const displayName = useClientConfigStore((s) => s.config?.branding?.display_name);
 
   // Subscribe to pendingInput changes outside the render cycle to avoid
   // cascading setState-in-effect warnings.
@@ -91,7 +93,7 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
         className="mb-6 text-center"
       >
         <h1 className="text-4xl font-bold leading-tight tracking-tight pb-1 sm:text-5xl">
-          Insight<span className="text-primary dark:text-cyan-accent">Xpert</span>
+          {displayName || (<>Insight<span className="text-primary dark:text-cyan-accent">Xpert</span></>)}
         </h1>
         <p className="mt-3 text-sm text-muted-foreground sm:text-base">
           AI-powered analytics for Indian digital payments

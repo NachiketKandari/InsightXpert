@@ -17,13 +17,14 @@ from insightxpert.admin.config_store import (
 from insightxpert.admin.models import (
     ClientConfig,
     FeatureToggles,
+    GlobalSettingsUpdate,
     OrgBranding,
     OrgConfig,
     ResolvedClientConfig,
 )
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
-from insightxpert.auth.models import AppSetting, Organization, PromptTemplate, User
+from insightxpert.auth.models import Organization, PromptTemplate, User
 from insightxpert.auth.models import User as UserModel
 from insightxpert.prompts import get_file_content
 
@@ -129,23 +130,17 @@ async def get_full_config(
 
 @router.put("/api/admin/config")
 async def update_global_config(
-    body: dict,
+    body: GlobalSettingsUpdate,
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
     config = ctx.config
-    if "admin_domains" in body:
-        config.admin_domains = body["admin_domains"]
-    if "user_org_mappings" in body:
-        from insightxpert.admin.models import UserOrgMapping
-
-        config.user_org_mappings = [
-            UserOrgMapping.model_validate(m) for m in body["user_org_mappings"]
-        ]
-    if "defaults" in body:
-        from insightxpert.admin.models import DefaultConfig
-
-        config.defaults = DefaultConfig.model_validate(body["defaults"])
+    if body.admin_domains is not None:
+        config.admin_domains = body.admin_domains
+    if body.user_org_mappings is not None:
+        config.user_org_mappings = body.user_org_mappings
+    if body.defaults is not None:
+        config.defaults = body.defaults
 
     engine = request.app.state.auth_engine
     await asyncio.to_thread(write_config, engine, config)
@@ -162,6 +157,30 @@ async def list_organizations(
             for org in ctx.config.organizations.values()
         ]
     }
+
+
+class CreateOrgRequest(BaseModel):
+    org_name: str
+
+
+@router.post("/api/admin/organizations")
+async def create_org(
+    body: CreateOrgRequest,
+    request: Request,
+    _ctx: _AdminContext = Depends(_get_admin_context),
+):
+    import uuid as _uuid
+
+    engine = request.app.state.auth_engine
+    org_id = str(_uuid.uuid4())
+    org_config = OrgConfig(
+        org_id=org_id,
+        org_name=body.org_name,
+        features=FeatureToggles(),
+        branding=OrgBranding(),
+    )
+    updated = await asyncio.to_thread(set_org_config, engine, org_id, org_config)
+    return updated.organizations[org_id]
 
 
 @router.get("/api/admin/config/{org_id}")
@@ -507,12 +526,35 @@ async def resolve_client_config(
     admin = is_admin_user(user, config)
 
     if admin:
-        # Admins get null config (show everything).
-        # Resolve their own org_id via FK for scope-aware operations.
         with Session(engine) as session:
             db_user = session.get(UserModel, user.id)
             admin_org_id = db_user.org_id if db_user else None
-        return ResolvedClientConfig(config=None, is_admin=True, org_id=admin_org_id)
+
+            # Resolve branding for display even for admins
+            branding = config.defaults.branding
+            if admin_org_id:
+                org = session.get(Organization, admin_org_id)
+                if org:
+                    branding = OrgBranding.model_validate(json.loads(org.branding_json))
+
+            # Return config with all features enabled + resolved branding
+            all_features = FeatureToggles(
+                sql_executor=True,
+                model_switching=True,
+                rag_training=True,
+                chart_rendering=True,
+                conversation_export=True,
+                agent_process_sidebar=True,
+                clarification_enabled=True,
+                stats_context_injection=True,
+            )
+            admin_config = OrgConfig(
+                org_id=admin_org_id or "admin",
+                org_name="Admin",
+                features=all_features,
+                branding=branding,
+            )
+        return ResolvedClientConfig(config=admin_config, is_admin=True, org_id=admin_org_id)
 
     # Non-admin: look up org directly from users.org_id FK
     with Session(engine) as session:

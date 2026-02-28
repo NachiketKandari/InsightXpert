@@ -45,6 +45,12 @@ class ClientConfig(BaseModel):
     defaults: DefaultConfig = DefaultConfig()
 
 
+class GlobalSettingsUpdate(BaseModel):
+    admin_domains: list[str] | None = None
+    user_org_mappings: list[UserOrgMapping] | None = None
+    defaults: DefaultConfig | None = None
+
+
 class ResolvedClientConfig(BaseModel):
     config: OrgConfig | None = None
     is_admin: bool = False

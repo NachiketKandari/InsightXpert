@@ -24,33 +24,12 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import type {
   ClientConfig,
   OrgConfig,
-  FeatureToggles,
-  OrgBranding,
 } from "@/types/admin";
-
-const DEFAULT_FEATURES: FeatureToggles = {
-  sql_executor: true,
-  model_switching: true,
-  rag_training: true,
-  chart_rendering: true,
-  conversation_export: true,
-  agent_process_sidebar: false,
-  clarification_enabled: false,
-  stats_context_injection: false,
-};
-
-const DEFAULT_BRANDING: OrgBranding = {
-  display_name: null,
-  logo_url: null,
-  theme: null,
-  color_mode: null,
-};
 
 export default function AdminPage() {
   const [fullConfig, setFullConfig] = useState<ClientConfig | null>(null);
   const [selectedOrgId, setSelectedOrgId] = useState<string>("");
   const [editingConfig, setEditingConfig] = useState<OrgConfig | null>(null);
-  const [newOrgId, setNewOrgId] = useState("");
   const [newOrgName, setNewOrgName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [isFlushing, setIsFlushing] = useState(false);
@@ -225,29 +204,21 @@ export default function AdminPage() {
   };
 
   const createOrg = async () => {
-    const id = newOrgId.trim();
     const name = newOrgName.trim();
-    if (!id || !name) return;
-
-    const org: OrgConfig = {
-      org_id: id,
-      org_name: name,
-      features: { ...DEFAULT_FEATURES },
-      branding: { ...DEFAULT_BRANDING },
-    };
+    if (!name) return;
 
     setIsSaving(true);
     try {
-      const res = await apiFetch(`/api/admin/config/${id}`, {
-        method: "PUT",
-        body: JSON.stringify(org),
+      const res = await apiFetch("/api/admin/organizations", {
+        method: "POST",
+        body: JSON.stringify({ org_name: name }),
       });
       if (res.ok) {
-        setNewOrgId("");
+        const created = await res.json();
         setNewOrgName("");
         showMessage("success", "Organization created");
         await loadConfig();
-        setSelectedOrgId(id);
+        setSelectedOrgId(created.org_id);
       } else {
         showMessage("error", "Failed to create");
       }
@@ -515,18 +486,6 @@ export default function AdminPage() {
             <div className="rounded-lg border border-border p-4 space-y-3">
               <h3 className="text-sm font-medium">Create Organization</h3>
               <div className="flex items-end gap-2">
-                <div className="space-y-1">
-                  <Label htmlFor="new-org-id" className="text-xs">
-                    ID
-                  </Label>
-                  <Input
-                    id="new-org-id"
-                    placeholder="acme"
-                    value={newOrgId}
-                    onChange={(e) => setNewOrgId(e.target.value)}
-                    className="w-32"
-                  />
-                </div>
                 <div className="flex-1 space-y-1">
                   <Label htmlFor="new-org-name" className="text-xs">
                     Name
@@ -540,7 +499,7 @@ export default function AdminPage() {
                 </div>
                 <Button
                   onClick={createOrg}
-                  disabled={!newOrgId.trim() || !newOrgName.trim() || isSaving}
+                  disabled={!newOrgName.trim() || isSaving}
                 >
                   <Plus className="size-4 mr-1" />
                   Create

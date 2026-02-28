@@ -109,6 +109,20 @@ def _migrate_schema(engine) -> None:
             except Exception as e:
                 logger.debug("Index creation skipped: %s", e)
 
+        # Add organization_id to datasets table
+        _add_column(
+            "datasets",
+            "organization_id",
+            "VARCHAR(100) REFERENCES organizations(id) ON DELETE SET NULL",
+        )
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_datasets_organization_id "
+                "ON datasets (organization_id)"
+            ))
+        except Exception as e:
+            logger.debug("Index creation skipped: %s", e)
+
         # Sync delete tracking table (for Turso background sync)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS _sync_deletes (

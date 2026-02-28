@@ -155,6 +155,12 @@ class Dataset(Base):
     ddl: Mapped[str] = mapped_column(Text, nullable=False)
     documentation: Mapped[str] = mapped_column(Text, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    organization_id: Mapped[str | None] = mapped_column(
+        String(100),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 

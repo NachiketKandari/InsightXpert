@@ -46,6 +46,7 @@ class DatasetUpdateRequest(BaseModel):
     description: str | None = None
     ddl: str | None = None
     documentation: str | None = None
+    organization_id: str | None = None
 
 
 class ColumnRequest(BaseModel):
@@ -89,6 +90,7 @@ async def list_datasets_public(
             "name": ds["name"],
             "description": ds.get("description"),
             "is_active": ds["is_active"],
+            "organization_id": ds.get("organization_id"),
             "table_name": _extract_table_name(ds.get("ddl", "")),
         }
         for ds in datasets
