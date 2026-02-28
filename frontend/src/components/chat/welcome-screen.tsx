@@ -138,7 +138,7 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
           initial="hidden"
           animate="show"
           exit="hidden"
-          className="mt-4 sm:mt-6 grid w-full max-w-2xl grid-cols-1 min-[400px]:grid-cols-3 items-start gap-2 sm:gap-3"
+          className="mt-4 sm:mt-6 grid w-full max-w-2xl grid-cols-1 min-[400px]:grid-cols-3 gap-2 sm:gap-3"
         >
           {questions.map((question) => (
             <motion.button
@@ -147,7 +147,7 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.98 }}
               onClick={() => onSendMessage(question)}
-              className="glass cursor-pointer rounded-xl px-4 py-3 text-left text-xs leading-relaxed text-foreground/80 transition-shadow hover:shadow-[0_0_20px_rgba(6,182,212,0.15)] sm:text-sm"
+              className="glass cursor-pointer rounded-xl px-4 py-3 text-left text-xs leading-relaxed text-foreground/80 transition-shadow hover:shadow-[0_0_20px_rgba(6,182,212,0.15)] sm:text-sm flex items-start"
             >
               <span className="line-clamp-3">{question}</span>
             </motion.button>
