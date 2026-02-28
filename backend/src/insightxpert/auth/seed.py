@@ -5,7 +5,7 @@ import logging
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import User
-from insightxpert.auth.security import hash_password
+from insightxpert.auth.security import hash_password, verify_password
 from insightxpert.config import Settings
 
 logger = logging.getLogger("insightxpert.auth")
@@ -17,7 +17,13 @@ def seed_admin(engine, settings: Settings) -> None:
     with Session(engine) as session:
         existing = session.query(User).filter(User.email == email).first()
         if existing:
-            logger.info("Admin user already exists: %s", email)
+            if not verify_password(password, existing.hashed_password):
+                existing.hashed_password = hash_password(password)
+                existing.is_admin = True
+                session.commit()
+                logger.info("Admin user password updated: %s", email)
+            else:
+                logger.info("Admin user already exists: %s", email)
             return
 
         user = User(

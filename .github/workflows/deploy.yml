@@ -55,7 +55,7 @@ jobs:
             --max-instances 1 \
             --cpu-boost \
             --startup-probe httpGet.path=/health,periodSeconds=10,failureThreshold=30,timeoutSeconds=3 \
-            --set-env-vars "^||^LLM_PROVIDER=gemini||GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}||GEMINI_MODEL=${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}||DATABASE_URL=sqlite:///./insightxpert.db||LITESTREAM_REPLICA_URL=gcs://insightxpert-bucket/litestream/insightxpert.db||CHROMA_PERSIST_DIR=./chroma_data||CORS_ORIGINS=${{ vars.CORS_ORIGINS || 'https://insightxpert-ai.web.app,https://insightxpert.vercel.app' }}||LOG_LEVEL=INFO||SECRET_KEY=${{ secrets.SECRET_KEY }}"
+            --set-env-vars "^||^LLM_PROVIDER=gemini||GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}||GEMINI_MODEL=${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}||DATABASE_URL=sqlite:///./insightxpert.db||LITESTREAM_REPLICA_URL=gcs://insightxpert-bucket/litestream/insightxpert.db||CHROMA_PERSIST_DIR=./chroma_data||CORS_ORIGINS=${{ vars.CORS_ORIGINS || 'https://insightxpert-ai.web.app,https://insightxpert.vercel.app' }}||LOG_LEVEL=INFO||SECRET_KEY=${{ secrets.SECRET_KEY }}||ADMIN_SEED_PASSWORD=${{ secrets.ADMIN_SEED_PASSWORD }}"
 
   # ── Frontend: Build & deploy to Firebase Hosting ──────────────────────
   deploy-frontend:
