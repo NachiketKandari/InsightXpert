@@ -325,7 +325,7 @@ async def run_benchmark(
 
     # Connect database (shared, read-only)
     db = DatabaseConnector()
-    db.connect(config.database_url, auth_token=config.turso_auth_token)
+    db.connect(config.database_url)
     logger.info("Connected to database: %s", config.database_url)
 
     model_results: list[ModelRunResult] = []

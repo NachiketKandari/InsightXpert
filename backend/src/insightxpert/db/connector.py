@@ -5,7 +5,6 @@ import time
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.pool import NullPool
 
 logger = logging.getLogger("insightxpert.db")
 
@@ -18,27 +17,9 @@ def _enable_sqlite_pragmas(dbapi_conn, connection_record):
     cursor.close()
 
 
-def create_turso_engine(url: str, auth_token: str) -> Engine:
-    """Create a SQLAlchemy engine for a remote Turso (libSQL over HTTPS) database.
-
-    Uses NullPool because the libSQL driver raises ValueError (not a DBAPI error)
-    on stale streams, so pool_pre_ping cannot recover them.
-    """
-    # Normalize libsql:// → sqlite+libsql://
-    if url.startswith("libsql://"):
-        host_part = url[len("libsql://"):]
-        url = f"sqlite+libsql://{host_part}?secure=true"
-    elif "libsql" not in url:
-        raise ValueError(f"Expected a libsql/Turso URL, got: {url[:50]}")
-
-    connect_args = {"auth_token": auth_token} if auth_token else {}
-    return create_engine(url, connect_args=connect_args, poolclass=NullPool)
-
-
 class DatabaseConnector:
     def __init__(self) -> None:
         self._engine: Engine | None = None
-        self._is_libsql_remote: bool = False
 
     @property
     def engine(self) -> Engine:
@@ -50,40 +31,9 @@ class DatabaseConnector:
     def dialect(self) -> str:
         return self.engine.dialect.name
 
-    def connect(self, url: str, *, auth_token: str = "") -> None:
-        connect_args: dict = {}
-        kwargs: dict = {"pool_pre_ping": True}
-
-        # Normalize libsql:// → sqlite+libsql:// for SQLAlchemy dialect resolution
-        # and add ?secure=true for remote Turso connections (required for HTTPS)
-        if url.startswith("libsql://"):
-            host_part = url[len("libsql://"):]
-            url = f"sqlite+libsql://{host_part}?secure=true"
-            self._is_libsql_remote = True
-        elif "libsql" in url and "://" in url and "///" not in url:
-            # Already sqlite+libsql:// with remote host
-            self._is_libsql_remote = True
-
-        if self._is_libsql_remote:
-            # Turso streams expire server-side; the libSQL driver raises ValueError
-            # (not a DBAPI error) so pool_pre_ping can't recover stale connections.
-            # NullPool gives each Session a fresh HTTP stream with zero reuse.
-            kwargs["poolclass"] = NullPool
-            kwargs.pop("pool_pre_ping", None)
-
-        if "libsql" in url and auth_token:
-            connect_args = {"auth_token": auth_token}
-        elif url.startswith("postgresql"):
-            kwargs.update(pool_size=5, max_overflow=10)
-        elif url.startswith("mysql"):
-            connect_args = {"charset": "utf8mb4"}
-            kwargs.update(pool_size=5, max_overflow=10)
-
-        self._engine = create_engine(url, connect_args=connect_args, **kwargs)
-
-        # Only enable PRAGMA foreign_keys for local SQLite (PRAGMAs fail on remote Turso)
-        if url.startswith("sqlite") and not self._is_libsql_remote:
-            event.listen(self._engine, "connect", _enable_sqlite_pragmas)
+    def connect(self, url: str) -> None:
+        self._engine = create_engine(url, pool_pre_ping=True)
+        event.listen(self._engine, "connect", _enable_sqlite_pragmas)
 
         safe_url = self._engine.url.render_as_string(hide_password=True)
         logger.debug("Engine created for %s (dialect=%s)", safe_url, self._engine.dialect.name)
@@ -98,7 +48,7 @@ class DatabaseConnector:
         self, sql: str, *, row_limit: int = 1000, timeout: int = 30, read_only: bool = False
     ) -> list[dict]:
         start = time.time()
-        _sqlite_local = self.dialect in ("sqlite",) and not self._is_libsql_remote
+        _sqlite_local = self.dialect == "sqlite"
         with self.engine.connect() as conn:
             if read_only and _sqlite_local:
                 conn.execute(text("PRAGMA query_only = ON"))

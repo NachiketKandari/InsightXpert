@@ -7,5 +7,8 @@ venv/
 .env.local
 .env.*.local
 tests/
+*.db
 *.db-journal
+*.db-wal
+*.db-shm
 .pytest_cache/

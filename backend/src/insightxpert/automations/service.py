@@ -12,7 +12,6 @@ from insightxpert.auth.models import (
     Notification,
     TriggerTemplate,
     User,
-    _record_delete,
     _uuid,
     _utcnow,
 )
@@ -133,8 +132,6 @@ class AutomationService:
                     .filter(AutomationTrigger.automation_id == automation_id)
                     .all()
                 )
-                old_ids = [t.id for t in old_triggers]
-                _record_delete(session, "automation_triggers", old_ids)
                 for t in old_triggers:
                     session.delete(t)
                 session.flush()
@@ -166,30 +163,6 @@ class AutomationService:
             auto = session.get(Automation, automation_id)
             if not auto:
                 return False
-
-            # Record cascading deletes for Turso sync
-            trigger_ids = [
-                t.id for t in
-                session.query(AutomationTrigger.id)
-                .filter(AutomationTrigger.automation_id == automation_id)
-                .all()
-            ]
-            run_ids = [
-                r.id for r in
-                session.query(AutomationRun.id)
-                .filter(AutomationRun.automation_id == automation_id)
-                .all()
-            ]
-            notif_ids = [
-                n.id for n in
-                session.query(Notification.id)
-                .filter(Notification.automation_id == automation_id)
-                .all()
-            ]
-            _record_delete(session, "automation_triggers", trigger_ids)
-            _record_delete(session, "automation_runs", run_ids)
-            _record_delete(session, "notifications", notif_ids)
-            _record_delete(session, "automations", [automation_id])
 
             session.delete(auto)
             session.commit()
@@ -556,7 +529,6 @@ class AutomationService:
             tpl = session.get(TriggerTemplate, template_id)
             if not tpl:
                 return False
-            _record_delete(session, "trigger_templates", [template_id])
             session.delete(tpl)
             session.commit()
             return True

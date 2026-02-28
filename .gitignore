@@ -68,6 +68,9 @@ backend/benchmark_results/
 # Claude Code
 **/.claude/
 
+# Personal engineering notes
+ENGINEERING_ASSESSMENT.md
+
 # Alembic (not used — migrations handled in-code)
 backend/alembic/
 alembic/
