@@ -102,8 +102,19 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
   const xLabel = formatLabel(categoryKey);
   const yLabel = formatLabel(valueKey);
 
-  const xAxisLabel = { value: xLabel, position: "insideBottom" as const, offset: -5, style: { fontSize: 11, fill: "var(--color-muted-foreground)" } };
-  const yAxisLabel = { value: yLabel, angle: -90, position: "insideLeft" as const, offset: 10, style: { fontSize: 11, fill: "var(--color-muted-foreground)" } };
+  // Place labels in dedicated margin space so they never overlap tick text.
+  // On mobile, skip labels entirely — charts are too compact.
+  const labelStyle = { fontSize: 10, fill: "var(--color-muted-foreground)" };
+  const xAxisLabel = isMobile
+    ? undefined
+    : { value: xLabel, position: "insideBottom" as const, offset: -18, style: labelStyle };
+  const yAxisLabel = isMobile
+    ? undefined
+    : { value: yLabel, angle: -90, position: "insideLeft" as const, dx: -25, style: { ...labelStyle, textAnchor: "middle" as const } };
+
+  const chartMargin = isMobile
+    ? undefined
+    : { top: 5, right: 5, bottom: 25, left: 30 };
 
   if (chartType === "none" || chartType === "table") return null;
 
@@ -125,7 +136,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
 
     chartContent = (
       <ChartContainer config={groupedConfig} className={`${isMobile ? "h-56" : "h-72"} w-full`}>
-        <BarChart data={pivoted} margin={{ bottom: 20, left: 20 }}>
+        <BarChart data={pivoted} margin={isMobile ? undefined : { top: 5, right: 5, bottom: 30, left: 30 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
@@ -156,7 +167,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
   } else if (chartType === "bar") {
     chartContent = (
       <ChartContainer config={chartConfig} className={`${isMobile ? "h-48" : "h-64"} w-full`}>
-        <BarChart data={data} margin={{ bottom: 20, left: 20 }}>
+        <BarChart data={data} margin={chartMargin}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
@@ -219,7 +230,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
     // line
     chartContent = (
       <ChartContainer config={chartConfig} className={`${isMobile ? "h-48" : "h-64"} w-full`}>
-        <LineChart data={data} margin={{ bottom: 20, left: 20 }}>
+        <LineChart data={data} margin={chartMargin}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
