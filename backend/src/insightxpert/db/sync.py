@@ -30,6 +30,8 @@ SYNC_TABLES = [
     "example_queries",
     "messages",
     "automations",
+    "automation_triggers",
+    "trigger_templates",
     "automation_runs",
     "notifications",
     "dataset_stats",
@@ -73,6 +75,8 @@ _SCHEMA_INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_datasets_organization_id ON datasets (organization_id)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_dataset_columns_ds_col ON dataset_columns (dataset_id, column_name)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_example_queries_ds_question ON example_queries (dataset_id, question)",
+    "CREATE INDEX IF NOT EXISTS ix_automation_triggers_auto_id ON automation_triggers (automation_id)",
+    "CREATE INDEX IF NOT EXISTS ix_trigger_templates_created_by ON trigger_templates (created_by)",
 ]
 
 

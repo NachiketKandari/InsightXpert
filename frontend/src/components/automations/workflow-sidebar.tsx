@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { SchedulePicker } from "./schedule-picker";
 import { TriggerConditionBuilder } from "./trigger-condition-builder";
+import { TriggerTemplatePicker } from "./trigger-template-picker";
 import { AiSqlGenerator } from "./ai-sql-generator";
 import { useAutomationStore } from "@/stores/automation-store";
 import type { Message } from "@/types/chat";
@@ -266,6 +267,10 @@ export function WorkflowSidebar({
         icon={<Bell className="size-3.5" />}
         defaultOpen={false}
       >
+        <TriggerTemplatePicker
+          conditions={conditions}
+          onConditionsChange={onConditionsChange}
+        />
         {isExecutingEndpoint ? (
           <div className="flex items-center gap-2 py-3 text-xs text-muted-foreground">
             <Loader2 className="size-3.5 animate-spin" />

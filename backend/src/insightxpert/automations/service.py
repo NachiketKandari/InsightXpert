@@ -8,7 +8,9 @@ from sqlalchemy.orm import Session
 from insightxpert.auth.models import (
     Automation,
     AutomationRun,
+    AutomationTrigger,
     Notification,
+    TriggerTemplate,
     _record_delete,
     _uuid,
     _utcnow,
@@ -29,9 +31,12 @@ class AutomationService:
 
     def create_automation(self, user_id: str, **fields) -> dict:
         with Session(self._engine) as session:
-            trigger_conditions = fields.get("trigger_conditions", [])
-            if isinstance(trigger_conditions, list):
-                trigger_conditions = json.dumps(trigger_conditions)
+            trigger_conditions_raw = fields.get("trigger_conditions", [])
+            if isinstance(trigger_conditions_raw, str):
+                try:
+                    trigger_conditions_raw = json.loads(trigger_conditions_raw)
+                except json.JSONDecodeError:
+                    trigger_conditions_raw = []
 
             # sql_queries is stored as JSON array in the sql_query column
             sql_queries = fields.get("sql_queries", [])
@@ -44,14 +49,15 @@ class AutomationService:
             if fields.get("workflow_graph"):
                 workflow_json = json.dumps(fields["workflow_graph"])
 
+            auto_id = _uuid()
             auto = Automation(
-                id=_uuid(),
+                id=auto_id,
                 name=fields["name"],
                 description=fields.get("description"),
                 nl_query=fields["nl_query"],
                 sql_query=sql_query_json,
                 cron_expression=fields["cron_expression"],
-                trigger_conditions=trigger_conditions,
+                trigger_conditions=json.dumps(trigger_conditions_raw),
                 is_active=True,
                 created_by=user_id,
                 source_conversation_id=fields.get("source_conversation_id"),
@@ -61,16 +67,36 @@ class AutomationService:
                 updated_at=_utcnow(),
             )
             session.add(auto)
+            session.flush()
+
+            # Write normalized trigger rows
+            for i, cond in enumerate(trigger_conditions_raw):
+                session.add(AutomationTrigger(
+                    id=_uuid(),
+                    automation_id=auto_id,
+                    ordinal_position=i,
+                    type=cond.get("type", "threshold"),
+                    column=cond.get("column"),
+                    operator=cond.get("operator"),
+                    value=cond.get("value"),
+                    change_percent=cond.get("change_percent"),
+                    scope=cond.get("scope"),
+                    slope_window=cond.get("slope_window"),
+                    nl_text=cond.get("nl_text"),
+                    created_at=_utcnow(),
+                    updated_at=_utcnow(),
+                ))
+
             session.commit()
             session.refresh(auto)
-            return self._auto_to_dict(auto)
+            return self._auto_to_dict(auto, session)
 
     def get_automation(self, automation_id: str) -> dict | None:
         with Session(self._engine) as session:
             auto = session.get(Automation, automation_id)
             if not auto:
                 return None
-            return self._auto_to_dict(auto)
+            return self._auto_to_dict(auto, session)
 
     def list_automations(self, user_id: str | None = None) -> list[dict]:
         with Session(self._engine) as session:
@@ -78,27 +104,61 @@ class AutomationService:
             if user_id:
                 q = q.filter(Automation.created_by == user_id)
             rows = q.order_by(Automation.created_at.desc()).all()
-            return [self._auto_to_dict(a) for a in rows]
+            return [self._auto_to_dict(a, session) for a in rows]
 
     def update_automation(self, automation_id: str, **fields) -> dict | None:
         with Session(self._engine) as session:
             auto = session.get(Automation, automation_id)
             if not auto:
                 return None
+
+            new_conditions = None
             for key, value in fields.items():
                 if key == "trigger_conditions":
-                    if isinstance(value, list):
-                        value = json.dumps(value)
+                    new_conditions = value if isinstance(value, list) else []
+                    # Dual-write JSON blob for backward compat
+                    auto.trigger_conditions = json.dumps(new_conditions)
+                    continue
                 if key == "workflow_graph":
-                    # Map workflow_graph dict to workflow_json column
                     auto.workflow_json = json.dumps(value) if value else None
                     continue
                 if hasattr(auto, key) and key not in ("id", "created_by", "created_at"):
                     setattr(auto, key, value)
+
+            # Replace normalized trigger rows if conditions changed
+            if new_conditions is not None:
+                old_triggers = (
+                    session.query(AutomationTrigger)
+                    .filter(AutomationTrigger.automation_id == automation_id)
+                    .all()
+                )
+                old_ids = [t.id for t in old_triggers]
+                _record_delete(session, "automation_triggers", old_ids)
+                for t in old_triggers:
+                    session.delete(t)
+                session.flush()
+
+                for i, cond in enumerate(new_conditions):
+                    session.add(AutomationTrigger(
+                        id=_uuid(),
+                        automation_id=automation_id,
+                        ordinal_position=i,
+                        type=cond.get("type", "threshold"),
+                        column=cond.get("column"),
+                        operator=cond.get("operator"),
+                        value=cond.get("value"),
+                        change_percent=cond.get("change_percent"),
+                        scope=cond.get("scope"),
+                        slope_window=cond.get("slope_window"),
+                        nl_text=cond.get("nl_text"),
+                        created_at=_utcnow(),
+                        updated_at=_utcnow(),
+                    ))
+
             auto.updated_at = _utcnow()
             session.commit()
             session.refresh(auto)
-            return self._auto_to_dict(auto)
+            return self._auto_to_dict(auto, session)
 
     def delete_automation(self, automation_id: str) -> bool:
         with Session(self._engine) as session:
@@ -107,6 +167,12 @@ class AutomationService:
                 return False
 
             # Record cascading deletes for Turso sync
+            trigger_ids = [
+                t.id for t in
+                session.query(AutomationTrigger.id)
+                .filter(AutomationTrigger.automation_id == automation_id)
+                .all()
+            ]
             run_ids = [
                 r.id for r in
                 session.query(AutomationRun.id)
@@ -119,6 +185,7 @@ class AutomationService:
                 .filter(Notification.automation_id == automation_id)
                 .all()
             ]
+            _record_delete(session, "automation_triggers", trigger_ids)
             _record_delete(session, "automation_runs", run_ids)
             _record_delete(session, "notifications", notif_ids)
             _record_delete(session, "automations", [automation_id])
@@ -136,12 +203,12 @@ class AutomationService:
             auto.updated_at = _utcnow()
             session.commit()
             session.refresh(auto)
-            return self._auto_to_dict(auto)
+            return self._auto_to_dict(auto, session)
 
     def get_active_automations(self) -> list[dict]:
         with Session(self._engine) as session:
             rows = session.query(Automation).filter(Automation.is_active.is_(True)).all()
-            return [self._auto_to_dict(a) for a in rows]
+            return [self._auto_to_dict(a, session) for a in rows]
 
     def update_run_timestamps(self, automation_id: str, last_run_at, next_run_at) -> None:
         with Session(self._engine) as session:
@@ -298,15 +365,46 @@ class AutomationService:
         return [raw] if raw else []
 
     @staticmethod
-    def _auto_to_dict(auto: Automation) -> dict:
-        trigger_conditions = auto.trigger_conditions
-        if isinstance(trigger_conditions, str):
+    def _auto_to_dict(auto: Automation, session: Session | None = None) -> dict:
+        trigger_conditions: list[dict] = []
+
+        # Prefer normalized rows from automation_triggers table
+        if session is not None:
             try:
-                trigger_conditions = json.loads(trigger_conditions)
-            except json.JSONDecodeError:
+                rows = (
+                    session.query(AutomationTrigger)
+                    .filter(AutomationTrigger.automation_id == auto.id)
+                    .order_by(AutomationTrigger.ordinal_position)
+                    .all()
+                )
+                if rows:
+                    trigger_conditions = [
+                        {
+                            "type": r.type,
+                            "column": r.column,
+                            "operator": r.operator,
+                            "value": r.value,
+                            "change_percent": r.change_percent,
+                            "scope": r.scope,
+                            "slope_window": r.slope_window,
+                            "nl_text": r.nl_text,
+                        }
+                        for r in rows
+                    ]
+            except Exception:
+                # Table may not exist during migration; fall through to JSON
                 trigger_conditions = []
-        elif trigger_conditions is None:
-            trigger_conditions = []
+
+        # Fallback: parse JSON blob if no normalized rows found
+        if not trigger_conditions:
+            raw = auto.trigger_conditions
+            if isinstance(raw, str):
+                try:
+                    trigger_conditions = json.loads(raw)
+                except json.JSONDecodeError:
+                    trigger_conditions = []
+            elif raw is None:
+                trigger_conditions = []
 
         sql_queries = AutomationService._parse_sql_queries(auto.sql_query)
 
@@ -364,6 +462,82 @@ class AutomationService:
             "triggers_fired": triggers_fired,
             "error_message": run.error_message,
             "created_at": str(run.created_at),
+        }
+
+    # ------------------------------------------------------------------
+    # Trigger Templates
+    # ------------------------------------------------------------------
+
+    def create_template(self, user_id: str, name: str, description: str | None, conditions: list[dict]) -> dict:
+        with Session(self._engine) as session:
+            tpl = TriggerTemplate(
+                id=_uuid(),
+                name=name,
+                description=description,
+                conditions_json=json.dumps(conditions),
+                created_by=user_id,
+                created_at=_utcnow(),
+                updated_at=_utcnow(),
+            )
+            session.add(tpl)
+            session.commit()
+            session.refresh(tpl)
+            return self._template_to_dict(tpl)
+
+    def list_templates(self) -> list[dict]:
+        with Session(self._engine) as session:
+            rows = session.query(TriggerTemplate).order_by(TriggerTemplate.created_at.desc()).all()
+            return [self._template_to_dict(t) for t in rows]
+
+    def get_template(self, template_id: str) -> dict | None:
+        with Session(self._engine) as session:
+            tpl = session.get(TriggerTemplate, template_id)
+            if not tpl:
+                return None
+            return self._template_to_dict(tpl)
+
+    def update_template(self, template_id: str, **fields) -> dict | None:
+        with Session(self._engine) as session:
+            tpl = session.get(TriggerTemplate, template_id)
+            if not tpl:
+                return None
+            if "name" in fields and fields["name"] is not None:
+                tpl.name = fields["name"]
+            if "description" in fields:
+                tpl.description = fields["description"]
+            if "conditions" in fields and fields["conditions"] is not None:
+                tpl.conditions_json = json.dumps(fields["conditions"])
+            tpl.updated_at = _utcnow()
+            session.commit()
+            session.refresh(tpl)
+            return self._template_to_dict(tpl)
+
+    def delete_template(self, template_id: str) -> bool:
+        with Session(self._engine) as session:
+            tpl = session.get(TriggerTemplate, template_id)
+            if not tpl:
+                return False
+            _record_delete(session, "trigger_templates", [template_id])
+            session.delete(tpl)
+            session.commit()
+            return True
+
+    @staticmethod
+    def _template_to_dict(tpl: TriggerTemplate) -> dict:
+        conditions = []
+        if tpl.conditions_json:
+            try:
+                conditions = json.loads(tpl.conditions_json)
+            except json.JSONDecodeError:
+                conditions = []
+        return {
+            "id": tpl.id,
+            "name": tpl.name,
+            "description": tpl.description,
+            "conditions": conditions,
+            "created_by": tpl.created_by,
+            "created_at": str(tpl.created_at),
+            "updated_at": str(tpl.updated_at),
         }
 
     @staticmethod

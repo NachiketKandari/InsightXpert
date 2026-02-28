@@ -61,6 +61,16 @@ export interface Notification {
   created_at: string;
 }
 
+export interface TriggerTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  conditions: TriggerCondition[];
+  created_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export type SchedulePreset = "hourly" | "daily" | "weekly" | "monthly" | "custom";
 
 // --- Workflow Builder types ---

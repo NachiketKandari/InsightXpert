@@ -12,8 +12,10 @@ from insightxpert.auth.models import User
 from insightxpert.automations.models import (
     CompileTriggerRequest,
     CreateAutomationRequest,
+    CreateTriggerTemplateRequest,
     GenerateSQLRequest,
     UpdateAutomationRequest,
+    UpdateTriggerTemplateRequest,
     SCHEDULE_PRESETS,
 )
 from insightxpert.automations.service import AutomationService
@@ -437,3 +439,70 @@ async def mark_all_read(
     svc = _get_automation_service(request)
     count = await asyncio.to_thread(svc.mark_all_notifications_read, user.id)
     return {"status": "ok", "count": count}
+
+
+# ---------------------------------------------------------------------------
+# Trigger Template endpoints
+# ---------------------------------------------------------------------------
+
+templates_router = APIRouter(prefix="/api/trigger-templates", tags=["trigger-templates"])
+
+
+@templates_router.get("")
+async def list_templates(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    _require_admin(user)
+    svc = _get_automation_service(request)
+    return await asyncio.to_thread(svc.list_templates)
+
+
+@templates_router.post("")
+async def create_template(
+    body: CreateTriggerTemplateRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    _require_admin(user)
+    svc = _get_automation_service(request)
+    conditions = [c.model_dump() for c in body.conditions]
+    return await asyncio.to_thread(
+        svc.create_template, user.id, body.name, body.description, conditions,
+    )
+
+
+@templates_router.put("/{template_id}")
+async def update_template(
+    template_id: str,
+    body: UpdateTriggerTemplateRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    _require_admin(user)
+    svc = _get_automation_service(request)
+    fields: dict = {}
+    if body.name is not None:
+        fields["name"] = body.name
+    if body.description is not None:
+        fields["description"] = body.description
+    if body.conditions is not None:
+        fields["conditions"] = [c.model_dump() for c in body.conditions]
+    result = await asyncio.to_thread(svc.update_template, template_id, **fields)
+    if not result:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return result
+
+
+@templates_router.delete("/{template_id}")
+async def delete_template(
+    template_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    _require_admin(user)
+    svc = _get_automation_service(request)
+    deleted = await asyncio.to_thread(svc.delete_template, template_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return {"status": "ok"}

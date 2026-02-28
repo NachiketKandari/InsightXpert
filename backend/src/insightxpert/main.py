@@ -112,6 +112,68 @@ def _migrate_schema(engine) -> None:
             logger.info("Migration: dropped alembic_version table")
 
 
+def _migrate_trigger_conditions(engine) -> None:
+    """Migrate trigger_conditions JSON blobs into normalized automation_triggers rows.
+
+    Idempotent: skips automations that already have rows in automation_triggers.
+    """
+    import json as _json
+    from insightxpert.auth.models import AutomationTrigger, _uuid, _utcnow
+
+    with Session(engine) as session:
+        rows = (
+            session.execute(
+                text(
+                    "SELECT id, trigger_conditions FROM automations "
+                    "WHERE trigger_conditions IS NOT NULL AND trigger_conditions != '[]'"
+                )
+            ).fetchall()
+        )
+        migrated = 0
+        for auto_id, tc_json in rows:
+            # Skip if already migrated
+            existing = (
+                session.query(AutomationTrigger)
+                .filter(AutomationTrigger.automation_id == auto_id)
+                .first()
+            )
+            if existing:
+                continue
+
+            try:
+                conditions = _json.loads(tc_json)
+            except (ValueError, TypeError):
+                continue
+
+            if not isinstance(conditions, list):
+                continue
+
+            now = _utcnow()
+            for i, cond in enumerate(conditions):
+                session.add(AutomationTrigger(
+                    id=_uuid(),
+                    automation_id=auto_id,
+                    ordinal_position=i,
+                    type=cond.get("type", "threshold"),
+                    column=cond.get("column"),
+                    operator=cond.get("operator"),
+                    value=cond.get("value"),
+                    change_percent=cond.get("change_percent"),
+                    scope=cond.get("scope"),
+                    slope_window=cond.get("slope_window"),
+                    nl_text=cond.get("nl_text"),
+                    created_at=now,
+                    updated_at=now,
+                ))
+            migrated += 1
+
+        if migrated:
+            session.commit()
+            logger.info("Migrated trigger conditions for %d automations", migrated)
+        else:
+            logger.debug("No trigger conditions to migrate")
+
+
 def _backfill_conversation_org(engine) -> None:
     """Stamp conversations.org_id from their owner's users.org_id (idempotent).
 
@@ -317,6 +379,7 @@ async def lifespan(app: FastAPI):
     try:
         AuthBase.metadata.create_all(auth_engine)
         _migrate_schema(auth_engine)
+        _migrate_trigger_conditions(auth_engine)
         seed_admin(auth_engine, settings)
         _backfill_conversation_org(auth_engine)
         logger.info("Auth tables initialized, admin user ensured")
@@ -547,7 +610,7 @@ async def health_check():
 
 
 from insightxpert.datasets.routes import router as datasets_router
-from insightxpert.automations.routes import router as automations_router, notifications_router
+from insightxpert.automations.routes import router as automations_router, notifications_router, templates_router
 
 app.include_router(router)
 app.include_router(auth_router)
@@ -555,6 +618,7 @@ app.include_router(admin_router)
 app.include_router(datasets_router)
 app.include_router(automations_router)
 app.include_router(notifications_router)
+app.include_router(templates_router)
 
 if __name__ == "__main__":
     import os

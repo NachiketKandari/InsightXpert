@@ -7,6 +7,7 @@ import type {
   AutomationContext,
   CreateAutomationPayload,
   TriggerCondition,
+  TriggerTemplate,
   WorkflowBlock,
   WorkflowEdge,
   WorkflowBuilderContext,
@@ -103,6 +104,10 @@ interface AutomationState {
   // Test trigger state
   activeTestTriggers: Record<string, TestTriggerState>;
 
+  // Trigger templates
+  triggerTemplates: TriggerTemplate[];
+  isLoadingTemplates: boolean;
+
   // Automation CRUD
   fetchAutomations: () => Promise<void>;
   createAutomation: (payload: CreateAutomationPayload) => Promise<Automation | null>;
@@ -111,6 +116,11 @@ interface AutomationState {
   toggleAutomation: (id: string) => Promise<Automation | null>;
   runNow: (id: string) => Promise<{ status: string; message: string; run: AutomationRun | null } | null>;
   fetchRunHistory: (id: string, limit?: number) => Promise<AutomationRun[]>;
+
+  // Trigger templates
+  fetchTriggerTemplates: () => Promise<void>;
+  createTriggerTemplate: (name: string, description: string | null, conditions: TriggerCondition[]) => Promise<TriggerTemplate | null>;
+  deleteTriggerTemplate: (id: string) => Promise<boolean>;
 
   // Test trigger
   startTestTrigger: (id: string, intervalSeconds: number) => void;
@@ -161,6 +171,8 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   isExecutingEndpoint: false,
   editingAutomationId: null,
   activeTestTriggers: {},
+  triggerTemplates: [],
+  isLoadingTemplates: false,
 
   // ---------------------------------------------------------------------------
   // Automation CRUD (unchanged)
@@ -228,6 +240,38 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
 
   fetchRunHistory: async (id, limit = 20) => {
     return (await apiCall<AutomationRun[]>(`/api/automations/${id}/runs?limit=${limit}`)) ?? [];
+  },
+
+  // ---------------------------------------------------------------------------
+  // Trigger Templates
+  // ---------------------------------------------------------------------------
+
+  fetchTriggerTemplates: async () => {
+    set({ isLoadingTemplates: true });
+    const data = await apiCall<TriggerTemplate[]>("/api/trigger-templates");
+    set({ triggerTemplates: data ?? [], isLoadingTemplates: false });
+  },
+
+  createTriggerTemplate: async (name, description, conditions) => {
+    const data = await apiCall<TriggerTemplate>("/api/trigger-templates", {
+      method: "POST",
+      body: JSON.stringify({ name, description, conditions }),
+    });
+    if (data) {
+      set((s) => ({ triggerTemplates: [data, ...s.triggerTemplates] }));
+    }
+    return data;
+  },
+
+  deleteTriggerTemplate: async (id) => {
+    const res = await apiFetch(`/api/trigger-templates/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      set((s) => ({
+        triggerTemplates: s.triggerTemplates.filter((t) => t.id !== id),
+      }));
+      return true;
+    }
+    return false;
   },
 
   // Test trigger

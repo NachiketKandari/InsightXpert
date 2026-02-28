@@ -100,6 +100,18 @@ class AutomationRunResponse(BaseModel):
     created_at: str
 
 
+class CreateTriggerTemplateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    conditions: list[TriggerCondition]
+
+
+class UpdateTriggerTemplateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    conditions: list[TriggerCondition] | None = None
+
+
 class NotificationResponse(BaseModel):
     id: str
     user_id: str

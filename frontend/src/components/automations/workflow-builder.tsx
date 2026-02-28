@@ -28,6 +28,7 @@ export function WorkflowBuilder() {
   const blocks = useAutomationStore((s) => s.workflowBlocks);
   const editingId = useAutomationStore((s) => s.editingAutomationId);
   const runNow = useAutomationStore((s) => s.runNow);
+  const fetchTemplates = useAutomationStore((s) => s.fetchTriggerTemplates);
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -74,6 +75,11 @@ export function WorkflowBuilder() {
       }
     }
   }
+
+  // Fetch trigger templates when builder opens
+  useEffect(() => {
+    if (open) fetchTemplates();
+  }, [open, fetchTemplates]);
 
   // Load conversation messages and initialize blocks (async side effects only)
   useEffect(() => {

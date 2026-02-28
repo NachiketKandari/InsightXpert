@@ -260,6 +260,50 @@ class AutomationRun(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class AutomationTrigger(Base):
+    """Normalized trigger condition — one row per condition, FK to automations."""
+
+    __tablename__ = "automation_triggers"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    automation_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("automations.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    ordinal_position: Mapped[int] = mapped_column(Integer, default=0)
+    type: Mapped[str] = mapped_column(String(50), nullable=False)
+    column: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    operator: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    change_percent: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scope: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    slope_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    nl_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
+class TriggerTemplate(Base):
+    """Reusable trigger configuration template."""
+
+    __tablename__ = "trigger_templates"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    name: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conditions_json: Mapped[str] = mapped_column(Text, nullable=False)
+    created_by: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+
+
 class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (
