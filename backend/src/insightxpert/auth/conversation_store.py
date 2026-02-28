@@ -37,7 +37,7 @@ class PersistentConversationStore:
     def __init__(self, engine):
         self.engine = engine
 
-    def get_conversations(self, user_id: str) -> list[dict]:
+    def get_conversations(self, user_id: str, org_id: str | None = None) -> list[dict]:
         with Session(self.engine) as session:
             # Subquery: latest message created_at per conversation
             latest_msg = (
@@ -49,7 +49,7 @@ class PersistentConversationStore:
                 .subquery()
             )
 
-            rows = (
+            q = (
                 session.query(
                     ConversationRecord,
                     MessageRecord.content.label("last_content"),
@@ -64,9 +64,12 @@ class PersistentConversationStore:
                     & (MessageRecord.created_at == latest_msg.c.max_created),
                 )
                 .filter(ConversationRecord.user_id == user_id)
-                .order_by(desc(ConversationRecord.updated_at))
-                .all()
             )
+
+            if org_id is not None:
+                q = q.filter(ConversationRecord.org_id == org_id)
+
+            rows = q.order_by(desc(ConversationRecord.updated_at)).all()
 
             return [
                 {**_conv_to_dict(c), "last_message": last_content[:200] if last_content else None}
@@ -208,16 +211,21 @@ class PersistentConversationStore:
             session.commit()
             return True
 
-    def search_conversations(self, user_id: str, query: str, limit: int = 20) -> list[dict]:
+    def search_conversations(self, user_id: str, query: str, limit: int = 20, org_id: str | None = None) -> list[dict]:
         """Search conversations by title and message content."""
         pattern = f"%{query}%"
         with Session(self.engine) as session:
+            # Base filter: user + optional org scope
+            base_filter = [ConversationRecord.user_id == user_id]
+            if org_id is not None:
+                base_filter.append(ConversationRecord.org_id == org_id)
+
             # Find conversations with matching titles
             title_matches = set(
                 row[0]
                 for row in session.execute(
                     select(ConversationRecord.id)
-                    .where(ConversationRecord.user_id == user_id)
+                    .where(*base_filter)
                     .where(ConversationRecord.title.ilike(pattern))
                 ).all()
             )
@@ -234,7 +242,7 @@ class PersistentConversationStore:
                     ConversationRecord,
                     MessageRecord.conversation_id == ConversationRecord.id,
                 )
-                .filter(ConversationRecord.user_id == user_id)
+                .filter(*base_filter)
                 .filter(MessageRecord.content.ilike(pattern))
                 .order_by(MessageRecord.created_at.desc())
                 .all()

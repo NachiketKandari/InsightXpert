@@ -605,7 +605,7 @@ async def list_conversations(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    convos = await asyncio.to_thread(persistent_store.get_conversations, user.id)
+    convos = await asyncio.to_thread(persistent_store.get_conversations, user.id, user.org_id)
     response.headers["Cache-Control"] = "private, max-age=5"
     return [ConversationSummary(**c) for c in convos]
 
@@ -620,7 +620,7 @@ async def search_conversations(
     if len(q) < 2:
         return []
     persistent_store = request.app.state.persistent_conv_store
-    results = await asyncio.to_thread(persistent_store.search_conversations, user.id, q)
+    results = await asyncio.to_thread(persistent_store.search_conversations, user.id, q, org_id=user.org_id)
     return [SearchResultItem(**r) for r in results]
 
 
