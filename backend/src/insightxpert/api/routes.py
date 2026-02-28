@@ -246,7 +246,7 @@ async def chat_sse(
             all_chunks.append(chunk_json)
             if chunk.type == "sql" and chunk.sql:
                 executed_sql.append(chunk.sql)
-            if chunk.type == "answer" and chunk.content:
+            if chunk.type in ("answer", "insight") and chunk.content:
                 final_answer.append(chunk.content)
             yield {"data": chunk_json}
 
@@ -319,7 +319,7 @@ async def _run_orchestrator_to_completion(
         all_chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:
             executed_sql.append(chunk.sql)
-        if chunk.type == "answer" and chunk.content:
+        if chunk.type in ("answer", "insight") and chunk.content:
             final_answer = chunk.content
 
     generation_time_ms = int((time.time() - start_time) * 1000)

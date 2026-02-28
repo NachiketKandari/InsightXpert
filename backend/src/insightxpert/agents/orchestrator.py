@@ -14,6 +14,7 @@ the captured SQL and result rows are forwarded to the downstream agent.
 
 The ``agent_mode`` parameter controls routing:
     - ``"analyst"``      -- Phase 1 only; no downstream agent.
+    - ``"agentic"``      -- Phase 1, then insight enrichment pipeline.
     - ``"auto"``         -- Phase 1, then statistician (if results available).
     - ``"statistician"`` -- Same behaviour as ``"auto"``.
     - ``"advanced"``     -- Phase 1, then advanced analytics agent.
@@ -28,6 +29,7 @@ from typing import AsyncGenerator
 
 from insightxpert.agents.advanced_agent import advanced_analytics_loop
 from insightxpert.agents.analyst import analyst_loop
+from insightxpert.agents.insight import insight_enrichment_phase
 from insightxpert.agents.statistician import statistician_loop
 from insightxpert.api.models import ChatChunk
 from insightxpert.config import Settings
@@ -58,6 +60,7 @@ async def orchestrator_loop(
 
     agent_mode:
         "analyst"      -- analyst only (no downstream agent)
+        "agentic"      -- analyst, then insight enrichment pipeline
         "auto"         -- analyst, then statistician if results are available
         "statistician" -- analyst, then statistician (same as auto)
         "advanced"     -- analyst, then advanced analytics agent
@@ -98,6 +101,7 @@ async def orchestrator_loop(
     # they can be forwarded to the statistician in Phase 2.
     collected_sql: str = ""
     collected_results: list[dict] = []
+    collected_answer: str = ""
 
     async for chunk in analyst_loop(
         question=question,
@@ -131,6 +135,9 @@ async def orchestrator_loop(
                 except (json.JSONDecodeError, AttributeError) as e:
                     logger.debug("Failed to parse run_sql result: %s", e)
 
+        if chunk.type == "answer" and chunk.content:
+            collected_answer = chunk.content
+
         yield chunk
 
     # --- Phase 2 / Phase 3 (conditional) ---
@@ -143,7 +150,29 @@ async def orchestrator_loop(
 
     cid = conversation_id or ""
 
-    if agent_mode == "advanced":
+    if agent_mode == "agentic":
+        if collected_answer:
+            logger.info(
+                "Orchestrator: routing to insight enrichment (answer=%d chars, %d rows)",
+                len(collected_answer), len(collected_results),
+            )
+            async for chunk in insight_enrichment_phase(
+                question=question,
+                analyst_answer=collected_answer,
+                analyst_sql=collected_sql,
+                analyst_results=collected_results,
+                llm=llm,
+                db=db,
+                rag=rag,
+                config=config,
+                conversation_id=cid,
+                ddl_override=ddl_override,
+                docs_override=docs_override,
+            ):
+                yield chunk
+        else:
+            logger.info("Orchestrator: agentic mode but no analyst answer; skipping enrichment")
+    elif agent_mode == "advanced":
         logger.info(
             "Orchestrator: routing %d rows to advanced analytics agent",
             len(collected_results),

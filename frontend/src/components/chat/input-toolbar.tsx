@@ -8,6 +8,7 @@ import {
   FlaskConical,
   BrainCircuit,
   Sparkles,
+  Zap,
   Check,
   ChevronDown,
   ArrowUp,
@@ -95,6 +96,20 @@ export function InputToolbar({
       bg: "bg-amber-500/10",
       border: "border-amber-500/30",
     },
+    agentic: {
+      label: "Agentic",
+      icon: Zap,
+      color: "text-emerald-500",
+      bg: "bg-emerald-500/10",
+      border: "border-emerald-500/30",
+    },
+    insight: {
+      label: "Insight",
+      icon: Zap,
+      color: "text-emerald-500",
+      bg: "bg-emerald-500/10",
+      border: "border-emerald-500/30",
+    },
     auto: {
       label: "Statistician",
       icon: FlaskConical,
@@ -171,6 +186,16 @@ export function InputToolbar({
             <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault();
+                setAgentMode("agentic");
+              }}
+            >
+              <Zap className="size-4" />
+              Agentic
+              {agentMode === "agentic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
                 setAgentMode("auto");
               }}
             >
@@ -226,6 +251,16 @@ export function InputToolbar({
                 <Sparkles className="size-4 text-amber-500" />
                 Analyst
                 {agentMode === "analyst" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setAgentMode("agentic");
+                }}
+              >
+                <Zap className="size-4 text-emerald-500" />
+                Agentic
+                {agentMode === "agentic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={(e) => {

@@ -184,6 +184,18 @@ export function useSSEChat() {
               timestamp: chunk.timestamp,
             };
             addAgentStep(step);
+          } else if (chunk.type === "insight") {
+            markLastRunningDone();
+            const stepId = generateStepId();
+            const step: AgentStep = {
+              id: stepId,
+              label: "Enriched insight generated",
+              status: "done",
+              detail: chunk.content || undefined,
+              timestamp: chunk.timestamp,
+            };
+            addAgentStep(step);
+            useChatStore.getState().setCurrentAgentPhase("insight");
           } else if (chunk.type === "clarification") {
             markLastRunningDone();
             const stepId = generateStepId();

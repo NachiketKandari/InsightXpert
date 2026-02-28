@@ -132,6 +132,14 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererPro
         </>
       );
       break;
+    case "insight":
+      content = (
+        <>
+          <ProgressStep label="Synthesized enriched insight" isComplete={isComplete} />
+          <AnswerChunk content={chunk.content ?? ""} />
+        </>
+      );
+      break;
     case "error":
       content = <ErrorChunk content={chunk.content ?? "An error occurred"} />;
       break;

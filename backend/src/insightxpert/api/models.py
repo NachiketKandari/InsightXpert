@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
-    agent_mode: Literal["auto", "analyst", "statistician", "advanced"] = "auto"
+    agent_mode: Literal["auto", "analyst", "statistician", "advanced", "agentic"] = "auto"
     skip_clarification: bool = False
 
 

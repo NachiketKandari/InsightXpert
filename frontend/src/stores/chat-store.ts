@@ -327,7 +327,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
           ...lastMsg,
           chunks: [...lastMsg.chunks, chunk],
           content:
-            chunk.type === "answer" && chunk.content
+            (chunk.type === "answer" || chunk.type === "insight") && chunk.content
               ? chunk.content
               : lastMsg.content,
         };
