@@ -97,6 +97,7 @@ interface AutomationState {
   workflowBlocks: WorkflowBlock[];
   workflowEdges: WorkflowEdge[];
   isGeneratingSQL: boolean;
+  isExecutingEndpoint: boolean;
   editingAutomationId: string | null;
 
   // Test trigger state
@@ -129,6 +130,7 @@ interface AutomationState {
   removeBlock: (id: string) => void;
   toggleBlockActive: (id: string) => void;
   setEndpointBlock: (id: string) => void;
+  executeBlockSql: (blockId: string) => Promise<void>;
   updateBlockPosition: (id: string, position: { x: number; y: number }) => void;
   addEdge: (edge: WorkflowEdge) => void;
   removeEdge: (id: string) => void;
@@ -156,6 +158,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   workflowBlocks: [],
   workflowEdges: [],
   isGeneratingSQL: false,
+  isExecutingEndpoint: false,
   editingAutomationId: null,
   activeTestTriggers: {},
 
@@ -382,9 +385,9 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
           isEndpoint: false,
           resultPreview,
           tables: extractTablesFromSQL(sql),
-          position: { x: 320, y },
+          position: { x: 336, y },
         });
-        y += 200;
+        y += 320;
       }
     }
 
@@ -397,6 +400,12 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     }
 
     set({ workflowBlocks: blocks });
+
+    // Auto-execute SQL for the endpoint block if it has no resultPreview
+    const endpoint = blocks.find((b) => b.isEndpoint);
+    if (endpoint && !endpoint.resultPreview) {
+      get().executeBlockSql(endpoint.id);
+    }
   },
 
   addBlock: (block) => set((s) => ({ workflowBlocks: [...s.workflowBlocks, block] })),
@@ -421,20 +430,62 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
       ),
     })),
 
-  setEndpointBlock: (id) =>
+  executeBlockSql: async (blockId) => {
+    const block = get().workflowBlocks.find((b) => b.id === blockId);
+    if (!block?.sql?.trim()) return;
+    set({ isExecutingEndpoint: true });
+    try {
+      const data = await apiCall<{ columns: string[]; rows: Record<string, unknown>[]; row_count: number }>(
+        "/api/sql/execute",
+        { method: "POST", body: JSON.stringify({ sql: block.sql.trim() }) },
+      );
+      if (data) {
+        set((s) => ({
+          workflowBlocks: s.workflowBlocks.map((b) =>
+            b.id === blockId
+              ? {
+                  ...b,
+                  resultPreview: {
+                    rowCount: data.row_count,
+                    columnCount: data.columns.length,
+                    columnNames: data.columns,
+                  },
+                }
+              : b,
+          ),
+        }));
+      }
+    } finally {
+      set({ isExecutingEndpoint: false });
+    }
+  },
+
+  setEndpointBlock: (id) => {
     set((s) => ({
       workflowBlocks: s.workflowBlocks.map((b) => ({
         ...b,
         isEndpoint: b.id === id,
       })),
-    })),
+    }));
+    // Auto-execute SQL if the new endpoint block has no resultPreview
+    const block = get().workflowBlocks.find((b) => b.id === id);
+    if (block && !block.resultPreview) {
+      get().executeBlockSql(id);
+    }
+  },
 
-  updateBlockPosition: (id, position) =>
+  updateBlockPosition: (id, position) => {
+    // Snap to 16px grid to keep blocks aligned
+    const snapped = {
+      x: Math.round(position.x / 16) * 16,
+      y: Math.round(position.y / 16) * 16,
+    };
     set((s) => ({
       workflowBlocks: s.workflowBlocks.map((b) =>
-        b.id === id ? { ...b, position } : b,
+        b.id === id ? { ...b, position: snapped } : b,
       ),
-    })),
+    }));
+  },
 
   addEdge: (edge) => set((s) => ({ workflowEdges: [...s.workflowEdges, edge] })),
 
@@ -517,7 +568,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
           isEndpoint: false,
           resultPreview: null,
           tables: extractTablesFromSQL(data.sql),
-          position: { x: 320, y: maxY + 200 },
+          position: { x: 336, y: maxY + 320 },
         };
         set((s) => ({ workflowBlocks: [...s.workflowBlocks, newBlock] }));
       }
