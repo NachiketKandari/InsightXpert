@@ -136,7 +136,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
 
     chartContent = (
       <ChartContainer config={groupedConfig} className={`${isMobile ? "h-56" : "h-72"} w-full`}>
-        <BarChart data={pivoted} margin={isMobile ? undefined : { top: 5, right: 5, bottom: 30, left: 30 }}>
+        <BarChart data={pivoted} margin={isMobile ? undefined : { top: 5, right: 5, bottom: 25, left: 30 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
@@ -149,9 +149,10 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
           <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} label={yAxisLabel} />
           <ChartTooltip content={<ChartTooltipContent />} />
           <Legend
+            verticalAlign="top"
             iconType="circle"
             iconSize={8}
-            wrapperStyle={{ fontSize: 12, paddingTop: 8 }}
+            wrapperStyle={{ fontSize: 12, paddingBottom: 8 }}
           />
           {groupValues.map((gv, i) => (
             <Bar
@@ -219,9 +220,10 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
             ))}
           </Pie>
           <Legend
+            verticalAlign="top"
             iconType="circle"
             iconSize={8}
-            wrapperStyle={{ fontSize: 12, paddingTop: 4 }}
+            wrapperStyle={{ fontSize: 12, paddingBottom: 8 }}
           />
         </PieChart>
       </ChartContainer>
