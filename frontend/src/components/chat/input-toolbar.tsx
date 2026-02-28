@@ -6,6 +6,8 @@ import {
   Paperclip,
   TerminalSquare,
   FlaskConical,
+  BrainCircuit,
+  Sparkles,
   Check,
   ChevronDown,
   ArrowUp,
@@ -54,7 +56,6 @@ export function InputToolbar({
 
   const agentMode = useSettingsStore((s) => s.agentMode);
   const setAgentMode = useSettingsStore((s) => s.setAgentMode);
-  const statsEnabled = agentMode === "auto";
 
   const setSqlExecutorOpen = useChatStore((s) => s.setSqlExecutorOpen);
 
@@ -110,17 +111,37 @@ export function InputToolbar({
 
           <DropdownMenuSeparator />
           <DropdownMenuLabel className="text-xs text-muted-foreground">
-            Agents
+            Analysis Mode
           </DropdownMenuLabel>
           <DropdownMenuItem
             onSelect={(e) => {
               e.preventDefault();
-              setAgentMode(statsEnabled ? "analyst" : "auto");
+              setAgentMode("analyst");
+            }}
+          >
+            <Sparkles className="size-4" />
+            SQL Only
+            {agentMode === "analyst" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              setAgentMode("auto");
             }}
           >
             <FlaskConical className="size-4" />
             Statistician
-            {statsEnabled && <Check className="size-3.5 ml-auto text-emerald-500" />}
+            {(agentMode === "auto" || agentMode === "statistician") && <Check className="size-3.5 ml-auto text-emerald-500" />}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onSelect={(e) => {
+              e.preventDefault();
+              setAgentMode("advanced");
+            }}
+          >
+            <BrainCircuit className="size-4" />
+            Advanced Analytics
+            {agentMode === "advanced" && <Check className="size-3.5 ml-auto text-emerald-500" />}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>

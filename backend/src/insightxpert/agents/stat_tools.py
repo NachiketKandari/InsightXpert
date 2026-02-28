@@ -39,8 +39,9 @@ def _timeout(seconds: int):
         yield
         signal.alarm(0)
         signal.signal(signal.SIGALRM, old)
-    except AttributeError:
-        # Windows — no SIGALRM; just run without timeout
+    except (AttributeError, ValueError):
+        # AttributeError: Windows (no SIGALRM)
+        # ValueError: non-main thread (Cloud Run / gunicorn workers)
         yield
 
 
