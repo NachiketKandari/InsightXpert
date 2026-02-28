@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     secret_key: str = "CHANGE-ME-in-production-use-a-random-secret-key-here"
     access_token_expire_minutes: int = Field(default=1440, gt=0)
     admin_seed_email: str = "admin@insightxpert.ai"
-    admin_seed_password: str = "changeme"
+    admin_seed_password: str = "admin123"
 
     # Startup / runtime tuning
     rag_bootstrap_timeout_seconds: int = Field(default=120, gt=0)
