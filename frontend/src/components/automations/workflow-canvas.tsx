@@ -69,7 +69,6 @@ function edgesToRFEdges(edges: WorkflowEdge[]): Edge[] {
       stroke: EDGE_COLOR,
       strokeWidth: 2.5,
     },
-    label: "",
   }));
 }
 
@@ -207,8 +206,7 @@ export function WorkflowCanvas() {
         </div>
       )}
 
-      {/* Connect-blocks hint (2+ blocks, no edges) */}
-      {showConnectHint && (
+      {(suggestedEdges.length > 0 || showConnectHint) && (
         <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10 flex flex-col items-center gap-2">
           {suggestedEdges.length > 0 && (
             <Button
@@ -221,29 +219,16 @@ export function WorkflowCanvas() {
               Auto-connect ({suggestedEdges.length} suggestion{suggestedEdges.length !== 1 ? "s" : ""})
             </Button>
           )}
-          <div className="bg-card/95 border border-primary/30 rounded-lg px-3.5 py-2 shadow-md backdrop-blur-sm flex items-center gap-2 pointer-events-none">
-            <Link2 className="size-3.5 text-primary flex-shrink-0" />
-            <span className="text-xs text-muted-foreground">
-              Drag from a block&apos;s{" "}
-              <span className="text-foreground font-medium">bottom handle</span>{" "}
-              to connect blocks in sequence
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* Auto-connect button when there are edges but also suggestions */}
-      {!showConnectHint && suggestedEdges.length > 0 && (
-        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-10">
-          <Button
-            size="sm"
-            variant="outline"
-            className="shadow-md backdrop-blur-sm bg-card/95 border-primary/30 hover:border-primary"
-            onClick={applySuggestedEdges}
-          >
-            <Sparkles className="size-3.5 mr-1.5 text-primary" />
-            Auto-connect ({suggestedEdges.length} suggestion{suggestedEdges.length !== 1 ? "s" : ""})
-          </Button>
+          {showConnectHint && (
+            <div className="bg-card/95 border border-primary/30 rounded-lg px-3.5 py-2 shadow-md backdrop-blur-sm flex items-center gap-2 pointer-events-none">
+              <Link2 className="size-3.5 text-primary flex-shrink-0" />
+              <span className="text-xs text-muted-foreground">
+                Drag from a block&apos;s{" "}
+                <span className="text-foreground font-medium">bottom handle</span>{" "}
+                to connect blocks in sequence
+              </span>
+            </div>
+          )}
         </div>
       )}
     </div>

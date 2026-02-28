@@ -9,6 +9,7 @@ from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import User
+from insightxpert.auth.permissions import is_admin_user
 from insightxpert.auth.security import decode_access_token
 
 logger = logging.getLogger("insightxpert.auth")
@@ -74,3 +75,9 @@ async def get_current_user(request: Request) -> User:
 
     asyncio.create_task(asyncio.to_thread(_update_last_active, engine, user_id))
     return user
+
+
+def require_admin(user: User, admin_domains: list[str] | None = None) -> None:
+    """Raise 403 if user is not an admin. Respects admin_domains allowlist when provided."""
+    if not is_admin_user(user, admin_domains or []):
+        raise HTTPException(status_code=403, detail="Admin access required")

@@ -8,7 +8,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
-import { OPERATOR_LABELS } from "@/lib/automation-utils";
+import { OPERATOR_LABELS, STATUS_VARIANT } from "@/lib/automation-utils";
 import type { AutomationRun } from "@/types/automation";
 
 interface RunDetailModalProps {
@@ -16,12 +16,6 @@ interface RunDetailModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  success: "default",
-  no_trigger: "secondary",
-  error: "destructive",
-};
 
 export function RunDetailModal({ run, open, onOpenChange }: RunDetailModalProps) {
   if (!run) return null;

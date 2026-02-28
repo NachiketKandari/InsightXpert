@@ -76,8 +76,6 @@ interface MessageBubbleProps {
   // Takes messageId so callers can pass a stable handler without wrapping in
   // a per-message closure, which would break React.memo's prop comparison.
   onFeedback?: (messageId: string, type: "up" | "down", comment?: string) => void;
-  /** The user question that preceded this assistant message */
-  userQuestion?: string;
 }
 
 function MessageBubbleInner({
@@ -199,7 +197,6 @@ export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
     prev.isLastAssistant === next.isLastAssistant &&
     prev.onRetry === next.onRetry &&
     prev.onResend === next.onResend &&
-    prev.onFeedback === next.onFeedback &&
-    prev.userQuestion === next.userQuestion
+    prev.onFeedback === next.onFeedback
   );
 });

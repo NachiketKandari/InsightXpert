@@ -10,6 +10,17 @@ import { SqlEditorModal } from "./sql-editor-modal";
 
 type SQLBlockData = WorkflowBlock & { type: "sqlBlock" };
 
+const HANDLE_STYLE: React.CSSProperties = {
+  width: 12,
+  height: 12,
+  background: "oklch(0.65 0.15 230)",
+  border: "2.5px solid oklch(0.25 0.02 230)",
+  borderRadius: "50%",
+  cursor: "crosshair",
+  transition: "all 0.15s ease",
+  boxShadow: "0 0 0 3px oklch(0.65 0.15 230 / 0.15)",
+};
+
 function SQLBlockNodeInner({ data, id }: NodeProps) {
   const blockData = data as unknown as SQLBlockData;
   const toggleActive = useAutomationStore((s) => s.toggleBlockActive);
@@ -57,22 +68,11 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
       } ${!blockData.isActive ? "opacity-50" : ""}`}
     >
 
-      {/* INPUT handle — top center */}
       <Handle
         type="target"
         position={Position.Top}
         title="Input — drag a connection here"
-        style={{
-          width: 12,
-          height: 12,
-          background: "oklch(0.65 0.15 230)",
-          border: "2.5px solid oklch(0.25 0.02 230)",
-          borderRadius: "50%",
-          top: -6,
-          cursor: "crosshair",
-          transition: "all 0.15s ease",
-          boxShadow: "0 0 0 3px oklch(0.65 0.15 230 / 0.15)",
-        }}
+        style={{ ...HANDLE_STYLE, top: -6 }}
       />
 
       {/* Header */}
@@ -191,22 +191,11 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
         </div>
       )}
 
-      {/* OUTPUT handle — bottom center */}
       <Handle
         type="source"
         position={Position.Bottom}
         title="Output — drag to connect to another block"
-        style={{
-          width: 12,
-          height: 12,
-          background: "oklch(0.65 0.15 230)",
-          border: "2.5px solid oklch(0.25 0.02 230)",
-          borderRadius: "50%",
-          bottom: -6,
-          cursor: "crosshair",
-          transition: "all 0.15s ease",
-          boxShadow: "0 0 0 3px oklch(0.65 0.15 230 / 0.15)",
-        }}
+        style={{ ...HANDLE_STYLE, bottom: -6 }}
       />
 
       <SqlEditorModal

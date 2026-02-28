@@ -27,9 +27,11 @@ export const SCHEDULE_PRESETS = {
   monthly: "0 9 1 * *",
 } as const;
 
-export function presetToCron(preset: string): string | null {
-  return SCHEDULE_PRESETS[preset as keyof typeof SCHEDULE_PRESETS] ?? null;
-}
+export const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
+  success: "default",
+  no_trigger: "secondary",
+  error: "destructive",
+};
 
 export const OPERATOR_LABELS: Record<string, string> = {
   gt: ">",

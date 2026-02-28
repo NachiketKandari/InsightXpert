@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
+from sqlalchemy.sql.expression import true as sa_true
 
 from insightxpert.auth.models import ConversationRecord, MessageRecord, _record_delete
 
@@ -412,100 +413,60 @@ class PersistentConversationStore:
             session.commit()
             return len(conv_ids)
 
+    def _delete_convs_by_filter(self, session: Session, conv_filter) -> int:
+        """Delete conversations matching the given SQLAlchemy filter expression, plus their messages."""
+        conv_ids = [
+            c.id for c in
+            session.query(ConversationRecord.id).filter(conv_filter).all()
+        ]
+        if not conv_ids:
+            session.commit()
+            return 0
+        msg_ids = [
+            m.id for m in
+            session.query(MessageRecord.id)
+            .filter(MessageRecord.conversation_id.in_(conv_ids))
+            .all()
+        ]
+        _record_delete(session, "messages", msg_ids)
+        _record_delete(session, "conversations", conv_ids)
+        session.query(MessageRecord).filter(
+            MessageRecord.conversation_id.in_(conv_ids)
+        ).delete(synchronize_session=False)
+        session.query(ConversationRecord).filter(
+            ConversationRecord.id.in_(conv_ids)
+        ).delete(synchronize_session=False)
+        session.commit()
+        return len(conv_ids)
+
     def delete_conversations_for_users(self, user_ids: list[str]) -> int:
         """Delete ALL conversations for multiple users. Returns count deleted."""
         if not user_ids:
             return 0
         with Session(self.engine) as session:
-            conv_ids = [
-                c.id for c in
-                session.query(ConversationRecord.id)
-                .filter(ConversationRecord.user_id.in_(user_ids))
-                .all()
-            ]
-            if conv_ids:
-                msg_ids = [
-                    m.id for m in
-                    session.query(MessageRecord.id)
-                    .filter(MessageRecord.conversation_id.in_(conv_ids))
-                    .all()
-                ]
-                _record_delete(session, "messages", msg_ids)
-                _record_delete(session, "conversations", conv_ids)
-                session.query(MessageRecord).filter(
-                    MessageRecord.conversation_id.in_(conv_ids)
-                ).delete(synchronize_session=False)
-                session.query(ConversationRecord).filter(
-                    ConversationRecord.user_id.in_(user_ids)
-                ).delete(synchronize_session=False)
-            session.commit()
-            return len(conv_ids)
+            return self._delete_convs_by_filter(
+                session, ConversationRecord.user_id.in_(user_ids)
+            )
 
     def delete_conversations_by_org(self, user_id: str, org_id: str) -> int:
         """Delete conversations for a user that belong to a specific org. Returns count deleted."""
         with Session(self.engine) as session:
-            conv_ids = [
-                c.id for c in
-                session.query(ConversationRecord.id)
-                .filter(ConversationRecord.user_id == user_id, ConversationRecord.org_id == org_id)
-                .all()
-            ]
-            if conv_ids:
-                msg_ids = [
-                    m.id for m in
-                    session.query(MessageRecord.id)
-                    .filter(MessageRecord.conversation_id.in_(conv_ids))
-                    .all()
-                ]
-                _record_delete(session, "messages", msg_ids)
-                _record_delete(session, "conversations", conv_ids)
-                session.query(MessageRecord).filter(
-                    MessageRecord.conversation_id.in_(conv_ids)
-                ).delete(synchronize_session=False)
-                session.query(ConversationRecord).filter(
-                    ConversationRecord.id.in_(conv_ids)
-                ).delete(synchronize_session=False)
-            session.commit()
-            return len(conv_ids)
+            return self._delete_convs_by_filter(
+                session,
+                (ConversationRecord.user_id == user_id) & (ConversationRecord.org_id == org_id),
+            )
 
     def delete_conversations_by_org_all(self, org_id: str) -> int:
         """Delete ALL conversations belonging to an org. Returns count deleted."""
         with Session(self.engine) as session:
-            conv_ids = [
-                c.id for c in
-                session.query(ConversationRecord.id)
-                .filter(ConversationRecord.org_id == org_id)
-                .all()
-            ]
-            if conv_ids:
-                msg_ids = [
-                    m.id for m in
-                    session.query(MessageRecord.id)
-                    .filter(MessageRecord.conversation_id.in_(conv_ids))
-                    .all()
-                ]
-                _record_delete(session, "messages", msg_ids)
-                _record_delete(session, "conversations", conv_ids)
-                session.query(MessageRecord).filter(
-                    MessageRecord.conversation_id.in_(conv_ids)
-                ).delete(synchronize_session=False)
-                session.query(ConversationRecord).filter(
-                    ConversationRecord.id.in_(conv_ids)
-                ).delete(synchronize_session=False)
-            session.commit()
-            return len(conv_ids)
+            return self._delete_convs_by_filter(
+                session, ConversationRecord.org_id == org_id
+            )
 
     def delete_all_conversations(self) -> int:
         """Delete ALL conversations across all users. Returns count deleted."""
         with Session(self.engine) as session:
-            conv_ids = [c.id for c in session.query(ConversationRecord.id).all()]
-            msg_ids = [m.id for m in session.query(MessageRecord.id).all()]
-            _record_delete(session, "messages", msg_ids)
-            _record_delete(session, "conversations", conv_ids)
-            session.query(MessageRecord).delete(synchronize_session=False)
-            session.query(ConversationRecord).delete(synchronize_session=False)
-            session.commit()
-            return len(conv_ids)
+            return self._delete_convs_by_filter(session, sa_true())
 
     def update_message_feedback(
         self,

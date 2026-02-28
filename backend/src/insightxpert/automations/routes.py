@@ -8,7 +8,7 @@ import re
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from insightxpert.admin.config_store import read_config
-from insightxpert.auth.dependencies import get_current_user
+from insightxpert.auth.dependencies import get_current_user, require_admin
 from insightxpert.auth.models import User
 from insightxpert.auth.permissions import is_admin_user
 from insightxpert.automations.models import (
@@ -48,9 +48,11 @@ def _get_scheduler(request: Request):
     return scheduler
 
 
-def _require_admin(user: User) -> None:
-    if not user.is_admin:
-        raise HTTPException(status_code=403, detail="Admin access required")
+def _get_admin_domains(request: Request) -> list[str]:
+    """Read admin_domains from the persisted config."""
+    engine = request.app.state.auth_engine
+    config = read_config(engine)
+    return config.admin_domains
 
 
 def _resolve_cron(body) -> str:
@@ -111,7 +113,7 @@ async def generate_sql(
     user: User = Depends(get_current_user),
 ):
     """Generate a SQL query from a natural-language prompt using the analyst agent."""
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
 
     from insightxpert.agents.analyst import analyst_loop
 
@@ -153,7 +155,7 @@ async def compile_trigger(
     user: User = Depends(get_current_user),
 ):
     """Compile a natural-language trigger description into a structured condition."""
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
 
     from insightxpert.automations.nl_trigger import compile_nl_trigger
 
@@ -180,7 +182,7 @@ async def create_automation(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
@@ -225,7 +227,7 @@ async def list_automations(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     return await asyncio.to_thread(svc.list_automations, user.id)
 
@@ -236,7 +238,7 @@ async def get_automation(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     auto = await asyncio.to_thread(svc.get_automation, automation_id)
     if not auto:
@@ -255,7 +257,7 @@ async def update_automation(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
@@ -301,7 +303,7 @@ async def delete_automation(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
@@ -319,7 +321,7 @@ async def toggle_automation(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
@@ -343,7 +345,7 @@ async def manual_run(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
@@ -371,7 +373,7 @@ async def list_runs(
     user: User = Depends(get_current_user),
     limit: int = Query(default=20, ge=1, le=100),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     return await asyncio.to_thread(svc.get_runs, automation_id, limit)
 
@@ -383,7 +385,7 @@ async def get_run(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     run = await asyncio.to_thread(svc.get_run, run_id)
     if not run or run["automation_id"] != automation_id:
@@ -398,12 +400,9 @@ async def get_run(
 
 async def _is_admin_user(user: User, request: Request) -> bool:
     """Check admin status using shared permission logic."""
-    if user.is_admin:
-        return True
     try:
-        engine = request.app.state.auth_engine
-        config = await asyncio.to_thread(read_config, engine)
-        return is_admin_user(user, config.admin_domains)
+        admin_domains = await asyncio.to_thread(_get_admin_domains, request)
+        return is_admin_user(user, admin_domains)
     except Exception:
         return False
 
@@ -490,7 +489,7 @@ async def list_templates(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     return await asyncio.to_thread(svc.list_templates)
 
@@ -501,7 +500,7 @@ async def create_template(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     conditions = [c.model_dump() for c in body.conditions]
     return await asyncio.to_thread(
@@ -516,7 +515,7 @@ async def update_template(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     fields: dict = {}
     if body.name is not None:
@@ -537,7 +536,7 @@ async def delete_template(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     deleted = await asyncio.to_thread(svc.delete_template, template_id)
     if not deleted:

@@ -23,7 +23,7 @@ from insightxpert.admin.models import (
     ResolvedClientConfig,
 )
 from insightxpert.auth.conversation_store import PersistentConversationStore
-from insightxpert.auth.dependencies import get_current_user
+from insightxpert.auth.dependencies import get_current_user, require_admin
 from insightxpert.auth.models import Organization, PromptTemplate, User
 from insightxpert.auth.permissions import is_admin_user
 from insightxpert.auth.models import User as UserModel
@@ -38,14 +38,6 @@ class PromptUpdateBody(BaseModel):
     content: str = Field(..., min_length=1)
     description: str | None = None
     is_active: bool = True
-
-
-def _require_admin(user: User, config: ClientConfig) -> None:
-    if not is_admin_user(user, config.admin_domains):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin access required",
-        )
 
 
 class _AdminContext:
@@ -107,7 +99,7 @@ def _get_admin_context(
 ) -> _AdminContext:
     engine = request.app.state.auth_engine
     config = read_config(engine)
-    _require_admin(user, config)
+    require_admin(user, config.admin_domains)
     scoped_ids, scoped_org_id = _resolve_admin_scope(user, engine)
     return _AdminContext(config, user, scoped_ids, scoped_org_id)
 

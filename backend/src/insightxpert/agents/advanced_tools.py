@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+from abc import ABC, abstractmethod
 from typing import Any
 
 import numpy as np
@@ -20,32 +21,8 @@ from insightxpert.agents.stat_tools import RunPythonTool
 from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
 from insightxpert.agents.tools import RunSqlTool
 
-__all__ = [
-    # Time-series
-    "ComputeTimeSeriesSlopeTool",
-    "ComputeAreaUnderCurveTool",
-    "ComputePercentageChangeTool",
-    "DetectPeaksTool",
-    "DetectChangePointsTool",
-    # Fraud & risk
-    "ScoreFraudRiskTool",
-    "DetectAmountAnomaliesTool",
-    "TestTemporalFraudClusteringTool",
-    "ComputeBankPairRiskTool",
-    # General
-    "ComputePercentileRankTool",
-    "ComputeConcentrationIndexTool",
-    "TestBenfordLawTool",
-    # Factory
-    "advanced_registry",
-]
-
 logger = logging.getLogger("insightxpert.advanced_tools")
 
-
-# ---------------------------------------------------------------------------
-# Shared helpers
-# ---------------------------------------------------------------------------
 
 def _df(context: ToolContext) -> pd.DataFrame:
     """Convert analyst_results to DataFrame; returns empty DF if none."""
@@ -63,12 +40,70 @@ def _require_columns(df: pd.DataFrame, *cols: str) -> str | None:
     return None
 
 
-# ===========================================================================
-# Section A — Time-Series Tools
-# ===========================================================================
+def _extract_xy(
+    df: pd.DataFrame, val_col: str, time_col: str | None = None,
+) -> tuple[np.ndarray, np.ndarray] | str:
+    """Extract (x, y) numeric arrays from *df*.
 
-class ComputeTimeSeriesSlopeTool(Tool):
-    """Fit linear regression to a numeric metric over an ordinal/temporal index."""
+    Returns a ``(x, y)`` tuple of float arrays, or a JSON error string if
+    fewer than 2 valid rows remain after dropping NaNs.
+    """
+    y = pd.to_numeric(df[val_col], errors="coerce")
+    if time_col:
+        x_raw = pd.to_numeric(df[time_col], errors="coerce")
+        valid = y.notna() & x_raw.notna()
+        x, y = x_raw[valid].values.astype(float), y[valid].values.astype(float)
+    else:
+        valid = y.notna()
+        y = y[valid].values.astype(float)
+        x = np.arange(len(y), dtype=float)
+    if len(y) < 2:
+        return json.dumps({"error": f"Need at least 2 valid rows, got {len(y)}"})
+    return x, y
+
+
+class DataFrameTool(Tool, ABC):
+    """Base for tools that operate on the analyst DataFrame in context."""
+
+    @property
+    @abstractmethod
+    def required_columns(self) -> list[str]:
+        """Return list of arg keys whose values are required column names.
+
+        Override to return an empty list if the tool handles columns itself.
+        """
+        ...
+
+    @abstractmethod
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
+        """Subclasses implement analysis logic here. Return JSON string."""
+        ...
+
+    def _collect_required(self, args: dict) -> list[str]:
+        """Resolve required column names from *args* using *required_columns*."""
+        cols: list[str] = []
+        for key in self.required_columns:
+            val = args.get(key)
+            if val is not None:
+                if isinstance(val, list):
+                    cols.extend(val)
+                else:
+                    cols.append(val)
+        return cols
+
+    async def execute(self, context: ToolContext, args: dict) -> str:
+        df = _df(context)
+        if df is None or df.empty:
+            return json.dumps({"error": "No data available"})
+        cols = self._collect_required(args)
+        if cols:
+            err = _require_columns(df, *cols)
+            if err:
+                return err
+        return await self.run(df, args)
+
+
+class ComputeTimeSeriesSlopeTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -81,6 +116,10 @@ class ComputeTimeSeriesSlopeTool(Tool):
             "time or ordinal index. Returns slope, R², p-value, 95% CI, and a plain-text "
             "interpretation of the trend direction and strength. Requires at least 2 rows."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["value_column", "time_column"]
 
     def get_args_schema(self) -> dict:
         return {
@@ -106,33 +145,17 @@ class ComputeTimeSeriesSlopeTool(Tool):
             "required": ["value_column"],
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         val_col: str = args["value_column"]
         time_col: str | None = args.get("time_column")
         time_unit: str = args.get("time_unit", "period")
 
-        err = _require_columns(df, val_col)
-        if err:
-            return err
-        if time_col and time_col not in df.columns:
-            return json.dumps({"error": f"time_column '{time_col}' not found. Available: {list(df.columns)}"})
+        result = _extract_xy(df, val_col, time_col)
+        if isinstance(result, str):
+            return result
+        x, y = result
 
-        y = pd.to_numeric(df[val_col], errors="coerce")
-        if time_col:
-            x_raw = pd.to_numeric(df[time_col], errors="coerce")
-            valid = y.notna() & x_raw.notna()
-            x = x_raw[valid].values.astype(float)
-            y = y[valid].values.astype(float)
-        else:
-            valid = y.notna()
-            y = y[valid].values.astype(float)
-            x = np.arange(len(y), dtype=float)
-
-        if len(y) < 2:
-            return json.dumps({"error": f"Need at least 2 data points (got {len(y)})"})
-
-        # All-same values → flat line
+        # All-same values -> flat line
         if np.std(y) == 0:
             return json.dumps({
                 "slope": 0.0,
@@ -146,18 +169,18 @@ class ComputeTimeSeriesSlopeTool(Tool):
             })
 
         try:
-            result = stats.linregress(x, y)
+            lr = stats.linregress(x, y)
         except Exception as exc:
             logger.error("linregress failed: %s", exc, exc_info=True)
             return json.dumps({"error": str(exc)})
 
-        slope = float(result.slope)
-        intercept = float(result.intercept)
-        r_sq = float(result.rvalue ** 2)
-        p_val = float(result.pvalue)
-        stderr = float(result.stderr)
+        slope = float(lr.slope)
+        intercept = float(lr.intercept)
+        r_sq = float(lr.rvalue ** 2)
+        p_val = float(lr.pvalue)
+        stderr = float(lr.stderr)
 
-        # 95% CI on slope: slope ± t_{n-2, 0.975} * stderr
+        # 95% CI on slope: slope +/- t_{n-2, 0.975} * stderr
         n = len(y)
         t_crit = float(stats.t.ppf(0.975, df=n - 2)) if n > 2 else 1.96
         ci = [round(slope - t_crit * stderr, 6), round(slope + t_crit * stderr, 6)]
@@ -182,8 +205,7 @@ class ComputeTimeSeriesSlopeTool(Tool):
         })
 
 
-class ComputeAreaUnderCurveTool(Tool):
-    """Compute AUC via numpy.trapz to quantify cumulative impact over time."""
+class ComputeAreaUnderCurveTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -196,6 +218,10 @@ class ComputeAreaUnderCurveTool(Tool):
             "Useful for quantifying cumulative impact (e.g. total transaction volume over months). "
             "If a time_column is provided it is used as the non-uniform x-axis."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["value_column", "time_column"]
 
     def get_args_schema(self) -> dict:
         return {
@@ -213,55 +239,37 @@ class ComputeAreaUnderCurveTool(Tool):
             "required": ["value_column"],
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         val_col: str = args["value_column"]
         time_col: str | None = args.get("time_column")
 
-        err = _require_columns(df, val_col)
-        if err:
-            return err
+        result = _extract_xy(df, val_col, time_col)
+        if isinstance(result, str):
+            return result
+        x, y = result
 
-        y = pd.to_numeric(df[val_col], errors="coerce")
-
-        if time_col:
-            if time_col not in df.columns:
-                return json.dumps({"error": f"time_column '{time_col}' not found. Available: {list(df.columns)}"})
-            x_raw = pd.to_numeric(df[time_col], errors="coerce")
-            valid = y.notna() & x_raw.notna()
-            x = x_raw[valid].values.astype(float)
-            y_arr = y[valid].values.astype(float)
-        else:
-            valid = y.notna()
-            y_arr = y[valid].values.astype(float)
-            x = None
-
-        n = len(y_arr)
-        if n < 2:
-            return json.dumps({"error": f"Need at least 2 data points (got {n})"})
-
+        n = len(y)
         try:
-            auc = float(np.trapz(y_arr, x=x))
+            auc = float(np.trapz(y, x=x))
         except Exception as exc:
             logger.error("trapz failed: %s", exc, exc_info=True)
             return json.dumps({"error": str(exc)})
 
         interpretation = (
             f"The cumulative area under {val_col} is {auc:.4f}. "
-            f"Mean value per period: {float(np.mean(y_arr)):.4f}."
+            f"Mean value per period: {float(np.mean(y)):.4f}."
         )
 
         return json.dumps({
             "auc": round(auc, 6),
             "n_points": n,
-            "sum": round(float(np.sum(y_arr)), 6),
-            "mean": round(float(np.mean(y_arr)), 6),
+            "sum": round(float(np.sum(y)), 6),
+            "mean": round(float(np.mean(y)), 6),
             "interpretation": interpretation,
         })
 
 
-class ComputePercentageChangeTool(Tool):
-    """Compute period-over-period % change and momentum direction."""
+class ComputePercentageChangeTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -274,6 +282,10 @@ class ComputePercentageChangeTool(Tool):
             "Also computes momentum (sign of the 2nd derivative: accelerating vs. decelerating). "
             "Requires at least 2 data points."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["value_column"]
 
     def get_args_schema(self) -> dict:
         return {
@@ -295,14 +307,9 @@ class ComputePercentageChangeTool(Tool):
             "required": ["value_column"],
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         val_col: str = args["value_column"]
         lag: int = int(args.get("lag", 1))
-
-        err = _require_columns(df, val_col)
-        if err:
-            return err
 
         series = pd.to_numeric(df[val_col], errors="coerce").dropna().reset_index(drop=True)
         if len(series) < 2:
@@ -340,8 +347,7 @@ class ComputePercentageChangeTool(Tool):
         })
 
 
-class DetectPeaksTool(Tool):
-    """Identify surge periods in a metric using scipy.signal.find_peaks."""
+class DetectPeaksTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -354,6 +360,10 @@ class DetectPeaksTool(Tool):
             "Returns the top-N peaks with their surrounding context. "
             "Requires at least 3 data points."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["value_column", "time_column"]
 
     def get_args_schema(self) -> dict:
         return {
@@ -382,16 +392,11 @@ class DetectPeaksTool(Tool):
             "required": ["value_column"],
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         val_col: str = args["value_column"]
         time_col: str | None = args.get("time_column")
         num_peaks: int = int(args.get("num_peaks", 5))
         prom_ratio: float = float(args.get("min_prominence_ratio", 0.2))
-
-        err = _require_columns(df, val_col)
-        if err:
-            return err
 
         y = pd.to_numeric(df[val_col], errors="coerce")
         valid_mask = y.notna()
@@ -459,8 +464,7 @@ class DetectPeaksTool(Tool):
         })
 
 
-class DetectChangePointsTool(Tool):
-    """CUSUM-based change point detection using pure numpy/scipy."""
+class DetectChangePointsTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -475,6 +479,10 @@ class DetectChangePointsTool(Tool):
             "No external dependencies beyond numpy and scipy. "
             f"Requires at least 2*min_segment_size rows."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["value_column", "time_column"]
 
     def get_args_schema(self) -> dict:
         return {
@@ -496,15 +504,10 @@ class DetectChangePointsTool(Tool):
             "required": ["value_column"],
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         val_col: str = args["value_column"]
         time_col: str | None = args.get("time_column")
         min_seg: int = int(args.get("min_segment_size", 5))
-
-        err = _require_columns(df, val_col)
-        if err:
-            return err
 
         y = pd.to_numeric(df[val_col], errors="coerce")
         valid_mask = y.notna()
@@ -580,13 +583,7 @@ class DetectChangePointsTool(Tool):
             "interpretation": interpretation,
         })
 
-
-# ===========================================================================
-# Section B — Fraud & Risk Tools
-# ===========================================================================
-
-class ScoreFraudRiskTool(Tool):
-    """Compute empirical lift = segment_fraud_rate / overall_fraud_rate for multi-dim groups."""
+class ScoreFraudRiskTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -600,6 +597,10 @@ class ScoreFraudRiskTool(Tool):
             "High-lift segments are disproportionately fraudulent. "
             "Requires a binary fraud flag column (0/1 or True/False)."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["group_columns", "fraud_column"]
 
     def get_args_schema(self) -> dict:
         return {
@@ -626,17 +627,17 @@ class ScoreFraudRiskTool(Tool):
             "required": ["group_columns"],
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    def _collect_required(self, args: dict) -> list[str]:
+        cols: list[str] = list(args.get("group_columns", []))
+        fraud_col = args.get("fraud_column", "fraud_flag")
+        cols.append(fraud_col)
+        return cols
+
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         group_cols: list[str] = args["group_columns"]
         fraud_col: str = args.get("fraud_column", "fraud_flag")
         min_size: int = int(args.get("min_segment_size", 10))
         top_n: int = int(args.get("top_n", 10))
-
-        all_cols = group_cols + [fraud_col]
-        err = _require_columns(df, *all_cols)
-        if err:
-            return err
 
         fraud_series = pd.to_numeric(df[fraud_col], errors="coerce").fillna(0)
         overall_rate = float(fraud_series.mean())
@@ -687,8 +688,7 @@ class ScoreFraudRiskTool(Tool):
         })
 
 
-class DetectAmountAnomaliesTool(Tool):
-    """Modified Z-score (MAD-based) anomaly detection for transaction amounts."""
+class DetectAmountAnomaliesTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -702,6 +702,19 @@ class DetectAmountAnomaliesTool(Tool):
             "More robust than mean/std for fat-tailed financial distributions. "
             "Can optionally group by a categorical column."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["amount_column", "group_by"]
+
+    def _collect_required(self, args: dict) -> list[str]:
+        cols: list[str] = []
+        amount_col = args.get("amount_column", "amount_inr")
+        cols.append(amount_col)
+        group_col = args.get("group_by")
+        if group_col:
+            cols.append(group_col)
+        return cols
 
     def get_args_schema(self) -> dict:
         return {
@@ -730,17 +743,10 @@ class DetectAmountAnomaliesTool(Tool):
             return pd.Series(np.zeros(len(series)), index=series.index)
         return 0.6745 * (series - median) / mad
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         amount_col: str = args.get("amount_column", "amount_inr")
         group_col: str | None = args.get("group_by")
         z_thresh: float = float(args.get("z_threshold", 3.5))
-
-        err = _require_columns(df, amount_col)
-        if err:
-            return err
-        if group_col and group_col not in df.columns:
-            return json.dumps({"error": f"group_by column '{group_col}' not found. Available: {list(df.columns)}"})
 
         amounts = pd.to_numeric(df[amount_col], errors="coerce")
         df_clean = df.copy()
@@ -796,8 +802,7 @@ class DetectAmountAnomaliesTool(Tool):
             })
 
 
-class TestTemporalFraudClusteringTool(Tool):
-    """Chi-squared GoF test for temporal concentration of fraud."""
+class TestTemporalFraudClusteringTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -810,6 +815,16 @@ class TestTemporalFraudClusteringTool(Tool):
             "using a chi-squared goodness-of-fit test. Shannon entropy measures concentration. "
             "A significant result indicates temporal clustering of fraud."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["time_column", "fraud_column"]
+
+    def _collect_required(self, args: dict) -> list[str]:
+        return [
+            args.get("time_column", "hour_of_day"),
+            args.get("fraud_column", "fraud_flag"),
+        ]
 
     def get_args_schema(self) -> dict:
         return {
@@ -830,15 +845,10 @@ class TestTemporalFraudClusteringTool(Tool):
             },
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         time_col: str = args.get("time_column", "hour_of_day")
         fraud_col: str = args.get("fraud_column", "fraud_flag")
         alpha: float = float(args.get("alpha", 0.05))
-
-        err = _require_columns(df, time_col, fraud_col)
-        if err:
-            return err
 
         fraud_series = pd.to_numeric(df[fraud_col], errors="coerce").fillna(0)
         fraud_mask = fraud_series == 1
@@ -895,8 +905,7 @@ class TestTemporalFraudClusteringTool(Tool):
         })
 
 
-class ComputeBankPairRiskTool(Tool):
-    """Sender×receiver fraud rate matrix with z-test and Bonferroni correction."""
+class ComputeBankPairRiskTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -910,6 +919,17 @@ class ComputeBankPairRiskTool(Tool):
             "with Bonferroni correction for multiple comparisons. "
             "Returns the highest-risk pairs."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["sender_col", "receiver_col", "fraud_col"]
+
+    def _collect_required(self, args: dict) -> list[str]:
+        return [
+            args.get("sender_col", "sender_bank"),
+            args.get("receiver_col", "receiver_bank"),
+            args.get("fraud_col", "fraud_flag"),
+        ]
 
     def get_args_schema(self) -> dict:
         return {
@@ -938,17 +958,12 @@ class ComputeBankPairRiskTool(Tool):
             },
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         sender_col: str = args.get("sender_col", "sender_bank")
         receiver_col: str = args.get("receiver_col", "receiver_bank")
         fraud_col: str = args.get("fraud_col", "fraud_flag")
         min_size: int = int(args.get("min_pair_size", 5))
         top_n: int = int(args.get("top_n", 5))
-
-        err = _require_columns(df, sender_col, receiver_col, fraud_col)
-        if err:
-            return err
 
         fraud_series = pd.to_numeric(df[fraud_col], errors="coerce").fillna(0)
         baseline = float(fraud_series.mean())
@@ -999,20 +1014,14 @@ class ComputeBankPairRiskTool(Tool):
             "top_riskiest_pairs": pairs,
             "interpretation": (
                 f"Baseline fraud rate: {baseline:.4%}. "
-                f"Riskiest pair: {pairs[0]['sender']} → {pairs[0]['receiver']} "
-                f"({pairs[0]['fraud_rate']:.4%} fraud rate, {pairs[0]['lift']:.2f}× lift). "
+                f"Riskiest pair: {pairs[0]['sender']} -> {pairs[0]['receiver']} "
+                f"({pairs[0]['fraud_rate']:.4%} fraud rate, {pairs[0]['lift']:.2f}x lift). "
                 f"Bonferroni threshold: p < {bonferroni_alpha:.6f}."
                 if pairs else "No risky bank pairs found."
             ),
         })
 
-
-# ===========================================================================
-# Section C — General Advanced Tools
-# ===========================================================================
-
-class ComputePercentileRankTool(Tool):
-    """Rank segments by a metric and assign quartile/decile buckets."""
+class ComputePercentileRankTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -1025,6 +1034,10 @@ class ComputePercentileRankTool(Tool):
             "quartile (4-bin) or decile (10-bin) buckets. "
             "Useful for benchmarking and performance tiering."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["metric_column", "group_column"]
 
     def get_args_schema(self) -> dict:
         return {
@@ -1047,15 +1060,10 @@ class ComputePercentileRankTool(Tool):
             "required": ["metric_column", "group_column"],
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         metric_col: str = args["metric_column"]
         group_col: str = args["group_column"]
         n_bins: int = int(args.get("n_bins", 4))
-
-        err = _require_columns(df, metric_col, group_col)
-        if err:
-            return err
 
         agg = df.groupby(group_col)[metric_col].agg(
             lambda x: pd.to_numeric(x, errors="coerce").mean()
@@ -1108,8 +1116,7 @@ class ComputePercentileRankTool(Tool):
         })
 
 
-class ComputeConcentrationIndexTool(Tool):
-    """Compute Herfindahl-Hirschman Index (HHI) for market/segment concentration."""
+class ComputeConcentrationIndexTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -1122,6 +1129,10 @@ class ComputeConcentrationIndexTool(Tool):
             "Interpretation: 0-1500 = competitive, 1500-2500 = moderate, >2500 = concentrated. "
             "If value_column is absent, counts rows per group."
         )
+
+    @property
+    def required_columns(self) -> list[str]:
+        return ["group_column", "value_column"]
 
     def get_args_schema(self) -> dict:
         return {
@@ -1139,18 +1150,11 @@ class ComputeConcentrationIndexTool(Tool):
             "required": ["group_column"],
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         group_col: str = args["group_column"]
         value_col: str | None = args.get("value_column")
 
-        err = _require_columns(df, group_col)
-        if err:
-            return err
-
         if value_col:
-            if value_col not in df.columns:
-                return json.dumps({"error": f"value_column '{value_col}' not found. Available: {list(df.columns)}"})
             agg = pd.to_numeric(df[value_col], errors="coerce").fillna(0).groupby(df[group_col]).sum()
         else:
             agg = df[group_col].value_counts()
@@ -1192,8 +1196,7 @@ class ComputeConcentrationIndexTool(Tool):
         })
 
 
-class TestBenfordLawTool(Tool):
-    """Chi-squared test of first-digit distribution against Benford's law."""
+class TestBenfordLawTool(DataFrameTool):
 
     @property
     def name(self) -> str:
@@ -1208,6 +1211,13 @@ class TestBenfordLawTool(Tool):
             "Requires at least 100 data points."
         )
 
+    @property
+    def required_columns(self) -> list[str]:
+        return ["amount_column"]
+
+    def _collect_required(self, args: dict) -> list[str]:
+        return [args.get("amount_column", "amount_inr")]
+
     def get_args_schema(self) -> dict:
         return {
             "type": "object",
@@ -1219,13 +1229,8 @@ class TestBenfordLawTool(Tool):
             },
         }
 
-    async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+    async def run(self, df: pd.DataFrame, args: dict) -> str:
         amount_col: str = args.get("amount_column", "amount_inr")
-
-        err = _require_columns(df, amount_col)
-        if err:
-            return err
 
         amounts = pd.to_numeric(df[amount_col], errors="coerce")
         valid = amounts[amounts > 0].dropna()
@@ -1277,10 +1282,6 @@ class TestBenfordLawTool(Tool):
             ),
         })
 
-
-# ===========================================================================
-# Registry Factory
-# ===========================================================================
 
 def advanced_registry(python_exec_timeout: int = 10) -> ToolRegistry:
     """Create a ToolRegistry with all advanced analytics tools."""

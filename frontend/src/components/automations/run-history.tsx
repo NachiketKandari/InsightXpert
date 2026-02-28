@@ -3,18 +3,13 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { useAutomationStore } from "@/stores/automation-store";
+import { STATUS_VARIANT } from "@/lib/automation-utils";
 import { RunDetailModal } from "./run-detail-modal";
 import type { AutomationRun } from "@/types/automation";
 
 interface RunHistoryProps {
   automationId: string;
 }
-
-const STATUS_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  success: "default",
-  no_trigger: "secondary",
-  error: "destructive",
-};
 
 export function RunHistory({ automationId }: RunHistoryProps) {
   const fetchRunHistory = useAutomationStore((s) => s.fetchRunHistory);

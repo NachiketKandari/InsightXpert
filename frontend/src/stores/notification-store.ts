@@ -16,6 +16,23 @@ interface NotificationState {
   markAllAsRead: () => Promise<void>;
 }
 
+const _fetchSlice = async (
+  url: string,
+  stateKey: "notifications" | "allNotifications",
+  loadingKey: "isLoading" | "isLoadingAll",
+  unreadOnly: boolean,
+  set: (partial: Partial<NotificationState>) => void,
+) => {
+  set({ [loadingKey]: true });
+  try {
+    const params = unreadOnly ? "?unread_only=true" : "";
+    const data = await apiCall<Notification[]>(`${url}${params}`);
+    set({ [stateKey]: data ?? [], [loadingKey]: false });
+  } catch {
+    set({ [loadingKey]: false });
+  }
+};
+
 export const useNotificationStore = create<NotificationState>((set, get) => ({
   notifications: [],
   allNotifications: [],
@@ -24,25 +41,11 @@ export const useNotificationStore = create<NotificationState>((set, get) => ({
   isLoadingAll: false,
 
   fetchNotifications: async (unreadOnly = false) => {
-    set({ isLoading: true });
-    try {
-      const params = unreadOnly ? "?unread_only=true" : "";
-      const data = await apiCall<Notification[]>(`/api/notifications${params}`);
-      set({ notifications: data ?? [] });
-    } finally {
-      set({ isLoading: false });
-    }
+    await _fetchSlice("/api/notifications", "notifications", "isLoading", unreadOnly, set);
   },
 
   fetchAllNotifications: async (unreadOnly = false) => {
-    set({ isLoadingAll: true });
-    try {
-      const params = unreadOnly ? "?unread_only=true" : "";
-      const data = await apiCall<Notification[]>(`/api/notifications/all${params}`);
-      set({ allNotifications: data ?? [] });
-    } finally {
-      set({ isLoadingAll: false });
-    }
+    await _fetchSlice("/api/notifications/all", "allNotifications", "isLoadingAll", unreadOnly, set);
   },
 
   fetchUnreadCount: async () => {

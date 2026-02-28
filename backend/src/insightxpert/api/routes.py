@@ -287,67 +287,18 @@ async def chat_sse(
     return EventSourceResponse(event_generator())
 
 
-@router.post("/chat/poll")
-async def chat_poll(
-    chat_req: ChatRequest,
+async def _run_orchestrator_to_completion(
     request: Request,
-    user: User = Depends(get_current_user),
-):
-    logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
+    body: ChatRequest,
+    user: User,
+) -> dict:
+    """Run the orchestrator loop to completion and persist the response.
+
+    Returns dict with keys: chunks, final_answer, sql, conversation_id
+    """
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, body, user)
     features = _resolve_user_features(request, user)
-    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
-
-    chunks: list[dict] = []
-    final_answer = ""
-    poll_executed_sql: list[str] = []
-    poll_counting_llm = _TokenCountingLLM(llm)
-    start_time = time.time()
-    async for chunk in orchestrator_loop(
-        question=chat_req.message,
-        llm=poll_counting_llm,
-        db=db,
-        rag=rag,
-        config=settings,
-        conversation_id=cid or persistent_cid,
-        history=history,
-        agent_mode=chat_req.agent_mode,
-        dataset_service=dataset_service,
-        skip_clarification=effective_skip_clarification,
-        stats_context_injection=features.stats_context_injection,
-    ):
-        chunks.append(chunk.model_dump())
-        if chunk.type == "sql" and chunk.sql:
-            poll_executed_sql.append(chunk.sql)
-        if chunk.type == "answer" and chunk.content:
-            final_answer = chunk.content
-
-    generation_time_ms = int((time.time() - start_time) * 1000)
-    store_cid = cid or (chunks[0]["conversation_id"] if chunks else "")
-    await asyncio.to_thread(
-        _persist_response,
-        conv_store, persistent_store, store_cid, persistent_cid, user.id,
-        final_answer, poll_executed_sql, json.dumps(chunks),
-        poll_counting_llm.input_tokens or None,
-        poll_counting_llm.output_tokens or None,
-        generation_time_ms,
-    )
-
-    logger.info("POST /chat/poll done: %d chunks", len(chunks))
-    return {"chunks": chunks}
-
-
-@router.post("/chat/answer", response_model=ChatAnswerResponse)
-async def chat_answer(
-    chat_req: ChatRequest,
-    request: Request,
-    user: User = Depends(get_current_user),
-):
-    """Run the full pipeline and return only the final answer, conversation ID, and SQL."""
-    logger.info("POST /chat/answer message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
-    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
-    features = _resolve_user_features(request, user)
-    effective_skip_clarification = chat_req.skip_clarification or not features.clarification_enabled
+    effective_skip_clarification = body.skip_clarification or not features.clarification_enabled
 
     all_chunks: list[dict] = []
     final_answer = ""
@@ -355,14 +306,14 @@ async def chat_answer(
     counting_llm = _TokenCountingLLM(llm)
     start_time = time.time()
     async for chunk in orchestrator_loop(
-        question=chat_req.message,
+        question=body.message,
         llm=counting_llm,
         db=db,
         rag=rag,
         config=settings,
         conversation_id=cid or persistent_cid,
         history=history,
-        agent_mode=chat_req.agent_mode,
+        agent_mode=body.agent_mode,
         dataset_service=dataset_service,
         skip_clarification=effective_skip_clarification,
         stats_context_injection=features.stats_context_injection,
@@ -384,11 +335,40 @@ async def chat_answer(
         generation_time_ms,
     )
 
-    logger.info("POST /chat/answer done: answer_len=%d", len(final_answer))
+    return {
+        "chunks": all_chunks,
+        "final_answer": final_answer,
+        "sql": executed_sql,
+        "conversation_id": persistent_cid,
+    }
+
+
+@router.post("/chat/poll")
+async def chat_poll(
+    chat_req: ChatRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
+    result = await _run_orchestrator_to_completion(request, chat_req, user)
+    logger.info("POST /chat/poll done: %d chunks", len(result["chunks"]))
+    return {"chunks": result["chunks"]}
+
+
+@router.post("/chat/answer", response_model=ChatAnswerResponse)
+async def chat_answer(
+    chat_req: ChatRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Run the full pipeline and return only the final answer, conversation ID, and SQL."""
+    logger.info("POST /chat/answer message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
+    result = await _run_orchestrator_to_completion(request, chat_req, user)
+    logger.info("POST /chat/answer done: answer_len=%d", len(result["final_answer"]))
     return ChatAnswerResponse(
-        answer=final_answer,
-        conversation_id=persistent_cid,
-        sql=executed_sql,
+        answer=result["final_answer"],
+        conversation_id=result["conversation_id"],
+        sql=result["sql"],
     )
 
 

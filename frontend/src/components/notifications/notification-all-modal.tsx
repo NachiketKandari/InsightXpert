@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bell, CheckCheck, ExternalLink, Clock, Zap } from "lucide-react";
+import { Bell, ExternalLink, Clock, Zap } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useNotificationStore } from "@/stores/notification-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { NotificationCard } from "./notification-card";
+import { NotificationFilterBar, NotificationLoading, NotificationEmptyState } from "./notification-shared";
 import { SEVERITY_VARIANT } from "./constants";
 import type { Notification } from "@/types/automation";
 
@@ -86,48 +87,24 @@ export function NotificationAllModal({ open, onOpenChange }: NotificationAllModa
         </DialogHeader>
 
         {/* Filter bar */}
-        <div className="flex items-center justify-between border-b border-border px-6 pb-3 shrink-0">
-          <div className="flex items-center gap-1">
-            <Button
-              variant={filter === "all" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setFilter("all")}
-            >
-              All ({allNotifications.length})
-            </Button>
-            <Button
-              variant={filter === "unread" ? "secondary" : "ghost"}
-              size="sm"
-              className="h-7 text-xs"
-              onClick={() => setFilter("unread")}
-            >
-              Unread ({unreadCount})
-            </Button>
-          </div>
-          {unreadCount > 0 && (
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={markAllAsRead}>
-              <CheckCheck className="size-3.5 mr-1" />
-              {isAdmin ? "Mark my notifications read" : "Mark all read"}
-            </Button>
-          )}
-        </div>
+        <NotificationFilterBar
+          total={allNotifications.length}
+          unreadCount={unreadCount}
+          filter={filter}
+          onFilterChange={setFilter}
+          onMarkAllRead={markAllAsRead}
+          markAllLabel={isAdmin ? "Mark my notifications read" : "Mark all read"}
+          className="border-b border-border px-6 pb-3 shrink-0"
+        />
 
         {/* Split view: list + detail */}
         <div className="flex flex-1 min-h-0 overflow-hidden">
           {/* Notification list */}
           <div className={`overflow-y-auto space-y-1 p-3 min-h-0 ${selectedNotification ? "w-1/2 border-r border-border" : "w-full"}`}>
             {isLoadingAll ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-              </div>
+              <NotificationLoading />
             ) : filtered.length === 0 ? (
-              <div className="text-center py-12">
-                <Bell className="size-8 text-muted-foreground mx-auto mb-2" />
-                <p className="text-sm text-muted-foreground">
-                  {filter === "unread" ? "No unread notifications" : "No notifications yet"}
-                </p>
-              </div>
+              <NotificationEmptyState filter={filter} />
             ) : (
               filtered.map((n) => (
                 <NotificationCard
