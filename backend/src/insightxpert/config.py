@@ -27,12 +27,6 @@ class Settings(BaseSettings):
     # Local SQLite (primary runtime DB — sub-ms queries)
     database_url: str = "sqlite:///./insightxpert.db"
 
-    # Turso remote sync (background backup)
-    turso_url: str = ""
-    turso_auth_token: str = ""
-    sync_interval_seconds: int = Field(default=30, gt=0)
-    sync_on_startup: bool = True
-
     @field_validator("database_url", mode="before")
     @classmethod
     def _default_database_url(cls, v: str) -> str:

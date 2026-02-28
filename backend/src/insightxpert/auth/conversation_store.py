@@ -9,7 +9,7 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import true as sa_true
 
-from insightxpert.auth.models import ConversationRecord, MessageRecord, _record_delete
+from insightxpert.auth.models import ConversationRecord, MessageRecord
 
 logger = logging.getLogger("insightxpert.auth")
 
@@ -181,15 +181,6 @@ class PersistentConversationStore:
             convo = session.get(ConversationRecord, conversation_id)
             if convo is None or convo.user_id != user_id:
                 return False
-            # Record message IDs for sync before cascade deletes them
-            msg_ids = [
-                m.id for m in
-                session.query(MessageRecord.id)
-                .filter(MessageRecord.conversation_id == conversation_id)
-                .all()
-            ]
-            _record_delete(session, "messages", msg_ids)
-            _record_delete(session, "conversations", [conversation_id])
             session.delete(convo)
             session.commit()
             return True
@@ -200,14 +191,6 @@ class PersistentConversationStore:
             convo = session.get(ConversationRecord, conversation_id)
             if convo is None:
                 return False
-            msg_ids = [
-                m.id for m in
-                session.query(MessageRecord.id)
-                .filter(MessageRecord.conversation_id == conversation_id)
-                .all()
-            ]
-            _record_delete(session, "messages", msg_ids)
-            _record_delete(session, "conversations", [conversation_id])
             session.delete(convo)
             session.commit()
             return True
@@ -396,14 +379,6 @@ class PersistentConversationStore:
                 .all()
             ]
             if conv_ids:
-                msg_ids = [
-                    m.id for m in
-                    session.query(MessageRecord.id)
-                    .filter(MessageRecord.conversation_id.in_(conv_ids))
-                    .all()
-                ]
-                _record_delete(session, "messages", msg_ids)
-                _record_delete(session, "conversations", conv_ids)
                 session.query(MessageRecord).filter(
                     MessageRecord.conversation_id.in_(conv_ids)
                 ).delete(synchronize_session=False)
@@ -422,14 +397,6 @@ class PersistentConversationStore:
         if not conv_ids:
             session.commit()
             return 0
-        msg_ids = [
-            m.id for m in
-            session.query(MessageRecord.id)
-            .filter(MessageRecord.conversation_id.in_(conv_ids))
-            .all()
-        ]
-        _record_delete(session, "messages", msg_ids)
-        _record_delete(session, "conversations", conv_ids)
         session.query(MessageRecord).filter(
             MessageRecord.conversation_id.in_(conv_ids)
         ).delete(synchronize_session=False)

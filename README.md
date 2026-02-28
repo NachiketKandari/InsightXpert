@@ -101,7 +101,8 @@ InsightXpert/
 │   ├── pyproject.toml           # Python 3.11+, hatchling build
 │   ├── Dockerfile               # Cloud Run container
 │   ├── generate_data.py         # 250K transaction generator (seed=42)
-│   ├── seed_turso.py            # Cloud Turso DB seeder
+│   ├── entrypoint.sh            # Container entrypoint (Litestream + uvicorn)
+│   ├── litestream.yml           # Litestream replication config
 │   ├── insightxpert.db          # SQLite DB (80MB, 250K rows)
 │   ├── insightxpert_auth.db     # SQLite auth + conversations DB
 │   ├── chroma_data/             # ChromaDB persistent store

@@ -130,7 +130,7 @@ def _get_deps(request: Request):
 async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     """Shared setup for both SSE and poll chat endpoints.
 
-    All Turso DB calls are offloaded to a thread to avoid blocking the event loop.
+    DB calls are offloaded to a thread to avoid blocking the event loop.
     Returns (llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history).
     """
     llm, db, rag, settings, conv_store, dataset_service = _get_deps(request)

@@ -34,13 +34,8 @@ logger = logging.getLogger("insightxpert")
 
 
 def _migrate_schema(engine) -> None:
-    """Add new columns to existing tables (idempotent, no Alembic needed).
-
-    Column additions and index definitions are shared with
-    ``TursoSyncManager.ensure_remote_schema`` via ``_MIGRATION_COLUMNS``
-    and ``_SCHEMA_INDEXES`` in ``db.sync`` to avoid duplication.
-    """
-    from insightxpert.db.sync import _MIGRATION_COLUMNS, _SCHEMA_INDEXES
+    """Add new columns to existing tables (idempotent, no Alembic needed)."""
+    from insightxpert.db.migrations import MIGRATION_COLUMNS, SCHEMA_INDEXES
 
     insp = inspect(engine)
     dialect = engine.dialect.name
@@ -66,7 +61,7 @@ def _migrate_schema(engine) -> None:
             ("conversations", "is_starred"): "BOOLEAN DEFAULT FALSE NOT NULL",
         }
 
-        for table, column, col_def in _MIGRATION_COLUMNS:
+        for table, column, col_def in MIGRATION_COLUMNS:
             if dialect == "postgresql" and (table, column) in pg_overrides:
                 col_def = pg_overrides[(table, column)]
             _add_column(table, column, col_def)
@@ -76,23 +71,11 @@ def _migrate_schema(engine) -> None:
             "UPDATE users SET updated_at = created_at WHERE updated_at IS NULL"
         ))
 
-        # All indexes and unique constraints (shared with Turso schema sync)
-        for idx_sql in _SCHEMA_INDEXES:
+        for idx_sql in SCHEMA_INDEXES:
             try:
                 conn.execute(text(idx_sql))
             except Exception as e:
                 logger.debug("Index creation skipped: %s", e)
-
-        # Sync delete tracking table (for Turso background sync)
-        conn.execute(text("""
-            CREATE TABLE IF NOT EXISTS _sync_deletes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                table_name TEXT NOT NULL,
-                record_id TEXT NOT NULL,
-                deleted_at DATETIME NOT NULL,
-                synced BOOLEAN NOT NULL DEFAULT 0
-            )
-        """))
 
         # Transaction timestamp index (table may not exist yet at migration time)
         try:
@@ -361,8 +344,6 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting InsightXpert (log_level=%s)", settings.log_level)
 
-    sync_manager = None
-
     # 1. Connect to local SQLite (sub-ms queries)
     db = DatabaseConnector()
     try:
@@ -386,25 +367,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Auth table setup failed: %s", e, exc_info=True)
 
-    # 3. Startup sync: pull auth data from Turso (if configured)
-    if settings.turso_url:
-        try:
-            from insightxpert.db.sync import TursoSyncManager
-            sync_manager = TursoSyncManager(
-                local_engine=auth_engine,
-                turso_url=settings.turso_url,
-                turso_auth_token=settings.turso_auth_token,
-            )
-            # Ensure Turso schema matches local (tables, indexes, constraints)
-            await asyncio.to_thread(sync_manager.ensure_remote_schema)
-            if settings.sync_on_startup:
-                await asyncio.to_thread(sync_manager.pull_from_turso)
-        except Exception as e:
-            logger.error("Turso startup sync failed (continuing with local data): %s", e, exc_info=True)
-    else:
-        logger.info("No TURSO_URL configured — running in pure local mode")
-
-    # 4. Seed prompts, datasets (idempotent — safe after sync)
+    # 3. Seed prompts, datasets (idempotent)
     try:
         _seed_prompts(auth_engine)
         logger.info("Prompt templates initialized")
@@ -489,11 +452,6 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Admin config migration failed: %s", e, exc_info=True)
 
-    # 6. Start background sync (if Turso configured)
-    if sync_manager is not None:
-        await sync_manager.start_background_sync(settings.sync_interval_seconds)
-        logger.info("Background Turso sync started (interval=%ds)", settings.sync_interval_seconds)
-
     # Wait for RAG training to finish (with timeout so server still starts)
     rag_timeout = settings.rag_bootstrap_timeout_seconds
     try:
@@ -509,8 +467,6 @@ async def lifespan(app: FastAPI):
     # Shutdown
     if hasattr(app.state, 'automation_scheduler'):
         await app.state.automation_scheduler.shutdown()
-    if sync_manager is not None:
-        await sync_manager.shutdown()
     if not rag_task.done():
         rag_task.cancel()
     db.disconnect()
