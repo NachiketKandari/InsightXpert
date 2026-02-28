@@ -138,7 +138,7 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
           initial="hidden"
           animate="show"
           exit="hidden"
-          className="mt-4 sm:mt-6 grid w-full max-w-2xl grid-cols-1 min-[400px]:grid-cols-3 gap-2 sm:gap-3"
+          className="mt-4 sm:mt-6 grid w-full max-w-2xl grid-cols-1 min-[400px]:grid-cols-3 items-start gap-2 sm:gap-3"
         >
           {questions.map((question) => (
             <motion.button

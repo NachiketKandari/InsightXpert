@@ -95,6 +95,16 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
     [useStateCodes],
   );
 
+  /** Format a column key into a readable axis label (e.g. "total_amount" → "Total Amount"). */
+  const formatLabel = (key: string) =>
+    key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const xLabel = formatLabel(categoryKey);
+  const yLabel = formatLabel(valueKey);
+
+  const xAxisLabel = { value: xLabel, position: "insideBottom" as const, offset: -5, style: { fontSize: 11, fill: "var(--color-muted-foreground)" } };
+  const yAxisLabel = { value: yLabel, angle: -90, position: "insideLeft" as const, offset: 10, style: { fontSize: 11, fill: "var(--color-muted-foreground)" } };
+
   if (chartType === "none" || chartType === "table") return null;
 
   let chartContent: React.ReactNode;
@@ -115,7 +125,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
 
     chartContent = (
       <ChartContainer config={groupedConfig} className={`${isMobile ? "h-56" : "h-72"} w-full`}>
-        <BarChart data={pivoted}>
+        <BarChart data={pivoted} margin={{ bottom: 20, left: 20 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
@@ -123,8 +133,9 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
             tickFormatter={groupedTickFormatter}
             tickLine={false}
             axisLine={false}
+            label={xAxisLabel}
           />
-          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} label={yAxisLabel} />
           <ChartTooltip content={<ChartTooltipContent />} />
           <Legend
             iconType="circle"
@@ -145,7 +156,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
   } else if (chartType === "bar") {
     chartContent = (
       <ChartContainer config={chartConfig} className={`${isMobile ? "h-48" : "h-64"} w-full`}>
-        <BarChart data={data}>
+        <BarChart data={data} margin={{ bottom: 20, left: 20 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
@@ -153,8 +164,9 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
             tickFormatter={tickFormatter}
             tickLine={false}
             axisLine={false}
+            label={xAxisLabel}
           />
-          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} label={yAxisLabel} />
           <ChartTooltip content={<ChartTooltipContent />} />
           <Bar dataKey={valueKey} radius={[4, 4, 0, 0]}>
             {data.map((_, i) => (
@@ -207,7 +219,7 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
     // line
     chartContent = (
       <ChartContainer config={chartConfig} className={`${isMobile ? "h-48" : "h-64"} w-full`}>
-        <LineChart data={data}>
+        <LineChart data={data} margin={{ bottom: 20, left: 20 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--color-border)" strokeOpacity={0.5} />
           <XAxis
             dataKey={categoryKey}
@@ -215,8 +227,9 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
             tickFormatter={tickFormatter}
             tickLine={false}
             axisLine={false}
+            label={xAxisLabel}
           />
-          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+          <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} label={yAxisLabel} />
           <ChartTooltip content={<ChartTooltipContent />} />
           <Line
             type="monotone"
