@@ -11,6 +11,7 @@ from insightxpert.auth.models import (
     AutomationTrigger,
     Notification,
     TriggerTemplate,
+    User,
     _record_delete,
     _uuid,
     _utcnow,
@@ -311,6 +312,44 @@ class AutomationService:
             for notif, auto_name in rows:
                 d = self._notif_to_dict(notif)
                 d["automation_name"] = auto_name
+                result.append(d)
+            return result
+
+    def get_notifications_admin(
+        self,
+        org_id: str | None,
+        unread_only: bool = False,
+        limit: int = 100,
+    ) -> list[dict]:
+        """Get notifications with user info for admin view.
+
+        org_id=None → super admin: all notifications.
+        org_id=str  → org admin: only for users in that org.
+        """
+        with Session(self._engine) as session:
+            q = (
+                session.query(
+                    Notification,
+                    Automation.name.label("automation_name"),
+                    User.email.label("user_email"),
+                    User.org_id.label("user_org_id"),
+                    User.is_admin.label("user_is_admin"),
+                )
+                .outerjoin(Automation, Notification.automation_id == Automation.id)
+                .join(User, Notification.user_id == User.id)
+            )
+            if org_id is not None:
+                q = q.filter(User.org_id == org_id)
+            if unread_only:
+                q = q.filter(Notification.is_read.is_(False))
+            rows = q.order_by(Notification.created_at.desc()).limit(limit).all()
+            result = []
+            for notif, auto_name, email, u_org, u_admin in rows:
+                d = self._notif_to_dict(notif)
+                d["automation_name"] = auto_name
+                d["user_email"] = email
+                d["user_org_id"] = u_org
+                d["user_is_admin"] = u_admin
                 result.append(d)
             return result
 

@@ -7,8 +7,10 @@ import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
+from insightxpert.admin.config_store import read_config
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
+from insightxpert.auth.permissions import is_admin_user
 from insightxpert.automations.models import (
     CompileTriggerRequest,
     CreateAutomationRequest,
@@ -394,14 +396,49 @@ async def get_run(
 # ---------------------------------------------------------------------------
 
 
+async def _is_admin_user(user: User, request: Request) -> bool:
+    """Check admin status using shared permission logic."""
+    if user.is_admin:
+        return True
+    try:
+        engine = request.app.state.auth_engine
+        config = await asyncio.to_thread(read_config, engine)
+        return is_admin_user(user, config.admin_domains)
+    except Exception:
+        return False
+
+
 @notifications_router.get("")
 async def list_notifications(
     request: Request,
     user: User = Depends(get_current_user),
     unread_only: bool = Query(default=False),
 ):
-    _require_admin(user)
+    """Get current user's own notifications."""
     svc = _get_automation_service(request)
+    return await asyncio.to_thread(svc.get_notifications, user.id, unread_only)
+
+
+@notifications_router.get("/all")
+async def list_all_notifications(
+    request: Request,
+    user: User = Depends(get_current_user),
+    unread_only: bool = Query(default=False),
+):
+    """Get notifications scoped by role.
+
+    - Regular user: own notifications only.
+    - Org admin: all notifications for users in their org (with user info).
+    - Super admin: all notifications across the platform (with user info).
+    """
+    svc = _get_automation_service(request)
+    if await _is_admin_user(user, request):
+        # org_id=None → super admin (unrestricted); org_id set → org-scoped
+        org_scope = user.org_id
+        return await asyncio.to_thread(
+            svc.get_notifications_admin, org_scope, unread_only,
+        )
+    # Regular user: own notifications only
     return await asyncio.to_thread(svc.get_notifications, user.id, unread_only)
 
 
@@ -410,7 +447,7 @@ async def notification_count(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    """Get current user's unread notification count."""
     svc = _get_automation_service(request)
     count = await asyncio.to_thread(svc.get_unread_count, user.id)
     return {"count": count}
@@ -422,7 +459,7 @@ async def mark_read(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    """Mark a single notification as read (own notifications only)."""
     svc = _get_automation_service(request)
     ok = await asyncio.to_thread(svc.mark_notification_read, notification_id, user.id)
     if not ok:
@@ -435,7 +472,7 @@ async def mark_all_read(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    _require_admin(user)
+    """Mark all of current user's notifications as read."""
     svc = _get_automation_service(request)
     count = await asyncio.to_thread(svc.mark_all_notifications_read, user.id)
     return {"status": "ok", "count": count}

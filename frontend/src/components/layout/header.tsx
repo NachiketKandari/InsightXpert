@@ -22,7 +22,7 @@ export const Header = React.memo(function Header() {
   const displayName = useClientConfigStore((s) => s.config?.branding?.display_name);
 
   return (
-    <header className="h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 glass border-b border-border">
+    <header className="relative z-50 h-14 shrink-0 flex items-center justify-between px-3 sm:px-4 glass border-b border-border">
       <div className="flex items-center gap-2">
         {isMobile && (
           <Tooltip>

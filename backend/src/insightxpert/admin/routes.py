@@ -25,6 +25,7 @@ from insightxpert.admin.models import (
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import Organization, PromptTemplate, User
+from insightxpert.auth.permissions import is_admin_user
 from insightxpert.auth.models import User as UserModel
 from insightxpert.prompts import get_file_content
 
@@ -39,15 +40,8 @@ class PromptUpdateBody(BaseModel):
     is_active: bool = True
 
 
-def is_admin_user(user: User, config: ClientConfig) -> bool:
-    if user.is_admin:
-        return True
-    domain = user.email.split("@")[1].lower()
-    return domain in [d.lower() for d in config.admin_domains]
-
-
 def _require_admin(user: User, config: ClientConfig) -> None:
-    if not is_admin_user(user, config):
+    if not is_admin_user(user, config.admin_domains):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
@@ -523,7 +517,7 @@ async def resolve_client_config(
 ):
     engine = request.app.state.auth_engine
     config = await asyncio.to_thread(read_config, engine)
-    admin = is_admin_user(user, config)
+    admin = is_admin_user(user, config.admin_domains)
 
     if admin:
         with Session(engine) as session:

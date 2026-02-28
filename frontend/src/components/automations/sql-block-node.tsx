@@ -23,8 +23,8 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const truncatedSql =
-    blockData.sql.length > 200
-      ? blockData.sql.slice(0, 200) + "..."
+    blockData.sql.length > 500
+      ? blockData.sql.slice(0, 500) + "..."
       : blockData.sql;
 
   const startEdit = useCallback(() => {
@@ -50,16 +50,12 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
 
   return (
     <div
-      className={`w-[280px] rounded-lg border bg-card shadow-md transition-all relative overflow-visible ${
+      className={`w-[352px] rounded-lg border bg-card transition-all relative overflow-visible ${
         blockData.isEndpoint
-          ? "border-primary shadow-primary/10 shadow-lg ring-2 ring-primary/15"
-          : "border-border"
+          ? "border-primary/40 shadow-[0_0_12px_-2px] shadow-primary/20"
+          : "border-border shadow-md"
       } ${!blockData.isActive ? "opacity-50" : ""}`}
     >
-      {/* Endpoint left-stripe */}
-      {blockData.isEndpoint && (
-        <div className="absolute left-0 top-0 bottom-0 w-[3px] bg-primary rounded-l-lg" />
-      )}
 
       {/* INPUT handle — top center */}
       <Handle
@@ -80,11 +76,11 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
       />
 
       {/* Header */}
-      <div className="flex items-center gap-1.5 pl-3 pr-2 py-2 border-b border-border bg-muted/20">
-        <Database className="size-3 text-muted-foreground flex-shrink-0" />
+      <div className="flex items-center gap-2 pl-3 pr-2 py-2.5 border-b border-border bg-muted/20">
+        <Database className="size-3.5 text-muted-foreground flex-shrink-0" />
 
-        {/* Editable label */}
-        <div className="flex-1 min-w-0">
+        {/* Label + endpoint badge */}
+        <div className="flex-1 min-w-0 flex items-center gap-2">
           {isEditing ? (
             <input
               ref={inputRef}
@@ -93,10 +89,10 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
               onBlur={commitEdit}
               onKeyDown={handleKeyDown}
               autoFocus
-              className="w-full text-xs font-medium bg-transparent border-b border-primary outline-none text-foreground py-px"
+              className="flex-1 min-w-0 text-xs font-medium bg-transparent border-b border-primary outline-none text-foreground py-px"
             />
           ) : (
-            <div className="flex items-center gap-1 group/label">
+            <div className="flex items-center gap-1.5 min-w-0 group/label">
               <span
                 className="text-xs font-medium truncate text-foreground"
                 title={blockData.label}
@@ -105,7 +101,7 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
               </span>
               <button
                 onClick={startEdit}
-                className="opacity-0 group-hover/label:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity"
+                className="opacity-0 group-hover/label:opacity-100 p-0.5 rounded hover:bg-muted transition-opacity flex-shrink-0"
                 title="Rename block"
               >
                 <Pencil className="size-2.5 text-muted-foreground" />
@@ -113,64 +109,71 @@ function SQLBlockNodeInner({ data, id }: NodeProps) {
             </div>
           )}
           {blockData.isEndpoint && (
-            <span className="text-[9px] font-semibold text-primary uppercase tracking-wider leading-none">
+            <span className="text-[8px] font-semibold text-primary bg-primary/10 px-1.5 py-0.5 rounded uppercase tracking-wider leading-none flex-shrink-0">
               Endpoint
             </span>
           )}
         </div>
 
         {/* Actions */}
-        {isEditing ? (
-          <button
-            onClick={commitEdit}
-            className="p-0.5 rounded text-primary hover:bg-muted/60 transition-colors"
-            title="Save name"
-          >
-            <Check className="size-3.5" />
-          </button>
-        ) : (
-          <>
+        <div className="flex items-center gap-0.5 flex-shrink-0">
+          {isEditing ? (
             <button
-              onClick={() => setIsEditorOpen(true)}
-              className="p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-              title="View / edit SQL"
+              onClick={commitEdit}
+              className="p-1 rounded text-primary hover:bg-muted/60 transition-colors"
+              title="Save name"
             >
-              <Code2 className="size-3.5" />
+              <Check className="size-3.5" />
             </button>
-            <Switch
-              checked={blockData.isActive}
-              onCheckedChange={() => toggleActive(id)}
-              className="scale-[0.65] origin-right"
-            />
-            <button
-              onClick={() => setEndpoint(id)}
-              className={`p-0.5 rounded transition-colors ${
-                blockData.isEndpoint
-                  ? "text-primary"
-                  : "text-muted-foreground hover:text-primary"
-              }`}
-              title="Set as endpoint (trigger conditions evaluate here)"
-            >
-              <Target className="size-3.5" />
-            </button>
-            <button
-              onClick={() => removeBlock(id)}
-              className="p-0.5 rounded text-muted-foreground hover:text-destructive transition-colors"
-              title="Remove block"
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-          </>
-        )}
+          ) : (
+            <>
+              <button
+                onClick={() => setIsEditorOpen(true)}
+                className="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors"
+                title="Open SQL editor to view or edit this query"
+              >
+                <Code2 className="size-3.5" />
+              </button>
+              <div title={blockData.isActive ? "Disable this block" : "Enable this block"}>
+                <Switch
+                  checked={blockData.isActive}
+                  onCheckedChange={() => toggleActive(id)}
+                  className="scale-[0.65] origin-center"
+                />
+              </div>
+              <button
+                onClick={() => setEndpoint(id)}
+                className={`p-1 rounded transition-colors ${
+                  blockData.isEndpoint
+                    ? "text-primary bg-primary/10"
+                    : "text-muted-foreground hover:text-primary hover:bg-muted/40"
+                }`}
+                title="Set as endpoint — trigger conditions will evaluate this block's results"
+              >
+                <Target className="size-3.5" />
+              </button>
+              <button
+                onClick={() => removeBlock(id)}
+                className="p-1 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                title="Remove this block from the workflow"
+              >
+                <Trash2 className="size-3.5" />
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
-      {/* SQL Preview */}
-      <pre
-        className="px-3 py-2 text-[10px] font-mono text-muted-foreground leading-relaxed overflow-hidden max-h-[96px] bg-muted/10 cursor-pointer hover:bg-muted/20 transition-colors"
+      {/* SQL Preview — nowheel class prevents ReactFlow from capturing scroll */}
+      <div
+        className="nowheel nodrag max-h-[140px] overflow-y-auto bg-muted/10 hover:bg-muted/20 transition-colors cursor-pointer"
         onClick={() => setIsEditorOpen(true)}
+        title="Click to open SQL editor — scroll to see more"
       >
-        {truncatedSql}
-      </pre>
+        <pre className="px-3 py-2 text-[10px] font-mono text-muted-foreground leading-relaxed whitespace-pre-wrap break-words">
+          {truncatedSql}
+        </pre>
+      </div>
 
       {/* Footer */}
       {(blockData.resultPreview || blockData.sourceMessagePreview) && (

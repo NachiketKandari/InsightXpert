@@ -59,6 +59,10 @@ export interface Notification {
   is_read: boolean;
   automation_name: string | null;
   created_at: string;
+  // Present in admin-scoped responses (/api/notifications/all)
+  user_email?: string;
+  user_org_id?: string | null;
+  user_is_admin?: boolean;
 }
 
 export interface TriggerTemplate {

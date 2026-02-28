@@ -2,17 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { Bell, CheckCheck } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useNotificationStore } from "@/stores/notification-store";
 import { NotificationDetailModal } from "./notification-detail-modal";
+import { NotificationCard } from "./notification-card";
 import type { Notification } from "@/types/automation";
 
-const SEVERITY_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  info: "secondary",
-  warning: "default",
-  critical: "destructive",
-};
+type Filter = "all" | "unread";
 
 export function NotificationList() {
   const notifications = useNotificationStore((s) => s.notifications);
@@ -21,6 +17,7 @@ export function NotificationList() {
   const markAsRead = useNotificationStore((s) => s.markAsRead);
   const markAllAsRead = useNotificationStore((s) => s.markAllAsRead);
   const [selectedNotification, setSelectedNotification] = useState<Notification | null>(null);
+  const [filter, setFilter] = useState<Filter>("all");
 
   useEffect(() => {
     fetchNotifications();
@@ -32,6 +29,9 @@ export function NotificationList() {
     }
     setSelectedNotification(notification);
   };
+
+  const unreadCount = notifications.filter((n) => !n.is_read).length;
+  const filtered = filter === "unread" ? notifications.filter((n) => !n.is_read) : notifications;
 
   if (isLoading) {
     return (
@@ -50,48 +50,49 @@ export function NotificationList() {
     );
   }
 
-  const unreadCount = notifications.filter((n) => !n.is_read).length;
-
   return (
     <>
       <div className="space-y-1">
-        {unreadCount > 0 && (
-          <div className="flex items-center justify-between pb-2">
-            <span className="text-sm text-muted-foreground">{unreadCount} unread</span>
+        {/* Filter bar */}
+        <div className="flex items-center justify-between pb-2">
+          <div className="flex items-center gap-1">
+            <Button
+              variant={filter === "all" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setFilter("all")}
+            >
+              All ({notifications.length})
+            </Button>
+            <Button
+              variant={filter === "unread" ? "secondary" : "ghost"}
+              size="sm"
+              className="h-7 text-xs"
+              onClick={() => setFilter("unread")}
+            >
+              Unread ({unreadCount})
+            </Button>
+          </div>
+          {unreadCount > 0 && (
             <Button variant="ghost" size="sm" onClick={markAllAsRead}>
               <CheckCheck className="size-3.5 mr-1" />
               Mark all read
             </Button>
+          )}
+        </div>
+
+        {filtered.length === 0 ? (
+          <div className="text-center py-8">
+            <p className="text-sm text-muted-foreground">
+              {filter === "unread" ? "No unread notifications" : "No notifications"}
+            </p>
           </div>
+        ) : (
+          filtered.map((n) => (
+            <NotificationCard key={n.id} notification={n} onClick={handleClick} onMarkRead={markAsRead} />
+          ))
+
         )}
-        {notifications.map((n) => (
-          <div
-            key={n.id}
-            className={`flex items-start gap-3 rounded-md border border-border/50 p-3 cursor-pointer transition-colors hover:bg-muted/50 ${
-              !n.is_read ? "bg-primary/5 border-primary/20" : ""
-            }`}
-            onClick={() => handleClick(n)}
-          >
-            {!n.is_read && (
-              <div className="size-2 rounded-full bg-primary shrink-0 mt-1.5" />
-            )}
-            <div className={`flex-1 min-w-0 ${n.is_read ? "ml-5" : ""}`}>
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-medium truncate">{n.title}</p>
-                <Badge variant={SEVERITY_VARIANT[n.severity] ?? "secondary"} className="text-xs shrink-0">
-                  {n.severity}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground truncate mt-0.5">
-                {n.message}
-              </p>
-              <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                {n.automation_name && <span>{n.automation_name}</span>}
-                <span>{new Date(n.created_at).toLocaleString()}</span>
-              </div>
-            </div>
-          </div>
-        ))}
       </div>
 
       <NotificationDetailModal

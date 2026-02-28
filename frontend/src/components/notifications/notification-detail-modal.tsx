@@ -9,18 +9,13 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import type { Notification } from "@/types/automation";
+import { SEVERITY_VARIANT } from "./constants";
 
 interface NotificationDetailModalProps {
   notification: Notification | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
-
-const SEVERITY_VARIANT: Record<string, "default" | "secondary" | "destructive"> = {
-  info: "secondary",
-  warning: "default",
-  critical: "destructive",
-};
 
 export function NotificationDetailModal({
   notification,
