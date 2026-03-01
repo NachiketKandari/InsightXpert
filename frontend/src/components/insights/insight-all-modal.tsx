@@ -16,7 +16,7 @@ import { InsightCard } from "./insight-card";
 import { CATEGORY_COLOR, DEFAULT_CATEGORY_COLOR } from "./constants";
 import type { Insight } from "@/types/insight";
 
-type Filter = "all" | "bookmarked";
+type Filter = "all" | "bookmarked" | "manual";
 
 interface InsightAllModalProps {
   open: boolean;
@@ -46,10 +46,13 @@ export function InsightAllModal({ open, onOpenChange }: InsightAllModalProps) {
   );
 
   const bookmarkedCount = allInsights.filter((i) => i.is_bookmarked).length;
+  const manualCount = allInsights.filter((i) => i.source === "manual").length;
   const filtered =
     filter === "bookmarked"
       ? allInsights.filter((i) => i.is_bookmarked)
-      : allInsights;
+      : filter === "manual"
+        ? allInsights.filter((i) => i.source === "manual")
+        : allInsights;
 
   const handleClick = (insight: Insight) => {
     setSelectedInsight(insight);
@@ -88,6 +91,7 @@ export function InsightAllModal({ open, onOpenChange }: InsightAllModalProps) {
         <InsightFilterBar
           total={allInsights.length}
           bookmarkedCount={bookmarkedCount}
+          manualCount={manualCount}
           filter={filter}
           onFilterChange={setFilter}
           className="border-b border-border px-6 pb-3 shrink-0"
@@ -144,12 +148,14 @@ export function InsightAllModal({ open, onOpenChange }: InsightAllModalProps) {
 function InsightFilterBar({
   total,
   bookmarkedCount,
+  manualCount,
   filter,
   onFilterChange,
   className,
 }: {
   total: number;
   bookmarkedCount: number;
+  manualCount: number;
   filter: Filter;
   onFilterChange: (f: Filter) => void;
   className?: string;
@@ -164,6 +170,15 @@ function InsightFilterBar({
           onClick={() => onFilterChange("all")}
         >
           All ({total})
+        </Button>
+        <Button
+          variant={filter === "manual" ? "secondary" : "ghost"}
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => onFilterChange("manual")}
+        >
+          <Lightbulb className="size-3 mr-1" />
+          Manual ({manualCount})
         </Button>
         <Button
           variant={filter === "bookmarked" ? "secondary" : "ghost"}
@@ -198,6 +213,19 @@ function InsightDetail({
       <div>
         <h3 className="text-base font-semibold">{insight.title}</h3>
         <div className="flex items-center gap-2 mt-2 flex-wrap">
+          <span
+            className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+              insight.source === "manual"
+                ? "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+                : "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+            }`}
+          >
+            {insight.source === "manual" ? (
+              <><Lightbulb className="size-2.5" /> Manual</>
+            ) : (
+              "Auto"
+            )}
+          </span>
           {insight.categories.map((cat) => (
             <span
               key={cat}
@@ -212,6 +240,14 @@ function InsightDetail({
           </span>
         </div>
       </div>
+
+      {/* User note (manual insights) */}
+      {insight.user_note && (
+        <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">
+          <p className="text-xs font-medium text-amber-600 dark:text-amber-400 mb-1">User Note</p>
+          <p className="text-sm leading-relaxed italic">{insight.user_note}</p>
+        </div>
+      )}
 
       {/* Summary */}
       <div className="rounded-md border border-border/50 bg-muted/30 p-3">
@@ -229,9 +265,11 @@ function InsightDetail({
       </div>
 
       {/* Metadata */}
-      <div className="flex items-center gap-1 text-xs text-muted-foreground">
-        <span>{insight.enrichment_task_count} enrichment task{insight.enrichment_task_count !== 1 ? "s" : ""}</span>
-      </div>
+      {insight.source !== "manual" && (
+        <div className="flex items-center gap-1 text-xs text-muted-foreground">
+          <span>{insight.enrichment_task_count} enrichment task{insight.enrichment_task_count !== 1 ? "s" : ""}</span>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="flex items-center gap-2 pt-2 border-t border-border/50">
@@ -296,7 +334,9 @@ function InsightEmptyState({ filter }: { filter: Filter }) {
       <p className="text-sm text-muted-foreground">
         {filter === "bookmarked"
           ? "No bookmarked insights"
-          : "No insights yet"}
+          : filter === "manual"
+            ? "No manual insights yet"
+            : "No insights yet"}
       </p>
     </div>
   );

@@ -20,8 +20,12 @@ import time
 from typing import AsyncGenerator
 
 from insightxpert.agents.analyst import analyst_loop
+from insightxpert.agents.common import (
+    AnalystCollector,
+    build_dag_callbacks,
+    yield_enrichment_traces,
+)
 from insightxpert.agents.dag_executor import (
-    OriginalAnalystResult,
     SubTask,
     SubTaskResult,
     execute_dag,
@@ -64,7 +68,7 @@ async def orchestrator_loop(
     # Backward compat: map legacy modes
     if agent_mode == "analyst":
         agent_mode = "basic"
-    elif agent_mode not in ("basic", "agentic"):
+    elif agent_mode not in ("basic", "agentic", "deep"):
         logger.info("Mapping legacy agent_mode=%r to 'agentic'", agent_mode)
         agent_mode = "agentic"
 
@@ -121,15 +125,32 @@ async def orchestrator_loop(
             yield chunk
         return
 
+    if agent_mode == "deep":
+        # --- Deep Think mode: 5W1H dimensional analysis ---
+        from insightxpert.agents.deep_think import deep_think_loop
+
+        async for chunk in deep_think_loop(
+            question=question,
+            llm=llm,
+            db=db,
+            rag=rag,
+            config=config,
+            conversation_id=conversation_id,
+            history=history,
+            ddl=effective_ddl,
+            documentation=effective_docs,
+            stats_context=stats_context,
+            stats_groups=stats_groups,
+            clarification_enabled=effective_clarification,
+        ):
+            yield chunk
+        return
+
     # --- Agentic mode: analyst-first with conditional enrichment ---
 
     # ── Phase 1: Run analyst with the original question ──────────────
     # User sees results immediately (sql, table, chart, answer).
-    analyst_sql = ""
-    analyst_rows: list[dict] = []
-    analyst_answer = ""
-    analyst_t0 = time.time()
-    analyst_had_error = False
+    collector = AnalystCollector()
 
     async for chunk in analyst_loop(
         question=question,
@@ -145,37 +166,17 @@ async def orchestrator_loop(
         stats_groups=stats_groups,
         clarification_enabled=effective_clarification,
     ):
-        # Yield every chunk directly — user sees immediate results
         yield chunk
-
-        # Also collect data for enrichment evaluation
-        if chunk.type == "sql" and chunk.sql:
-            analyst_sql = chunk.sql
-        elif chunk.type == "tool_result" and chunk.data:
-            tool_name = chunk.data.get("tool", "")
-            if tool_name == "run_sql" and chunk.data.get("result"):
-                try:
-                    parsed = json.loads(chunk.data["result"])
-                    rows = parsed.get("rows", [])
-                    if rows:
-                        analyst_rows = rows
-                except (json.JSONDecodeError, AttributeError):
-                    pass
-        elif chunk.type == "answer" and chunk.content:
-            analyst_answer = chunk.content
-        elif chunk.type in ("error", "clarification"):
-            analyst_had_error = True
-
-    analyst_duration_ms = int((time.time() - analyst_t0) * 1000)
+        collector.process_chunk(chunk)
 
     # If analyst failed or returned a clarification, stop here
-    if analyst_had_error or not analyst_answer:
-        logger.info("Skipping enrichment: error=%s, answer_empty=%s", analyst_had_error, not analyst_answer)
+    if collector.had_error or not collector.answer:
+        logger.info("Skipping enrichment: error=%s, answer_empty=%s", collector.had_error, not collector.answer)
         return
 
     # ── Phase 2: Evaluate whether enrichment is needed ───────────────
     logger.info("Phase 2: evaluating enrichment (analyst_sql=%s, rows=%d, answer_len=%d)",
-                bool(analyst_sql), len(analyst_rows), len(analyst_answer))
+                bool(collector.sql), len(collector.rows), len(collector.answer))
     yield ChatChunk(
         type="status",
         content="Evaluating if deeper analysis is needed...",
@@ -198,9 +199,9 @@ async def orchestrator_loop(
 
     enrichment_plan = await evaluate_for_enrichment(
         question=question,
-        analyst_sql=analyst_sql,
-        analyst_rows=analyst_rows,
-        analyst_answer=analyst_answer,
+        analyst_sql=collector.sql,
+        analyst_rows=collector.rows,
+        analyst_answer=collector.answer,
         llm=llm,
         ddl=effective_ddl,
         documentation=effective_docs,
@@ -222,12 +223,7 @@ async def orchestrator_loop(
         return
 
     # ── Phase 3: Execute additional enrichment tasks via DAG ─────────
-    original = OriginalAnalystResult(
-        sql=analyst_sql,
-        rows=analyst_rows,
-        answer=analyst_answer,
-        duration_ms=analyst_duration_ms,
-    )
+    original = collector.to_original_result()
 
     yield ChatChunk(
         type="orchestrator_plan",
@@ -257,39 +253,7 @@ async def orchestrator_loop(
         timestamp=time.time(),
     )
 
-    pending_chunks: list[ChatChunk] = []
-
-    async def on_task_start(task: SubTask) -> None:
-        pending_chunks.append(ChatChunk(
-            type="status",
-            content=f"[{task.id}] Running {task.agent}: {task.task[:80]}...",
-            data={"agent": "orchestrator", "task_id": task.id, "phase": "task_running"},
-            conversation_id=cid,
-            timestamp=time.time(),
-        ))
-
-    async def on_task_complete(task: SubTask) -> None:
-        result = task.result
-        trace_data = {
-            "task_id": task.id,
-            "agent": task.agent,
-            "category": task.category,
-            "task": task.task,
-            "depends_on": task.depends_on,
-            "final_sql": result.sql if result else None,
-            "final_answer": result.answer if result else None,
-            "success": result.success if result else False,
-            "error": result.error if result else None,
-            "duration_ms": result.duration_ms if result else None,
-            "steps": result.trace_steps if result else None,
-        }
-        pending_chunks.append(ChatChunk(
-            type="agent_trace",
-            data=trace_data,
-            content=f"[{task.id}] {task.agent} {'completed' if task.status == 'done' else task.status}",
-            conversation_id=cid,
-            timestamp=time.time(),
-        ))
+    pending_chunks, on_task_start, on_task_complete = build_dag_callbacks("orchestrator", cid)
 
     async def run_task(task: SubTask, upstream: dict[str, SubTaskResult]) -> SubTaskResult:
         if task.agent == "sql_analyst":
@@ -336,54 +300,16 @@ async def orchestrator_loop(
         await asyncio.sleep(0)
 
     # ── Phase 5: Enrichment trace chunks for citation system ─────────
-    # Source [1] = original analyst; additional tasks start at [2]
-    yield ChatChunk(
-        type="enrichment_trace",
-        data={
-            "source_index": 1,
-            "category": "SQL Analysis",
-            "question": question,
-            "rationale": "Original analyst answer",
-            "final_sql": analyst_sql,
-            "final_answer": analyst_answer,
-            "success": True,
-            "duration_ms": analyst_duration_ms,
-            "steps": [],
-        },
+    async for trace_chunk in yield_enrichment_traces(
+        question=question,
+        analyst_sql=collector.sql,
+        analyst_answer=collector.answer,
+        analyst_duration_ms=collector.duration_ms,
+        plan=enrichment_plan,
+        results=results,
         conversation_id=cid,
-        timestamp=time.time(),
-    )
-    await asyncio.sleep(0)
-
-    _CATEGORY_LABELS = {
-        "comparative_context": "Comparative Context",
-        "temporal_trend": "Temporal Trend",
-        "root_cause": "Root-Cause Analysis",
-        "segmentation": "Segmentation",
-    }
-
-    for i, task in enumerate(enrichment_plan.tasks, start=2):
-        result = results.get(task.id)
-        if not result or not result.success:
-            continue
-        category_label = _CATEGORY_LABELS.get(task.category, task.agent.replace("_", " ").title())
-        yield ChatChunk(
-            type="enrichment_trace",
-            data={
-                "source_index": i,
-                "category": category_label,
-                "question": task.task,
-                "rationale": enrichment_plan.reasoning,
-                "final_sql": result.sql,
-                "final_answer": result.answer,
-                "success": True,
-                "duration_ms": result.duration_ms,
-                "steps": result.trace_steps or [],
-            },
-            conversation_id=cid,
-            timestamp=time.time(),
-        )
-        await asyncio.sleep(0)
+    ):
+        yield trace_chunk
 
     # Check if any enrichment tasks succeeded
     successful = {tid: r for tid, r in results.items() if r.success}

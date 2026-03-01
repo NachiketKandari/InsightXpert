@@ -7,6 +7,7 @@ import {
   TerminalSquare,
   Sparkles,
   Zap,
+  Brain,
   Check,
   ChevronDown,
   ArrowUp,
@@ -98,6 +99,20 @@ export function InputToolbar({
       bg: "bg-emerald-500/10",
       border: "border-emerald-500/30",
     },
+    deep: {
+      label: "Deep Think",
+      icon: Brain,
+      color: "text-violet-500",
+      bg: "bg-violet-500/10",
+      border: "border-violet-500/30",
+    },
+    deep_think: {
+      label: "Deep Thinking",
+      icon: Brain,
+      color: "text-violet-500",
+      bg: "bg-violet-500/10",
+      border: "border-violet-500/30",
+    },
     analyst: {
       label: "Analyzing",
       icon: Sparkles,
@@ -181,6 +196,16 @@ export function InputToolbar({
               Agentic
               {agentMode === "agentic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
             </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(e) => {
+                e.preventDefault();
+                setAgentMode("deep");
+              }}
+            >
+              <Brain className="size-4" />
+              Deep Think
+              {agentMode === "deep" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
 
@@ -229,6 +254,16 @@ export function InputToolbar({
                 <Zap className="size-4 text-emerald-500" />
                 Agentic
                 {agentMode === "agentic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onSelect={(e) => {
+                  e.preventDefault();
+                  setAgentMode("deep");
+                }}
+              >
+                <Brain className="size-4 text-violet-500" />
+                Deep Think
+                {agentMode === "deep" && <Check className="size-3.5 ml-auto text-emerald-500" />}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

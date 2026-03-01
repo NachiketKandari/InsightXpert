@@ -85,4 +85,6 @@ class Settings(BaseSettings):
             _logger.warning("admin_seed_password is insecure — set ADMIN_SEED_PASSWORD to a strong password for production")
         if self.llm_provider == LLMProvider.GEMINI and not self.gemini_api_key:
             _logger.warning("llm_provider is 'gemini' but gemini_api_key is empty")
+        if self.llm_provider == LLMProvider.VERTEX_AI and not self.gcp_project_id:
+            _logger.warning("llm_provider is 'vertex_ai' but gcp_project_id is empty — set GCP_PROJECT_ID")
         return self

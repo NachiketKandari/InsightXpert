@@ -6,7 +6,7 @@ export interface SSECallbacks {
   onError: (error: Error) => void;
 }
 
-export type AgentMode = "basic" | "agentic";
+export type AgentMode = "basic" | "agentic" | "deep";
 
 export interface SSEOptions {
   skipClarification?: boolean;

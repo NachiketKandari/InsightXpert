@@ -2,6 +2,7 @@
 
 import { useCallback } from "react";
 import { useChatStore } from "@/stores/chat-store";
+import { useInsightStore } from "@/stores/insight-store";
 import { useAutoScroll } from "@/hooks/use-auto-scroll";
 import { MessageBubble } from "@/components/chat/message-bubble";
 import { apiFetch } from "@/lib/api";
@@ -48,6 +49,23 @@ export function MessageList({ onRetry }: MessageListProps) {
     []
   );
 
+  const handleMarkInsight = useCallback(
+    (messageId: string, note?: string) => {
+      apiFetch("/api/insights", {
+        method: "POST",
+        body: JSON.stringify({
+          message_id: messageId,
+          user_note: note || null,
+        }),
+      })
+        .then(() => {
+          useInsightStore.getState().fetchCount();
+        })
+        .catch(() => {});
+    },
+    []
+  );
+
   return (
     <div
       ref={scrollRef}
@@ -63,6 +81,7 @@ export function MessageList({ onRetry }: MessageListProps) {
               onRetry={handleRetry}
               onResend={msg.role === "user" ? onRetry : undefined}
               onFeedback={handleFeedback}
+              onMarkInsight={handleMarkInsight}
             />
         ))}
 

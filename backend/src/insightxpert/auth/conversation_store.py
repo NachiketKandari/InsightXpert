@@ -575,6 +575,8 @@ class PersistentConversationStore:
         content: str,
         categories: list[str],
         enrichment_task_count: int = 0,
+        source: str = "auto",
+        user_note: str | None = None,
     ) -> str:
         """Create a new InsightRecord. Returns the insight ID."""
         import json as _json
@@ -589,10 +591,58 @@ class PersistentConversationStore:
                 content=content,
                 categories=_json.dumps(categories),
                 enrichment_task_count=enrichment_task_count,
+                source=source,
+                user_note=user_note,
             )
             session.add(record)
             session.commit()
             return record.id
+
+    def create_insight_from_message(
+        self,
+        user_id: str,
+        org_id: str | None,
+        message_id: str,
+        user_note: str | None = None,
+    ) -> str | None:
+        """Create an insight from an assistant message. Returns insight ID or None."""
+        with Session(self.engine) as session:
+            msg = session.get(MessageRecord, message_id)
+            if msg is None:
+                return None
+            convo = session.get(ConversationRecord, msg.conversation_id)
+            if convo is None or convo.user_id != user_id:
+                return None
+
+            # Find the preceding user question
+            prev_user_msg = (
+                session.query(MessageRecord)
+                .filter(
+                    MessageRecord.conversation_id == msg.conversation_id,
+                    MessageRecord.role == "user",
+                    MessageRecord.created_at < msg.created_at,
+                )
+                .order_by(desc(MessageRecord.created_at))
+                .first()
+            )
+            title = prev_user_msg.content[:500] if prev_user_msg else convo.title
+
+            content = msg.content
+            summary = content[:300] if content else ""
+
+        return self.save_insight(
+            user_id=user_id,
+            org_id=org_id,
+            conversation_id=convo.id,
+            message_id=message_id,
+            title=title,
+            summary=summary,
+            content=content,
+            categories=[],
+            enrichment_task_count=0,
+            source="manual",
+            user_note=user_note,
+        )
 
     def _insight_to_dict(self, r: InsightRecord) -> dict:
         import json as _json
@@ -608,6 +658,8 @@ class PersistentConversationStore:
             "categories": _json.loads(r.categories) if r.categories else [],
             "enrichment_task_count": r.enrichment_task_count,
             "is_bookmarked": r.is_bookmarked,
+            "user_note": r.user_note,
+            "source": r.source or "auto",
             "created_at": _to_ist(r.created_at),
         }
 

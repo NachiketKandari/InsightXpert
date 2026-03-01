@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import logging
 
-from insightxpert.agents.common import summarize_results
+from insightxpert.agents.common import build_evidence_blocks
 from insightxpert.agents.dag_executor import (
     OriginalAnalystResult,
     OrchestratorPlan,
@@ -40,61 +40,7 @@ async def generate_response(
 
     On failure, returns a formatted concatenation of individual agent answers.
     """
-    evidence_entries: list[str] = []
-    source_offset = 0
-
-    # If original analyst result is provided, it's Source [1]
-    if original_analyst:
-        source_offset = 1
-        rows_summary = summarize_results(original_analyst.rows, max_rows=10)
-        evidence_entries.append(
-            f"### Source [1]: Original Analysis\n"
-            f"**Task:** {question}\n"
-            f"**SQL:** `{original_analyst.sql or '(none)'}`\n"
-            f"**Results ({len(original_analyst.rows)} rows):** {rows_summary}\n"
-            f"**Answer:** {original_analyst.answer}"
-        )
-
-    # Build evidence blocks for additional tasks
-    # source_offset=1 means additional tasks start at [2]
-    task_id_to_index = {
-        task.id: i + source_offset
-        for i, task in enumerate(plan.tasks, start=1)
-    }
-
-    _CATEGORY_LABELS = {
-        "comparative_context": "Comparative Context",
-        "temporal_trend": "Temporal Trend",
-        "root_cause": "Root-Cause Analysis",
-        "segmentation": "Segmentation",
-    }
-
-    for task in plan.tasks:
-        result = results.get(task.id)
-        if not result:
-            continue
-
-        idx = task_id_to_index[task.id]
-        label = _CATEGORY_LABELS.get(task.category, task.agent.replace("_", " ").title())
-
-        if not result.success:
-            evidence_entries.append(
-                f"### Source [{idx}]: {label}\n"
-                f"**Task:** {task.task}\n"
-                f"**Status:** Failed — {result.error or 'no data available'}"
-            )
-            continue
-
-        rows_summary = summarize_results(result.rows, max_rows=10)
-        evidence_entries.append(
-            f"### Source [{idx}]: {label}\n"
-            f"**Task:** {task.task}\n"
-            f"**SQL:** `{result.sql or '(none)'}`\n"
-            f"**Results ({len(result.rows)} rows):** {rows_summary}\n"
-            f"**Answer:** {result.answer}"
-        )
-
-    evidence_data = "\n\n".join(evidence_entries) if evidence_entries else "(no evidence available)"
+    evidence_data = build_evidence_blocks(question, plan, results, original_analyst)
 
     plan_reasoning = plan.reasoning
     if original_analyst:

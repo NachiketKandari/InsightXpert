@@ -1,4 +1,4 @@
-import { Bookmark } from "lucide-react";
+import { Bookmark, Lightbulb } from "lucide-react";
 import type { Insight } from "@/types/insight";
 import { CATEGORY_COLOR, DEFAULT_CATEGORY_COLOR } from "./constants";
 
@@ -32,6 +32,12 @@ export function InsightCard({
           {i.summary}
         </p>
         <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
+          {i.source === "manual" && (
+            <span className="inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-medium bg-amber-500/15 text-amber-600 dark:text-amber-400">
+              <Lightbulb className="size-2.5" />
+              Manual
+            </span>
+          )}
           {i.categories.map((cat) => (
             <span
               key={cat}
@@ -41,6 +47,11 @@ export function InsightCard({
             </span>
           ))}
         </div>
+        {i.user_note && (
+          <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1 truncate italic">
+            &ldquo;{i.user_note}&rdquo;
+          </p>
+        )}
         <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
           {showUserEmail && i.user_email && (
             <span className="font-medium text-foreground/70">

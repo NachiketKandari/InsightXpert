@@ -145,6 +145,24 @@ def migration_engine(tmp_path):
                 FOREIGN KEY (dataset_id) REFERENCES datasets(id)
             )
         """))
+        conn.execute(text("""
+            CREATE TABLE insights (
+                id VARCHAR(36) PRIMARY KEY,
+                user_id VARCHAR(36) NOT NULL,
+                org_id VARCHAR(100),
+                conversation_id VARCHAR(36) NOT NULL,
+                message_id VARCHAR(36),
+                title VARCHAR(500) NOT NULL,
+                summary TEXT NOT NULL,
+                content TEXT NOT NULL,
+                categories TEXT NOT NULL DEFAULT '[]',
+                enrichment_task_count INTEGER DEFAULT 0,
+                is_bookmarked BOOLEAN DEFAULT 0,
+                created_at DATETIME,
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+            )
+        """))
     yield engine
     engine.dispose()
 

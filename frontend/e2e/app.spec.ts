@@ -5,11 +5,14 @@ test("homepage loads and shows chat interface", async ({ page }) => {
   await expect(page).toHaveTitle(/InsightXpert/i);
 });
 
-test("can type a message in the chat input", async ({ page }) => {
-  await page.goto("/");
+test("login page shows auth form and accepts input", async ({ page }) => {
+  await page.goto("/login");
 
-  const input = page.getByPlaceholder(/ask/i);
-  await expect(input).toBeVisible();
-  await input.fill("Show me total transactions");
-  await expect(input).toHaveValue("Show me total transactions");
+  const emailInput = page.getByPlaceholder(/you@example\.com/i);
+  await expect(emailInput).toBeVisible();
+  await emailInput.fill("admin@insightxpert.ai");
+  await expect(emailInput).toHaveValue("admin@insightxpert.ai");
+
+  const passwordInput = page.getByPlaceholder(/enter your password/i);
+  await expect(passwordInput).toBeVisible();
 });
