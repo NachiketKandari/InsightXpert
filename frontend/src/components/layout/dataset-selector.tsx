@@ -119,6 +119,7 @@ export function DatasetSelector() {
         onOpenChange={setViewerOpen}
         tableName={viewingDataset?.table_name ?? "transactions"}
         datasetName={viewingDataset?.name}
+        description={viewingDataset?.description}
       />
     </>
   );

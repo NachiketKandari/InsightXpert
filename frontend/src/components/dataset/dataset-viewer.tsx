@@ -38,9 +38,10 @@ interface DatasetViewerProps {
   onOpenChange: (open: boolean) => void;
   tableName?: string;
   datasetName?: string;
+  description?: string | null;
 }
 
-export function DatasetViewer({ open, onOpenChange, tableName = "transactions", datasetName = "Dataset Viewer" }: DatasetViewerProps) {
+export function DatasetViewer({ open, onOpenChange, tableName = "transactions", datasetName = "Dataset Viewer", description }: DatasetViewerProps) {
   const [activeTab, setActiveTab] = useState<string>("data");
   const [data, setData] = useState<QueryResult | null>(null);
   const [totalRows, setTotalRows] = useState<number | null>(null);
@@ -163,27 +164,34 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
         showCloseButton
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-border/50 shrink-0">
-          <div className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center size-7 rounded-md bg-primary/10 dark:bg-cyan-accent/10">
-              <Database className="size-3.5 text-primary dark:text-cyan-accent" />
+        <div className="px-5 pt-4 pb-3 border-b border-border/50 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center justify-center size-7 rounded-md bg-primary/10 dark:bg-cyan-accent/10">
+                <Database className="size-3.5 text-primary dark:text-cyan-accent" />
+              </div>
+              <DialogTitle className="text-sm font-semibold tracking-wide">
+                {datasetName}
+              </DialogTitle>
+              <Badge variant="secondary" className="text-[10px] font-medium">
+                Read-only
+              </Badge>
             </div>
-            <DialogTitle className="text-sm font-semibold tracking-wide">
-              {datasetName}
-            </DialogTitle>
-            <Badge variant="secondary" className="text-[10px] font-medium">
-              Read-only
-            </Badge>
-          </div>
 
-          <div className="flex items-center gap-3 mr-8">
-            {totalRows != null && activeTab === "data" && (
-              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <Rows3 className="size-3" />
-                {totalRows.toLocaleString()} rows
-              </span>
-            )}
+            <div className="flex items-center gap-3 mr-8">
+              {totalRows != null && activeTab === "data" && (
+                <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Rows3 className="size-3" />
+                  {totalRows.toLocaleString()} rows
+                </span>
+              )}
+            </div>
           </div>
+          {description && (
+            <p className="mt-1.5 ml-[38px] text-xs text-muted-foreground line-clamp-2">
+              {description}
+            </p>
+          )}
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex-1 min-h-0 flex flex-col gap-0">
