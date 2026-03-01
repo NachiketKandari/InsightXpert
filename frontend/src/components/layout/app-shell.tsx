@@ -2,13 +2,12 @@
 
 import React, { useEffect } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { PanelLeft, PanelRight } from "lucide-react";
+import { PanelLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useChatStore } from "@/stores/chat-store";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { Header } from "./header";
 import { LeftSidebar } from "./left-sidebar";
-import { RightSidebar } from "./right-sidebar";
 import { SqlExecutor } from "@/components/sql/sql-executor";
 import { DatasetViewer } from "@/components/dataset/dataset-viewer";
 import { SampleQuestionsModal } from "@/components/sample-questions/sample-questions-modal";
@@ -28,11 +27,8 @@ const sidebarTransition = { duration: 0.2, ease: "easeInOut" } as const;
 
 export const AppShell = React.memo(function AppShell({ children }: { children: React.ReactNode }) {
   const leftOpen = useChatStore((s) => s.leftSidebarOpen);
-  const rightOpen = useChatStore((s) => s.rightSidebarOpen);
   const setLeftSidebar = useChatStore((s) => s.setLeftSidebar);
-  const setRightSidebar = useChatStore((s) => s.setRightSidebar);
   const toggleLeftSidebar = useChatStore((s) => s.toggleLeftSidebar);
-  const toggleRightSidebar = useChatStore((s) => s.toggleRightSidebar);
   const sqlExecutorOpen = useChatStore((s) => s.sqlExecutorOpen);
   const setSqlExecutorOpen = useChatStore((s) => s.setSqlExecutorOpen);
   const datasetViewerOpen = useChatStore((s) => s.datasetViewerOpen);
@@ -40,21 +36,11 @@ export const AppShell = React.memo(function AppShell({ children }: { children: R
   const sampleQuestionsOpen = useChatStore((s) => s.sampleQuestionsOpen);
   const setSampleQuestionsOpen = useChatStore((s) => s.setSampleQuestionsOpen);
   const isMobile = useIsMobile();
-  // Right sidebar (Agent Process) was discontinued — agent steps are shown inline in the chat.
-  // The feature toggle, RightSidebar component, and store state are kept for potential reuse.
-  // const showRightSidebar = useClientConfig().isFeatureEnabled("agent_process_sidebar");
-  const showRightSidebar = false;
 
-  // Desktop: both sidebars open by default; Mobile: both collapsed
+  // Desktop: left sidebar open by default; Mobile: collapsed
   useEffect(() => {
-    if (isMobile) {
-      setLeftSidebar(false);
-      setRightSidebar(false);
-    } else {
-      setLeftSidebar(true);
-      setRightSidebar(true);
-    }
-  }, [isMobile, setLeftSidebar, setRightSidebar]);
+    setLeftSidebar(!isMobile);
+  }, [isMobile, setLeftSidebar]);
 
   return (
     <div className="flex flex-col h-screen overflow-hidden bg-background">
@@ -62,23 +48,12 @@ export const AppShell = React.memo(function AppShell({ children }: { children: R
 
       <div className="flex flex-1 overflow-hidden">
         {isMobile ? (
-          <>
-            <Sheet open={leftOpen} onOpenChange={setLeftSidebar}>
-              <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
-                <SheetTitle className="sr-only">Chat History</SheetTitle>
-                <LeftSidebar />
-              </SheetContent>
-            </Sheet>
-
-            {showRightSidebar && (
-              <Sheet open={rightOpen} onOpenChange={setRightSidebar}>
-                <SheetContent side="right" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
-                  <SheetTitle className="sr-only">Agent Process</SheetTitle>
-                  <RightSidebar />
-                </SheetContent>
-              </Sheet>
-            )}
-          </>
+          <Sheet open={leftOpen} onOpenChange={setLeftSidebar}>
+            <SheetContent side="left" className="w-[85vw] max-w-[320px] p-0" showCloseButton={false}>
+              <SheetTitle className="sr-only">Chat History</SheetTitle>
+              <LeftSidebar />
+            </SheetContent>
+          </Sheet>
         ) : (
           <AnimatePresence initial={false}>
             {leftOpen && (
@@ -115,52 +90,37 @@ export const AppShell = React.memo(function AppShell({ children }: { children: R
             </Tooltip>
           )}
 
-          {/* Floating button to re-open right sidebar when closed */}
-          {showRightSidebar && !isMobile && !rightOpen && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-2 top-1/2 -translate-y-1/2 z-10 size-8 opacity-60 hover:opacity-100 transition-opacity"
-                  onClick={toggleRightSidebar}
-                  aria-label="Open agent process"
-                >
-                  <PanelRight className="size-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent side="left">Open agent process</TooltipContent>
-            </Tooltip>
-          )}
-
           {children}
         </main>
 
-        {showRightSidebar && !isMobile && (
+        {/* Desktop: inline SQL executor sidebar */}
+        {!isMobile && (
           <AnimatePresence initial={false}>
-            {rightOpen && (
+            {sqlExecutorOpen && (
               <motion.aside
-                key="right-sidebar"
+                key="sql-sidebar"
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: 330, opacity: 1 }}
+                animate={{ width: "50%", opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={sidebarTransition}
                 className="shrink-0 overflow-hidden border-l border-border"
               >
-                <RightSidebar />
+                <SqlExecutor onClose={() => setSqlExecutorOpen(false)} />
               </motion.aside>
             )}
           </AnimatePresence>
         )}
       </div>
 
-      {/* SQL Executor sheet — triggered from input toolbar "+" menu */}
-      <Sheet open={sqlExecutorOpen} onOpenChange={setSqlExecutorOpen}>
-        <SheetContent side="right" className="w-full md:w-[560px] lg:w-[640px] p-0" showCloseButton={false}>
-          <SheetTitle className="sr-only">SQL Executor</SheetTitle>
-          <SqlExecutor onClose={() => setSqlExecutorOpen(false)} />
-        </SheetContent>
-      </Sheet>
+      {/* Mobile: SQL Executor as full-screen sheet */}
+      {isMobile && (
+        <Sheet open={sqlExecutorOpen} onOpenChange={setSqlExecutorOpen}>
+          <SheetContent side="right" className="w-full p-0" showCloseButton={false}>
+            <SheetTitle className="sr-only">SQL Executor</SheetTitle>
+            <SqlExecutor onClose={() => setSqlExecutorOpen(false)} />
+          </SheetContent>
+        </Sheet>
+      )}
 
       {/* Dataset Viewer modal — triggered from user menu */}
       <DatasetViewer open={datasetViewerOpen} onOpenChange={setDatasetViewerOpen} />
