@@ -170,55 +170,181 @@ Switch between Gemini models, Ollama (local), and Vertex AI at runtime — no re
 
 ---
 
-## Quick Start
+## Setup & Installation
 
 ### Prerequisites
 
-- Python 3.11+
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
-- Node.js 20+
-- A [Google Gemini API key](https://aistudio.google.com/apikey)
-  *(or [Ollama](https://ollama.com/) running locally — set `LLM_PROVIDER=ollama`)*
+| Tool | Minimum Version | Install |
+|------|----------------|---------|
+| Python | 3.11 | [python.org](https://www.python.org/downloads/) |
+| uv | latest | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| Node.js | 20 LTS | [nodejs.org](https://nodejs.org/) |
+| Google Gemini API key | — | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) (free tier works) |
 
-### Backend
+> **Alternative LLM:** If you prefer to run fully local, install [Ollama](https://ollama.com/) and pull a model (`ollama pull llama3.1`). Set `LLM_PROVIDER=ollama` in your `.env.local` — no API key needed.
+
+---
+
+### 1. Clone the repository
 
 ```bash
 git clone <repo-url>
-cd InsightXpert/backend
-
-# Install Python dependencies (reproducible from uv.lock)
-uv sync
-
-# Configure environment
-cp .env.example .env.local
-# Edit .env.local — minimum required:
-#   GEMINI_API_KEY=your-key-here
-#   SECRET_KEY=some-random-string
-
-# Generate the 250K transaction dataset (first time only, ~30 seconds)
-python generate_data.py
-
-# Start the API server
-uv run python -m insightxpert.main
-# → http://localhost:8000
+cd InsightXpert
 ```
 
-On first startup, SQLite databases are auto-created, the RAG vector store is seeded with DDL + documentation + 12 Q→SQL example pairs, and an admin user is bootstrapped.
+---
 
-### Frontend
+### 2. Backend setup
+
+#### 2a. Install Python dependencies
 
 ```bash
-cd InsightXpert/frontend
-
-# Install Node dependencies (reproducible from package-lock.json)
-npm ci
-
-# Start the dev server
-npm run dev
-# → http://localhost:3000
+cd backend
+uv sync        # installs from uv.lock — exact reproducible environment
 ```
 
-The frontend connects to `http://localhost:8000` by default (configure in `frontend/.env.local`).
+This installs FastAPI, SQLAlchemy, ChromaDB, google-genai, scipy/numpy/pandas, and all other dependencies into a `.venv` inside `backend/`.
+
+#### 2b. Configure environment variables
+
+```bash
+cp .env.example .env.local
+```
+
+Open `backend/.env.local` and set at minimum:
+
+```ini
+# Required
+GEMINI_API_KEY=your-gemini-api-key-here
+SECRET_KEY=<random-64-char-hex>   # python -c "import secrets; print(secrets.token_hex(32))"
+
+# Recommended — change from the default before sharing
+ADMIN_SEED_EMAIL=admin@yourteam.ai
+ADMIN_SEED_PASSWORD=a-strong-password-here
+```
+
+All other settings have safe defaults and do not need to be changed for local development.
+
+#### 2c. (Optional) Pre-load the transaction dataset
+
+The server auto-loads `upi_transactions_2024.csv` on first startup, but running the script separately is faster and lets you verify the data before starting:
+
+```bash
+uv run python generate_data.py
+# Loads 250,000 rows into insightxpert.db (~15 seconds)
+# Output: "Loaded 250000 rows into transactions table"
+```
+
+If you skip this step, the server loads the CSV automatically on its first start (adds ~20 seconds to startup time).
+
+#### 2d. Start the API server
+
+```bash
+uv run python -m insightxpert.main
+```
+
+Expected startup output:
+
+```
+INFO  insightxpert.main  Local database connected: sqlite:///./insightxpert.db
+INFO  insightxpert.main  Auth tables initialized, admin user ensured
+INFO  insightxpert.main  Prompt templates initialized
+INFO  insightxpert.main  Dataset tables initialized
+INFO  insightxpert.main  ChromaDB initialized: ./chroma_data
+INFO  insightxpert.main  LLM provider: gemini
+INFO  insightxpert.main  RAG bootstrap complete: N training items loaded
+INFO  insightxpert.main  InsightXpert ready
+```
+
+The API is now available at **http://localhost:8000**. Health check: `curl http://localhost:8000/health`.
+
+> **First startup note:** On the very first run, ChromaDB is seeded with the schema DDL, business documentation, and 12 example Q→SQL pairs. This takes 30–120 seconds depending on your network (ChromaDB downloads an embedding model on first use). Subsequent startups are fast (~3 seconds).
+
+---
+
+### 3. Frontend setup
+
+#### 3a. Install Node dependencies
+
+```bash
+cd ../frontend    # from InsightXpert/backend, or: cd InsightXpert/frontend
+npm ci            # installs from package-lock.json — exact reproducible environment
+```
+
+#### 3b. Configure the API URL (optional)
+
+By default, the frontend points to `http://localhost:8000`. If your backend runs on a different host/port, create `frontend/.env.local`:
+
+```ini
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+#### 3c. Start the development server
+
+```bash
+npm run dev
+```
+
+The UI is available at **http://localhost:3000**.
+
+---
+
+### 4. First login
+
+Open http://localhost:3000 in your browser. Log in with the admin credentials you set in `backend/.env.local` (defaults: `admin@insightxpert.ai` / `admin123`).
+
+After logging in you can:
+- Ask questions in the chat panel
+- Switch between **Basic** and **Agentic** modes in the header
+- Browse the raw dataset via the Dataset Viewer (sidebar)
+- Run custom SQL in the SQL Executor
+- Access the Admin Panel at `/admin` to configure feature toggles, prompts, and users
+
+---
+
+### 5. Verify the installation
+
+Run a quick smoke-test query in the chat:
+
+> "What is the overall success rate of transactions in the dataset?"
+
+You should see:
+1. A status bar showing "Searching knowledge base…" → "Executing SQL query…"
+2. The SQL query that was generated
+3. A data table with the result
+4. A plain-language answer with the success rate percentage
+
+If the answer appears, the full pipeline (LLM → SQL → RAG → streaming) is working correctly.
+
+---
+
+### Running with Docker (alternative)
+
+A `Dockerfile` is included in `backend/`. To run the backend containerised:
+
+```bash
+cd backend
+docker build -t insightxpert-backend .
+docker run -p 8000:8000 \
+  -e GEMINI_API_KEY=your-key \
+  -e SECRET_KEY=your-secret \
+  insightxpert-backend
+```
+
+The container runs `uvicorn` via `entrypoint.sh`. CSV data must be bundled or mounted at `/app/upi_transactions_2024.csv`.
+
+---
+
+### Troubleshooting
+
+| Symptom | Likely cause | Fix |
+|---------|-------------|-----|
+| `LLM request failed` in the chat | Missing or invalid `GEMINI_API_KEY` | Verify the key in `backend/.env.local` and restart |
+| First startup hangs at "RAG bootstrap" | ChromaDB downloading embedding model | Wait up to 2 minutes; check internet connection |
+| `transactions table is empty` warning | CSV not found | Ensure `backend/upi_transactions_2024.csv` exists, then restart |
+| Frontend shows "Backend unavailable" | Backend not running or wrong port | Start `uv run python -m insightxpert.main` and check `NEXT_PUBLIC_API_URL` |
+| `401 Unauthorized` on all API calls | Wrong admin password / token expired | Re-login with correct credentials from `.env.local` |
+| Slow first chat response (30–60 s) | ChromaDB cold start + Gemini latency | Normal on first request; subsequent requests are faster |
 
 ---
 
@@ -439,24 +565,31 @@ InsightXpert/
 
 ---
 
-## Configuration
+## Configuration Reference
 
 ### Backend (`backend/.env.local`)
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `GEMINI_API_KEY` | *(required)* | Google Gemini API key |
-| `SECRET_KEY` | *(required)* | JWT signing secret |
-| `LLM_PROVIDER` | `gemini` | `gemini` \| `ollama` \| `vertex` |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name |
-| `DATABASE_PATH` | `./insightxpert.db` | Transactions SQLite path |
-| `AUTH_DATABASE_PATH` | `./insightxpert_auth.db` | Auth + conversations SQLite path |
-| `CHROMA_PERSIST_DIR` | `./chroma_data` | ChromaDB persistence directory |
-| `MAX_ROWS` | `500` | Max rows returned per SQL query |
-| `QUERY_TIMEOUT_SECONDS` | `30` | SQL execution timeout |
-| `AGENTIC_MODE_ENABLED` | `true` | Enable multi-agent enrichment pipeline |
-| `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama endpoint (if `LLM_PROVIDER=ollama`) |
-| `TURSO_URL` | *(empty)* | Turso sync URL — empty = pure local mode |
+| Variable | Default | Required | Description |
+|----------|---------|----------|-------------|
+| `GEMINI_API_KEY` | — | **Yes** (Gemini) | Google Gemini API key |
+| `SECRET_KEY` | `CHANGE-ME-…` | **Yes** | JWT signing secret (32+ chars) |
+| `LLM_PROVIDER` | `gemini` | No | `gemini` \| `ollama` \| `vertex_ai` |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | No | Gemini model name |
+| `OLLAMA_BASE_URL` | `http://localhost:11434` | No | Ollama endpoint |
+| `OLLAMA_MODEL` | `llama3.1` | No | Ollama model name |
+| `GCP_PROJECT_ID` | — | Vertex only | GCP project ID |
+| `DATABASE_URL` | `sqlite:///./insightxpert.db` | No | SQLAlchemy DB URL |
+| `CHROMA_PERSIST_DIR` | `./chroma_data` | No | ChromaDB persistence directory |
+| `CORS_ORIGINS` | `http://localhost:3000,…` | No | Comma-separated allowed origins |
+| `ADMIN_SEED_EMAIL` | `admin@insightxpert.ai` | No | Auto-created admin email |
+| `ADMIN_SEED_PASSWORD` | `admin123` | No | Auto-created admin password |
+| `SQL_ROW_LIMIT` | `10000` | No | Max rows per SQL query |
+| `SQL_TIMEOUT_SECONDS` | `30` | No | SQL execution timeout |
+| `MAX_AGENT_ITERATIONS` | `10` | No | Max LLM tool-call iterations |
+| `MAX_ORCHESTRATOR_TASKS` | `5` | No | Max enrichment sub-tasks |
+| `RAG_BOOTSTRAP_TIMEOUT_SECONDS` | `120` | No | Max wait for RAG seeding at startup |
+| `ENABLE_STATS_CONTEXT` | `true` | No | Inject pre-computed stats into prompts |
+| `LOG_LEVEL` | `INFO` | No | `DEBUG` \| `INFO` \| `WARNING` \| `ERROR` |
 
 ### Frontend (`frontend/.env.local`)
 
