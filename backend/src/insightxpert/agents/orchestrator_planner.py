@@ -24,6 +24,7 @@ from insightxpert.prompts import render as render_prompt
 logger = logging.getLogger("insightxpert.orchestrator_planner")
 
 _VALID_AGENTS = {"sql_analyst", "quant_analyst"}
+_VALID_CATEGORIES = {"comparative_context", "temporal_trend", "root_cause", "segmentation"}
 _MAX_TASKS = 5
 
 
@@ -128,6 +129,10 @@ def _validate_plan(parsed: dict, max_tasks: int) -> OrchestratorPlan:
         if agent not in _VALID_AGENTS:
             agent = "sql_analyst"
 
+        category = str(item.get("category", "")).lower()
+        if category not in _VALID_CATEGORIES:
+            category = ""
+
         if isinstance(depends_on, str):
             depends_on = [depends_on]
         depends_on = [str(d).upper() for d in depends_on if d]
@@ -138,6 +143,7 @@ def _validate_plan(parsed: dict, max_tasks: int) -> OrchestratorPlan:
             agent=agent,
             task=task_desc,
             depends_on=depends_on,
+            category=category,
         ))
 
     if not tasks:

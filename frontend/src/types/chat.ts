@@ -105,6 +105,7 @@ export interface AgentStep {
 export interface OrchestratorTask {
   id: string;
   agent: "sql_analyst" | "quant_analyst";
+  category?: string;
   task: string;
   depends_on: string[];
 }
@@ -117,6 +118,7 @@ export interface OrchestratorPlan {
 export interface AgentTrace {
   task_id: string;
   agent: string;
+  category?: string;
   task: string;
   depends_on?: string[];
   final_sql?: string | null;

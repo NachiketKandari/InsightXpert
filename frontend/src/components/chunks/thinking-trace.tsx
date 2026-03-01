@@ -38,6 +38,20 @@ const agentColors: Record<string, string> = {
   quant_analyst: "bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300",
 };
 
+const categoryLabels: Record<string, string> = {
+  comparative_context: "Comparative",
+  temporal_trend: "Temporal",
+  root_cause: "Root Cause",
+  segmentation: "Segmentation",
+};
+
+const categoryColors: Record<string, string> = {
+  comparative_context: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
+  temporal_trend: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300",
+  root_cause: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-300",
+  segmentation: "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
+};
+
 export function ThinkingTrace({ plan, traces, enrichmentTraces }: ThinkingTraceProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [activeTrace, setActiveTrace] = useState<EnrichmentTrace | null>(null);
@@ -136,7 +150,7 @@ function TaskCard({
   trace,
   onViewDetails,
 }: {
-  task: { id: string; agent: string; task: string; depends_on: string[] };
+  task: { id: string; agent: string; category?: string; task: string; depends_on: string[] };
   trace?: AgentTrace;
   onViewDetails?: () => void;
 }) {
@@ -168,6 +182,12 @@ function TaskCard({
         <Badge className={`text-xs ${colorClass}`}>
           {agentLabel}
         </Badge>
+
+        {task.category && categoryLabels[task.category] && (
+          <Badge className={`text-xs ${categoryColors[task.category] || "bg-zinc-100 text-zinc-700"}`}>
+            {categoryLabels[task.category]}
+          </Badge>
+        )}
 
         <span className="flex-1 truncate text-zinc-600 dark:text-zinc-300">
           {task.task}

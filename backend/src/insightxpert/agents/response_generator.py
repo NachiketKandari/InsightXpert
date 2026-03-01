@@ -62,16 +62,24 @@ async def generate_response(
         for i, task in enumerate(plan.tasks, start=1)
     }
 
+    _CATEGORY_LABELS = {
+        "comparative_context": "Comparative Context",
+        "temporal_trend": "Temporal Trend",
+        "root_cause": "Root-Cause Analysis",
+        "segmentation": "Segmentation",
+    }
+
     for task in plan.tasks:
         result = results.get(task.id)
         if not result:
             continue
 
         idx = task_id_to_index[task.id]
+        label = _CATEGORY_LABELS.get(task.category, task.agent.replace("_", " ").title())
 
         if not result.success:
             evidence_entries.append(
-                f"### Source [{idx}]: {task.agent}\n"
+                f"### Source [{idx}]: {label}\n"
                 f"**Task:** {task.task}\n"
                 f"**Status:** Failed — {result.error or 'no data available'}"
             )
@@ -79,7 +87,7 @@ async def generate_response(
 
         rows_summary = summarize_results(result.rows, max_rows=10)
         evidence_entries.append(
-            f"### Source [{idx}]: {task.agent}\n"
+            f"### Source [{idx}]: {label}\n"
             f"**Task:** {task.task}\n"
             f"**SQL:** `{result.sql or '(none)'}`\n"
             f"**Results ({len(result.rows)} rows):** {rows_summary}\n"

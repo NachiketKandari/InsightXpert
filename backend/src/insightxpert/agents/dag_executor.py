@@ -45,6 +45,7 @@ class SubTask:
     agent: str                            # "sql_analyst" | "quant_analyst"
     task: str                             # Natural-language task description
     depends_on: list[str] = field(default_factory=list)
+    category: str = ""                    # comparative_context | temporal_trend | root_cause | segmentation
     status: str = "pending"               # pending | running | done | error | skipped
     result: SubTaskResult | None = None
 

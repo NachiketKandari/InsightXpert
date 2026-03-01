@@ -239,6 +239,7 @@ async def orchestrator_loop(
                     "agent": t.agent,
                     "task": t.task,
                     "depends_on": t.depends_on,
+                    "category": t.category,
                 }
                 for t in enrichment_plan.tasks
             ],
@@ -272,6 +273,7 @@ async def orchestrator_loop(
         trace_data = {
             "task_id": task.id,
             "agent": task.agent,
+            "category": task.category,
             "task": task.task,
             "depends_on": task.depends_on,
             "final_sql": result.sql if result else None,
@@ -353,15 +355,23 @@ async def orchestrator_loop(
     )
     await asyncio.sleep(0)
 
+    _CATEGORY_LABELS = {
+        "comparative_context": "Comparative Context",
+        "temporal_trend": "Temporal Trend",
+        "root_cause": "Root-Cause Analysis",
+        "segmentation": "Segmentation",
+    }
+
     for i, task in enumerate(enrichment_plan.tasks, start=2):
         result = results.get(task.id)
         if not result or not result.success:
             continue
+        category_label = _CATEGORY_LABELS.get(task.category, task.agent.replace("_", " ").title())
         yield ChatChunk(
             type="enrichment_trace",
             data={
                 "source_index": i,
-                "category": "SQL Analysis" if task.agent == "sql_analyst" else "Quantitative Analysis",
+                "category": category_label,
                 "question": task.task,
                 "rationale": enrichment_plan.reasoning,
                 "final_sql": result.sql,
