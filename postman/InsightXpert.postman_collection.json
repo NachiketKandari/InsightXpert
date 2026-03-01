@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "InsightXpert API",
-    "description": "API collection for InsightXpert — AI data analyst for Indian digital payment transactions.\n\nBase URL: http://localhost:8000\n\n**Authentication:** Most endpoints require a valid session cookie. Call `Auth > Login` first — Postman will automatically store the `__session` httpOnly cookie and send it with subsequent requests.\n\n**Admin endpoints** require a session from a user with `is_admin=true` in the database.",
+    "description": "# InsightXpert API\n\nComplete API collection for **InsightXpert** — an AI-powered data analyst built for the Techfest IIT Bombay Leadership Analytics Challenge. It queries 250K synthetic Indian digital payment transactions via natural language using a multi-agent orchestrator (Gemini + SQLite).\n\n---\n\n## Getting Started\n\n### 1. Start the server\n```bash\ncd backend && uv run python -m insightxpert.main\n```\nDefault: `http://localhost:8000`\n\n### 2. Authenticate\nCall **Auth > Login** with `admin@insightxpert.com` / `admin123`. Postman automatically stores the `__session` httpOnly cookie and sends it with all subsequent requests.\n\n### 3. Ask a question\nUse **Chat > Chat (Polling / Non-Streaming)** for Postman-friendly JSON output, or **Chat > Chat (SSE Streaming)** with curl.\n\n---\n\n## Collection Variables\n\n| Variable | Purpose | How to set |\n|---|---|---|\n| `base_url` | Server address | Pre-set to `http://localhost:8000` |\n| `conversation_id` | Target conversation | Copy from List Conversations response |\n| `dataset_id` | Target dataset | Copy from List Datasets response |\n| `automation_id` | Target automation | Copy from List Automations response |\n\n---\n\n## Authentication\n\nMost endpoints require a valid `__session` cookie. Call **Auth > Login** first.\n- **Admin endpoints** (`/api/admin/*`, `/api/automations/*`, etc.) require `is_admin=true`.\n- **Public endpoints** (Health Check, SQL Execute) require no authentication.\n\n---\n\n## Key Workflows\n\n### Chat Flow\n`Login` → `Chat (SSE or Poll)` → response includes `conversation_id` → use it for follow-up messages → `List Conversations` to see history → `Submit Feedback` on assistant messages\n\n### Insight Flow\n`Chat` → user saves an insight from an assistant message → `List Insights` → `Bookmark Insight` → `Delete Insight`\n\n### Automation Flow\n`Generate SQL from Prompt` → `Compile NL Trigger` → `Create Automation` → `Trigger Manual Run` → `List Automation Runs` → monitor via `Notifications`\n\n### Admin Flow\n`Login (admin)` → `List All Users` → `Get User Conversations` → manage prompts, RAG, datasets, org configs\n\n### Dataset Management\n`List Datasets` → `Get Dataset` → `Add Column Metadata` / `Add Example Query` → `Retrain from Dataset`\n\n---\n\n## SSE vs Poll vs Answer\n\n| Endpoint | Format | Best for |\n|---|---|---|\n| `POST /api/chat` | Server-Sent Events stream | Frontend / curl — real-time streaming |\n| `POST /api/chat/poll` | JSON with `chunks[]` array | Postman testing — all chunks in one response |\n| `POST /api/chat/answer` | JSON with `answer` string | Programmatic integrations — just the final answer |\n\n---\n\n## Frontend Architecture\n\nThe Next.js frontend consumes these APIs through Zustand stores:\n- `auth-store.ts` → Auth endpoints\n- `chat-store.ts` → Conversations CRUD\n- `sse-client.ts` → Chat SSE streaming\n- `insight-store.ts` → Insights CRUD\n- `settings-store.ts` → Config/model switching\n- `automation-store.ts` → Automations + trigger templates\n- `notification-store.ts` → Notifications\n- `client-config-store.ts` → Feature flags & org config",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -27,12 +27,18 @@
       "value": "",
       "type": "string",
       "description": "Set to an automation ID from List Automations"
+    },
+    {
+      "key": "insight_id",
+      "value": "",
+      "type": "string",
+      "description": "Set to an insight ID from List Insights"
     }
   ],
   "item": [
     {
       "name": "Auth",
-      "description": "Authentication endpoints. Login first to get a session cookie, which is required by most other endpoints.",
+      "description": "Authentication endpoints for session-based auth via httpOnly cookies.\n\n**Frontend usage:** `stores/auth-store.ts` — powers the login page, registration page, and the user menu (top-right avatar). The store calls `/api/auth/me` on app load to restore sessions across page refreshes.\n\n**Workflow:** Login/Register → cookie set automatically → all subsequent API calls include the cookie → Logout clears it.",
       "item": [
         {
           "name": "Login",
@@ -50,7 +56,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "login"]
             },
-            "description": "Authenticate with email and password. Returns user info and sets an httpOnly `__session` cookie.\n\nPostman will automatically store the cookie and send it with subsequent requests."
+            "description": "Authenticate with email and password. Returns user info and sets an httpOnly `__session` cookie.\n\nPostman will automatically store the cookie and send it with subsequent requests.\n\n**Frontend:** Called by `auth-store.ts` → `login()`. On success, the store sets `user` state and redirects to the chat page.\n\n**Default credentials:** `admin@insightxpert.com` / `admin123` (admin), or register a new account via the Register endpoint."
           },
           "response": [
             {
@@ -77,7 +83,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "logout"]
             },
-            "description": "Clear the session cookie and log out."
+            "description": "Clear the session cookie and log out.\n\n**Frontend:** Called by `auth-store.ts` → `logout()`. Triggered from the user avatar dropdown menu. Clears local state and redirects to the login page."
           },
           "response": [
             {
@@ -104,7 +110,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "register"]
             },
-            "description": "Create a new user account and auto-login. Sets an httpOnly `__session` cookie on success.\n\nPassword must be at least 8 characters. Returns 409 if the email is already registered."
+            "description": "Create a new user account and auto-login. Sets an httpOnly `__session` cookie on success.\n\nPassword must be at least 8 characters. Returns 409 if the email is already registered.\n\n**Frontend:** Called by `auth-store.ts` → `register()`. Accessible from the registration page. On success, the user is logged in immediately (no separate login step needed)."
           },
           "response": [
             {
@@ -137,7 +143,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "auth", "me"]
             },
-            "description": "Returns the currently authenticated user. Requires a valid session cookie."
+            "description": "Returns the currently authenticated user. Requires a valid session cookie.\n\n**Frontend:** Called by `auth-store.ts` → `checkAuth()` on every page load / app mount. If this returns 401, the user is redirected to login. This is how sessions survive browser refreshes."
           },
           "response": [
             {
@@ -152,6 +158,7 @@
     },
     {
       "name": "Health",
+      "description": "Server health check endpoints. No authentication required.\n\n**Frontend usage:** `hooks/use-health-check.ts` polls the health endpoint periodically and displays a connection status indicator. Two paths are provided (`/api/health` and `/health`) for flexibility behind different reverse proxy configurations.",
       "item": [
         {
           "name": "Health Check",
@@ -163,7 +170,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "health"]
             },
-            "description": "Returns server status and timestamp. Use this to verify the server is running. No authentication required."
+            "description": "Returns server status and timestamp. Use this to verify the server is running. No authentication required.\n\n**Frontend:** Called by `hooks/use-health-check.ts` — polls this endpoint periodically to show a connection status indicator in the UI. If the server is unreachable, a warning banner appears."
           },
           "response": [
             {
@@ -199,6 +206,7 @@
     },
     {
       "name": "Chat",
+      "description": "Core chat endpoints — send natural language questions and get AI-generated SQL analysis.\n\nThree variants are provided for different use cases:\n- **SSE Streaming** (`/api/chat`) — real-time streaming, used by the frontend\n- **Polling** (`/api/chat/poll`) — all chunks as JSON, best for Postman testing\n- **Answer Only** (`/api/chat/answer`) — just the final answer string, best for integrations\n\n**Frontend usage:** `lib/sse-client.ts` sends POST to `/api/chat` with `Accept: text/event-stream` and processes chunks in real-time via `EventSource`. The chat page renders each chunk type differently — SQL blocks, status spinners, agent traces, and the final markdown answer.\n\n**Agent modes:**\n- `agentic` (default) — multi-agent orchestrator with DAG task planning, parallel agent execution, and enrichment pipeline\n- `basic` — single SQL analyst agent, faster but less thorough\n\n**Conversation continuity:** The first response includes a `conversation_id` in the stream. Pass it back in subsequent requests to continue the same conversation thread.",
       "item": [
         {
           "name": "Chat (SSE Streaming)",
@@ -304,7 +312,7 @@
     },
     {
       "name": "Chat — Example Questions",
-      "description": "Pre-built requests for each of the 6 query categories in the challenge.",
+      "description": "Pre-built requests for each of the 6 query categories in the Techfest IIT Bombay Leadership Analytics Challenge.\n\nThese use the `/api/chat/poll` endpoint so results are Postman-friendly JSON. Each question exercises a different analysis pattern:\n\n1. **Descriptive** — aggregate stats (COUNT, AVG, SUM)\n2. **Comparative** — GROUP BY comparisons across dimensions\n3. **Temporal** — time-based patterns (peak hours, trends)\n4. **Segmentation** — user cohort analysis (age groups, demographics)\n5. **Correlation** — relationship analysis between variables\n6. **Risk** — fraud flags, anomaly detection, threshold analysis\n\nThe orchestrator in `agentic` mode will assign each question to the appropriate specialist agent(s) based on category.",
       "item": [
         {
           "name": "Descriptive — Overall success rate",
@@ -321,7 +329,8 @@
               "raw": "{{base_url}}/api/chat/poll",
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "poll"]
-            }
+            },
+            "description": "**Descriptive analysis** — aggregate statistics. Expects a simple COUNT + success rate calculation. The orchestrator assigns this to a single `sql_analyst` agent."
           }
         },
         {
@@ -339,7 +348,8 @@
               "raw": "{{base_url}}/api/chat/poll",
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "poll"]
-            }
+            },
+            "description": "**Comparative analysis** — GROUP BY comparison across dimensions. Expects AVG(amount_inr) grouped by transaction_type. Tests the agent's ability to generate comparative SQL."
           }
         },
         {
@@ -357,7 +367,8 @@
               "raw": "{{base_url}}/api/chat/poll",
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "poll"]
-            }
+            },
+            "description": "**Temporal analysis** — time-based pattern detection. Expects extraction of hour from timestamp and grouping by hour for food delivery transactions. Tests time-series SQL generation."
           }
         },
         {
@@ -375,7 +386,8 @@
               "raw": "{{base_url}}/api/chat/poll",
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "poll"]
-            }
+            },
+            "description": "**Segmentation analysis** — user cohort analysis. Expects grouping by customer_age_group filtered to P2P transfers. Tests the agent's ability to combine filtering with demographic segmentation."
           }
         },
         {
@@ -393,7 +405,8 @@
               "raw": "{{base_url}}/api/chat/poll",
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "poll"]
-            }
+            },
+            "description": "**Correlation analysis** — relationship between variables. Expects cross-tabulation of network_type vs transaction_status with success rate calculation. In agentic mode, may spawn multiple agents for deeper statistical analysis."
           }
         },
         {
@@ -411,14 +424,15 @@
               "raw": "{{base_url}}/api/chat/poll",
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "poll"]
-            }
+            },
+            "description": "**Risk analysis** — fraud detection and anomaly assessment. Expects filtering for high-value transactions (amount_inr >= 10000) and calculating the fraud flag percentage. Tests domain-specific knowledge from RAG training data."
           }
         }
       ]
     },
     {
       "name": "Conversations",
-      "description": "CRUD operations for persistent conversation history.",
+      "description": "CRUD operations for persistent conversation history. Each conversation belongs to the authenticated user and contains a thread of user/assistant messages with rich chunk data.\n\n**Frontend usage:**\n- `stores/chat-store.ts` — fetches conversation list, loads conversation messages, handles rename/delete/star\n- `components/layout/left-sidebar.tsx` — renders the conversation list in the sidebar, calls Search endpoint for filtering\n- Message chunks (SQL, traces, insights) stored with each assistant message enable full replay of the analysis process when reopening a conversation",
       "item": [
         {
           "name": "List Conversations",
@@ -430,7 +444,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "conversations"]
             },
-            "description": "List all conversations for the authenticated user, ordered by most recently updated."
+            "description": "List all conversations for the authenticated user, ordered by most recently updated.\n\n**Frontend:** Called by `chat-store.ts` → `fetchConversations()`. Populates the conversation list in the left sidebar. Each conversation shows its title (auto-generated from the first message), star status, and last message preview."
           },
           "response": [
             {
@@ -458,7 +472,7 @@
                 }
               ]
             },
-            "description": "Search across conversation titles and message content. Returns matching conversations with message snippets."
+            "description": "Search across conversation titles and message content. Returns matching conversations with highlighted message snippets.\n\n**Frontend:** Called by `components/layout/left-sidebar.tsx` when the user types in the search box. Results replace the normal conversation list with search matches showing relevant message excerpts."
           },
           "response": [
             {
@@ -580,7 +594,226 @@
       ]
     },
     {
+      "name": "Insights",
+      "description": "Insights are saved analytical findings from assistant responses. Users can save any assistant message as an insight, bookmark important ones, and browse them later.\n\n**Frontend usage:**\n- `stores/insight-store.ts` — fetches, bookmarks, and deletes insights\n- `components/chat/message-list.tsx` — the \"Save as Insight\" action on assistant message bubbles calls `POST /api/insights`\n- `components/insights/insight-card.tsx` — renders individual insight cards with bookmark toggle\n- `components/insights/insight-all-modal.tsx` — admin view of all insights across users\n\n**Workflow:** Chat → hover over assistant message → click \"Save as Insight\" → optionally add a note → insight appears in the Insights panel → bookmark for quick access.",
+      "item": [
+        {
+          "name": "Create Insight",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"message_id\": \"msg-002\",\n  \"user_note\": \"Key finding about bill payment trends\"\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/insights",
+              "host": ["{{base_url}}"],
+              "path": ["api", "insights"]
+            },
+            "description": "Create a manual insight from an assistant message. The insight captures the message content, SQL, and analysis for later reference.\n\n- `message_id`: ID of the assistant message to save as an insight\n- `user_note`: optional annotation describing why this insight is important\n\n**Frontend:** Called from `message-list.tsx` when the user clicks the \"Save as Insight\" action on an assistant message bubble."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"insight_id\": \"insight-uuid-here\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Message not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List My Insights",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights?limit=20&offset=0&bookmarked=false",
+              "host": ["{{base_url}}"],
+              "path": ["api", "insights"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Number of insights to return (1-100, default 20)"
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Pagination offset (default 0)"
+                },
+                {
+                  "key": "bookmarked",
+                  "value": "false",
+                  "description": "Set to true to only return bookmarked insights"
+                }
+              ]
+            },
+            "description": "List the current user's insights, paginated. Set `bookmarked=true` to filter to only bookmarked insights.\n\n**Frontend:** Called by `insight-store.ts` → `fetchInsights()`. Powers the main insights panel."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"insight-uuid\",\n    \"message_id\": \"msg-002\",\n    \"content\": \"The average bill payment amount is INR 1,847.23.\",\n    \"user_note\": \"Key finding about bill payment trends\",\n    \"is_bookmarked\": false,\n    \"created_at\": \"2026-02-15T10:30:00Z\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "List All Insights (Admin)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/all?limit=20&offset=0",
+              "host": ["{{base_url}}"],
+              "path": ["api", "insights", "all"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "20",
+                  "description": "Number of insights to return (1-100, default 20)"
+                },
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Pagination offset (default 0)"
+                }
+              ]
+            },
+            "description": "Admin-scoped insights list. Returns insights from all users (org-scoped for org admins, all users for super admins).\n\n**Frontend:** Called by `insight-store.ts` → `fetchAllInsights()`. Powers the \"All Insights\" modal accessible to admins.\n\nRequires admin authentication."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"insight-uuid\",\n    \"user_id\": \"user-123\",\n    \"message_id\": \"msg-002\",\n    \"content\": \"Android shows marginally higher failure rates during peak hours.\",\n    \"user_note\": null,\n    \"is_bookmarked\": true,\n    \"created_at\": \"2026-02-15T10:30:00Z\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Get Insight Count",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/count",
+              "host": ["{{base_url}}"],
+              "path": ["api", "insights", "count"]
+            },
+            "description": "Return the current user's total insight count. Used for badge display.\n\n**Frontend:** Called by `insight-store.ts` → `fetchCount()`. The count is shown as a badge number on the Insights tab/button."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"count\": 7\n}"
+            }
+          ]
+        },
+        {
+          "name": "Get Insight",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/insight-uuid-here",
+              "host": ["{{base_url}}"],
+              "path": ["api", "insights", "insight-uuid-here"]
+            },
+            "description": "Get a single insight by ID. Replace `insight-uuid-here` in the path with the actual insight ID.\n\nReturns the full insight detail including message content, SQL, and user note."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"insight-uuid\",\n  \"message_id\": \"msg-002\",\n  \"content\": \"The average bill payment amount is INR 1,847.23.\",\n  \"user_note\": \"Key finding\",\n  \"is_bookmarked\": false,\n  \"created_at\": \"2026-02-15T10:30:00Z\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Insight not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Bookmark / Unbookmark Insight",
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"bookmarked\": true\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/insights/insight-uuid-here/bookmark",
+              "host": ["{{base_url}}"],
+              "path": ["api", "insights", "insight-uuid-here", "bookmark"]
+            },
+            "description": "Toggle bookmark on an insight. Set `bookmarked` to `false` to unbookmark. Replace `insight-uuid-here` with the actual insight ID.\n\n**Frontend:** Called by `insight-store.ts` → `toggleBookmark()`. The bookmark icon on insight cards toggles between filled/outlined states."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"bookmarked\": true\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Insight not found\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Insight",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/insights/insight-uuid-here",
+              "host": ["{{base_url}}"],
+              "path": ["api", "insights", "insight-uuid-here"]
+            },
+            "description": "Permanently delete an insight. Replace `insight-uuid-here` with the actual insight ID.\n\n**Frontend:** Called by `insight-store.ts` → `deleteInsight()`. Triggered from the delete action on insight cards."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Insight not found\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
       "name": "Schema",
+      "description": "Database schema introspection. Returns the DDL (CREATE TABLE statements) and table names from the connected SQLite database.\n\n**Frontend usage:** Not directly called by the frontend — the schema is consumed internally by the AI agent for SQL generation context. However, the dataset viewer uses column metadata from the Datasets API instead.",
       "item": [
         {
           "name": "Get Database Schema",
@@ -607,7 +840,7 @@
     },
     {
       "name": "Stats",
-      "description": "Pre-computed dataset statistics.",
+      "description": "Pre-computed dataset statistics, grouped by dimension (transaction type, device type, etc.).\n\n**Frontend usage:** These stats power the dataset overview cards and can be used by the AI agent as cached context to avoid re-querying common aggregations. The stats are computed at server startup from the active dataset.",
       "item": [
         {
           "name": "Get Dataset Stats",
@@ -634,7 +867,7 @@
     },
     {
       "name": "SQL",
-      "description": "Execute raw SQL queries against the database (read-only).",
+      "description": "Execute raw SQL queries against the database (read-only, SELECT/WITH/EXPLAIN only).\n\n**Frontend usage:** This endpoint is used in 4 places:\n- `components/sql/sql-executor.tsx` — the SQL Executor page where users can write and run raw SQL\n- `components/dataset/dataset-viewer.tsx` — the Dataset Viewer uses it to fetch table data with pagination and to run custom queries\n- `components/automations/sql-editor-modal.tsx` — the automation builder's SQL editor for testing queries before saving\n- `stores/automation-store.ts` — the workflow builder's SQL preview/test step\n\nResults are capped at 1,000 rows with a 30-second timeout. No authentication required.",
       "item": [
         {
           "name": "Execute SQL Query",
@@ -652,7 +885,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "sql", "execute"]
             },
-            "description": "Execute a read-only SQL query against the database. No authentication required.\n\nOnly SELECT, WITH, and EXPLAIN queries are allowed. INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked (403).\n\nResults are capped at 1000 rows with a 30-second timeout."
+            "description": "Execute a read-only SQL query against the database. No authentication required.\n\nOnly SELECT, WITH, and EXPLAIN queries are allowed. INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked (403).\n\nResults are capped at 1,000 rows with a 30-second timeout.\n\n**Frontend:** Used by the SQL Executor page (`sql-executor.tsx`), the Dataset Viewer (`dataset-viewer.tsx`) for table browsing and custom queries, and the automation builder's SQL editor (`sql-editor-modal.tsx`) for testing queries before saving them to an automation."
           },
           "response": [
             {
@@ -679,7 +912,7 @@
     },
     {
       "name": "Config",
-      "description": "View and switch the LLM provider/model at runtime.",
+      "description": "View and switch the LLM provider/model at runtime. Supports Gemini (cloud), Vertex AI (GCP), and Ollama (local).\n\n**Frontend usage:** `stores/settings-store.ts` — powers the model switcher dropdown in the settings panel. The store fetches available providers/models on mount and calls `/api/config/switch` when the user selects a different model. Changes take effect immediately for all subsequent chat requests (no server restart needed).",
       "item": [
         {
           "name": "Get Current Config",
@@ -793,6 +1026,7 @@
     },
     {
       "name": "Training",
+      "description": "Manage the RAG (Retrieval-Augmented Generation) knowledge base that powers the AI agent's SQL generation.\n\nThe knowledge base stores three types of content in ChromaDB:\n- **QA pairs** — question→SQL examples used as few-shot prompts\n- **DDL** — CREATE TABLE schema definitions\n- **Documentation** — business context, column descriptions, domain rules\n\n**How it works:** When a user asks a question, the agent retrieves the most similar QA pairs and documentation from ChromaDB and includes them in the LLM prompt. This dramatically improves SQL accuracy.\n\n**Frontend usage:** The admin panel's RAG management tab and the dataset retrain feature both interact with these endpoints. The server also auto-bootstraps training data from `training/schema.py`, `training/documentation.py`, and `training/queries.py` on first startup.",
       "item": [
         {
           "name": "Train — Add Q&A Pair",
@@ -900,7 +1134,7 @@
     },
     {
       "name": "Feedback",
-      "description": "Submit thumbs-up/down feedback on assistant messages.",
+      "description": "Submit thumbs-up/down feedback on assistant messages.\n\n**Frontend usage:** `components/chat/message-list.tsx` → `handleFeedback()`. Each assistant message bubble has thumbs-up/thumbs-down icons. Clicking one sends feedback to this endpoint. The feedback state is persisted with the message and displayed when the conversation is reopened.\n\n**Feedback values:**\n- `true` = thumbs up (good answer)\n- `false` = thumbs down (bad answer)\n- `null` = clear existing feedback",
       "item": [
         {
           "name": "Submit Feedback",
@@ -933,7 +1167,7 @@
     },
     {
       "name": "Ollama",
-      "description": "Manage Ollama models — pull (download), list, and delete local models.\n\nRequires Ollama to be running on the server (default: http://localhost:11434).",
+      "description": "Manage Ollama models — pull (download), list, and delete local models. Enables fully offline/local LLM operation.\n\nRequires Ollama to be running on the server (default: `http://localhost:11434`).\n\n**Workflow:** Pull a model → Switch to it via `Config > Switch Model — Ollama` → Chat will now use the local model.\n\n**Frontend usage:** The model switcher in the settings panel shows Ollama models alongside Gemini models. The pull endpoint is used when a user selects a model that isn't downloaded yet. Pull progress streams via SSE.",
       "item": [
         {
           "name": "Pull Model — Ministral 3B",
@@ -1075,7 +1309,7 @@
     },
     {
       "name": "Client Config",
-      "description": "Retrieve the resolved feature configuration for the current authenticated user.",
+      "description": "Retrieve the resolved feature configuration for the current authenticated user based on their organization membership.\n\n**Frontend usage:** `stores/client-config-store.ts` — called on app initialization after login. The returned feature flags drive conditional UI rendering:\n- `sql_executor` — show/hide the SQL Executor page\n- `model_switching` — show/hide the model switcher in settings\n- `rag_training` — show/hide RAG training controls\n- `chart_rendering` — enable/disable chart visualization\n- `conversation_export` — show/hide export buttons\n- `agent_process_sidebar` — show/hide the agent process trace panel\n- `clarification_enabled` — whether the agent can ask clarifying questions before answering\n\nAdmin users bypass all feature restrictions and receive `{\"config\": null, \"is_admin\": true}`.",
       "item": [
         {
           "name": "Get Client Config",
@@ -1108,7 +1342,7 @@
     },
     {
       "name": "Admin — Config",
-      "description": "Admin-only endpoints for managing global and per-organization client configuration.\n\nRequires admin authentication.",
+      "description": "Admin-only endpoints for managing global and per-organization client configuration.\n\n**Frontend usage:** `app/admin/page.tsx` — the admin panel's Config tab. Admins can:\n- Set which email domains get auto-admin access (`admin_domains`)\n- Map users to organizations (`user_org_mappings`)\n- Create/edit organizations with custom feature flags and branding\n- Set default feature flags for users not assigned to any org\n\n**Multi-tenancy:** Organizations allow different feature sets per customer. Each org can have its own branding (`display_name`, `logo_url`, `theme`) and feature toggles.\n\nRequires admin authentication.",
       "item": [
         {
           "name": "Get Global Config",
@@ -1279,7 +1513,7 @@
     },
     {
       "name": "Admin — Users & Conversations",
-      "description": "Admin-only endpoints for viewing and managing users and their conversations.\n\nRequires admin authentication.",
+      "description": "Admin-only endpoints for viewing and managing users and their conversations.\n\n**Frontend usage:** `app/admin/page.tsx` — the admin panel's Users tab. Provides a user list with usage statistics (conversation count, message count, last active). Admins can browse any user's conversations, view full message history, and perform bulk deletions.\n\n**Scope:** Org-scoped admins only see users in their organization. Super admins see all users across the platform.\n\nRequires admin authentication.",
       "item": [
         {
           "name": "List All Users",
@@ -1411,7 +1645,7 @@
     },
     {
       "name": "Admin — RAG",
-      "description": "Admin-only endpoints for managing RAG (Retrieval-Augmented Generation) knowledge base content.\n\nRequires admin authentication.",
+      "description": "Admin-only endpoints for managing RAG (Retrieval-Augmented Generation) knowledge base content.\n\n**Frontend usage:** `app/admin/page.tsx` — the admin panel's RAG management section. The Flush QA Pairs button deletes only learned question-SQL pairs (from user queries), while keeping DDL schemas and documentation intact. Useful for cleaning up noisy/incorrect learned examples without losing core training data.\n\n**Difference from Training > Delete All RAG:** That endpoint wipes everything (QA pairs + DDL + docs + findings). This endpoint is surgical — only QA pairs.\n\nRequires admin authentication.",
       "item": [
         {
           "name": "Flush QA Pairs",
@@ -1438,7 +1672,7 @@
     },
     {
       "name": "Admin — Prompts",
-      "description": "Admin-only endpoints for managing agent system prompt templates.\n\nRequires admin authentication.",
+      "description": "Admin-only endpoints for managing agent system prompt templates.\n\nPrompt templates are Jinja2 templates that define the system instructions for each agent type (analyst, orchestrator, synthesizer, etc.). DB-stored prompts override the file-based defaults in `prompts/*.j2`.\n\n**Frontend usage:** `app/admin/page.tsx` — the admin panel's Prompt Editor tab. Admins can view, edit, and reset prompt templates with a live editor. Changes take effect on the next chat request.\n\n**Named prompts:** `analyst`, `orchestrator`, `synthesizer`, `evaluator`, `deep_synthesizer`, `dimension_extractor` — each corresponds to an agent in the multi-agent pipeline.\n\nRequires admin authentication.",
       "item": [
         {
           "name": "List Prompts",
@@ -1555,7 +1789,7 @@
     },
     {
       "name": "Datasets",
-      "description": "Manage datasets and their metadata. Most endpoints require admin authentication. `GET /api/datasets/public` is accessible to any authenticated user.\n\nSet the `{{dataset_id}}` collection variable to a dataset ID from the List Datasets response.",
+      "description": "Manage datasets and their metadata. A dataset represents a database table with rich metadata (column descriptions, domain rules, example queries) that is used to train the RAG knowledge base.\n\n**Frontend usage:**\n- `components/layout/dataset-selector.tsx` — dataset picker dropdown (calls `/api/datasets/public`)\n- `components/dataset/dataset-viewer.tsx` — interactive table browser with column metadata, pagination, and SQL querying (calls `/api/datasets/public/{id}/columns`)\n- Admin panel — full CRUD for datasets, columns, and example queries\n\n**Workflow:** Create dataset → Add column metadata → Add example queries → Activate dataset → Retrain RAG → the agent now uses this metadata for better SQL generation.\n\nMost endpoints require admin authentication. `GET /api/datasets/public` is accessible to any authenticated user.\n\nSet the `{{dataset_id}}` collection variable to a dataset ID from the List Datasets response.",
       "item": [
         {
           "name": "List Datasets (Admin)",
@@ -1588,7 +1822,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "public"]
             },
-            "description": "List available datasets with minimal public information. Accessible to any authenticated user."
+            "description": "List available datasets with minimal public information. Accessible to any authenticated user.\n\n**Frontend:** Called by `components/layout/dataset-selector.tsx` on mount. Powers the dataset picker dropdown in the header, showing available datasets with name, description, and active status."
           },
           "response": [
             {
@@ -1780,7 +2014,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}", "retrain"]
             },
-            "description": "Re-run RAG training using all metadata stored in the dataset (DDL, documentation, column descriptions, and example queries). Existing embeddings for this dataset are replaced.\n\nRequires admin authentication."
+            "description": "Re-run RAG training using all metadata stored in the dataset (DDL, documentation, column descriptions, and example queries). Existing embeddings for this dataset are replaced.\n\n**When to use:** After adding/updating column metadata, example queries, or documentation. The retrain syncs all dataset metadata into ChromaDB so the AI agent can use the latest context for SQL generation.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -1795,7 +2029,7 @@
     },
     {
       "name": "Automations",
-      "description": "Create and manage scheduled SQL automations with trigger conditions.\n\nAll endpoints require admin authentication.",
+      "description": "Create and manage scheduled SQL automations with trigger conditions. Automations run SQL queries on a cron schedule and fire notifications when trigger conditions are met.\n\n**Frontend usage:** `stores/automation-store.ts` — powers the entire Automations page. The workflow builder lets users:\n1. Describe what they want to monitor in natural language → `Generate SQL from Prompt`\n2. Define alert conditions in natural language → `Compile NL Trigger`\n3. Create the automation with schedule + SQL + triggers → `Create Automation`\n4. Test it immediately → `Trigger Manual Run`\n5. View run history → `List Automation Runs`\n\n**Schedule presets:** `hourly` (0 * * * *), `daily` (0 9 * * *), `weekly` (0 9 * * 1), `monthly` (0 9 1 * *). Custom 5-field cron expressions are also supported.\n\n**Trigger types:** `threshold`, `change_detection`, `row_count`, `column_expression`, `slope`.\n\nAll endpoints require admin authentication.",
       "item": [
         {
           "name": "Generate SQL from Prompt",
@@ -1813,7 +2047,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "automations", "generate-sql"]
             },
-            "description": "Generate a SQL query from a natural-language prompt using the analyst agent. Use this to help users create automation SQL queries.\n\nRequires admin authentication."
+            "description": "Generate a SQL query from a natural-language prompt using the analyst agent. Use this to help users create automation SQL queries without writing SQL manually.\n\n**Frontend:** Called by `automation-store.ts` → `generateSql()`. In the automation workflow builder, when the user types a natural language description (e.g., \"Show me the daily failure rate\"), this endpoint converts it to SQL. The generated SQL is then editable in the SQL editor before saving.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -1846,7 +2080,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "automations", "compile-trigger"]
             },
-            "description": "Compile a natural-language trigger description into a structured trigger condition using the LLM.\n\nRequires admin authentication."
+            "description": "Compile a natural-language trigger description into a structured trigger condition using the LLM.\n\n**Frontend:** Called by `components/automations/trigger-condition-builder.tsx`. The user types something like \"Alert me when the failure rate exceeds 15%\" and this endpoint converts it to a structured condition object (`{type: \"threshold\", column: \"failure_rate_pct\", operator: \"gt\", value: 15.0}`). The `available_columns` field tells the LLM which columns exist in the query results.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -2087,7 +2321,7 @@
     },
     {
       "name": "Notifications",
-      "description": "User notification endpoints. Notifications are generated by automation trigger conditions.\n\nAll endpoints require authentication.",
+      "description": "User notification endpoints. Notifications are generated when automation trigger conditions fire (e.g., failure rate exceeds threshold).\n\n**Frontend usage:** `stores/notification-store.ts` — powers the notification bell icon in the header and the notification panel.\n- The bell icon shows the unread count badge (from `/api/notifications/count`)\n- Clicking it opens the notification panel (fetches from `/api/notifications`)\n- Each notification links back to the automation that generated it\n- Mark individual or all notifications as read\n\n**Scoping:**\n- Regular users see only their own notifications\n- Org admins see all notifications for users in their org\n- Super admins see all notifications platform-wide\n\nAll endpoints require authentication.",
       "item": [
         {
           "name": "List My Notifications",
@@ -2218,7 +2452,7 @@
     },
     {
       "name": "Trigger Templates",
-      "description": "Reusable trigger condition templates for automations.\n\nAll endpoints require admin authentication.",
+      "description": "Reusable trigger condition templates for automations. Save commonly used trigger conditions as templates and apply them to new automations.\n\n**Frontend usage:** `stores/automation-store.ts` — the automation workflow builder's trigger step shows saved templates as quick-apply options. Users can select a template instead of configuring conditions from scratch.\n\n**Example templates:**\n- \"High Failure Rate\" — threshold alert when failure_rate_pct > 15%\n- \"Volume Spike\" — change_detection when row_count increases by > 50%\n- \"Revenue Drop\" — threshold alert when total_amount < expected minimum\n\nAll endpoints require admin authentication.",
       "item": [
         {
           "name": "List Templates",
