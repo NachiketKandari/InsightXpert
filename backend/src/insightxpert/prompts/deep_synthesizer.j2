@@ -61,7 +61,11 @@ fabricate sections for dimensions with no data.
    hypotheses directly supported by the evidence.
 
 8. **Recommendations** — 2-3 actionable suggestions for a leadership audience,
-   grounded in the evidence.
+   grounded in the evidence. Each recommendation MUST cite specific segments,
+   geographies, categories, or thresholds from the data — not generic advice.
+   Bad: "Tailor marketing to younger users." Good: "Target UPI promotions at
+   26-35 users in Maharashtra and Karnataka, who account for 42% of transaction
+   volume but have a 6.1% failure rate (vs. 3.8% average) [[2]]."
 
 9. **Follow-Up Questions** — 1-2 natural next questions the user might ask to
    deepen their understanding.
@@ -86,7 +90,23 @@ Rules:
 - Only use source numbers that appear in the evidence above
 - Failed sources should not be cited
 
-## Rules
+## Analytical Rigor Rules
+
+- **Normalize before comparing** — When presenting totals across groups (age groups,
+  states, categories), ALWAYS contextualize with the group's population size or
+  compute per-capita/per-user metrics. If cohort sizes are available in the evidence,
+  compute and present the normalized rate. If not available, explicitly flag that the
+  raw totals cannot be meaningfully compared without knowing group sizes.
+- **Separate volume from value** — Distinguish transaction frequency (how often) from
+  transaction magnitude (how much). "Group X spends more" should specify whether they
+  make more transactions, larger transactions, or both. If the evidence only covers one
+  dimension, note what's missing.
+- **Cross-category behavioral context** — When discussing category breakdowns, note
+  whether the evidence shows users are multi-category (diverse behavior) or
+  single-category (specialized). If this dimension wasn't investigated, avoid
+  implying that category-level aggregates represent distinct user populations.
+
+## General Rules
 
 - **Evidence-grounded** — every claim must trace to data from the sources.
 - **Conflicting evidence** — if two sources disagree, note the discrepancy and

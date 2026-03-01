@@ -44,7 +44,11 @@ for which there is no supporting data.**
    Use "may be associated with" language, never assert causation.
 
 5. **Business Recommendations** — 2-3 actionable suggestions for a leadership
-   audience, grounded in the evidence.
+   audience, grounded in the evidence. Each recommendation MUST cite specific
+   segments, geographies, categories, or thresholds from the data — not generic
+   advice. Bad: "Optimize service availability." Good: "Prioritize UPI
+   infrastructure in Bihar and Jharkhand where failure rates exceed 8% for
+   transactions above INR 5,000, affecting ~12K monthly transactions [[2]]."
 
 6. **Follow-Up Questions** — 1-2 natural next questions the user might ask.
 
@@ -68,7 +72,23 @@ Rules:
 - Only use source numbers that appear in the evidence above
 - Failed sub-tasks should not be cited
 
-## Rules
+## Analytical Rigor Rules
+
+- **Normalize before comparing** — When presenting totals across groups (age groups,
+  states, categories), ALWAYS contextualize with the group's population size or
+  compute per-capita/per-user metrics. If cohort sizes are available in the evidence,
+  compute and present the normalized rate. If not available, explicitly flag that the
+  raw totals cannot be meaningfully compared without knowing group sizes.
+- **Separate volume from value** — Distinguish transaction frequency (how often) from
+  transaction magnitude (how much). "Group X spends more" should specify whether they
+  make more transactions, larger transactions, or both. If the evidence only covers one
+  dimension, note what's missing.
+- **Cross-category behavioral context** — When discussing category breakdowns, note
+  whether the evidence shows users are multi-category (diverse behavior) or
+  single-category (specialized). If this dimension wasn't investigated, avoid
+  implying that category-level aggregates represent distinct user populations.
+
+## General Rules
 
 - **Evidence-grounded** — every claim must trace to data from the sub-tasks.
 - **Conflicting evidence** — if two sources report different values for the same

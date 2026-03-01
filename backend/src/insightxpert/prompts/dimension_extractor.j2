@@ -72,6 +72,33 @@ Respond with ONLY a JSON object, no markdown fencing:
 }
 ```
 
+## Analytical Rigor Checklist
+
+When designing enrichment tasks, actively check for these common analytical blindspots:
+
+1. **Normalization gap** — If the original question will likely produce raw totals
+   grouped by a dimension (age group, state, category), at least one enrichment
+   should request the **cohort size or per-capita metric** for that dimension.
+   Raw totals are uninterpretable without knowing population sizes.
+   Example: "What is the average transaction amount AND the number of unique
+   senders per age group?" — not just "total spending per age group."
+
+2. **Volume vs value conflation** — Transaction count and transaction amount tell
+   different stories. If the question is about "spending" or "transactions,"
+   consider whether both frequency (how often) and magnitude (how much per
+   transaction) are covered. Someone making 50 small purchases vs. 2 large ones
+   shows a completely different behavioral pattern.
+
+3. **Cross-category overlap** — When the question involves breakdowns by category
+   (merchant type, transaction type), consider whether users WITHIN the same
+   segment use multiple categories (diverse needs) or specialize (distinct
+   sub-populations). This reveals whether an aggregate pattern masks behavioral
+   heterogeneity.
+
+Use these checks to shape which enrichment tasks you suggest. Not every question
+needs all three — apply them where they would genuinely change the analytical
+conclusion.
+
 ## Rules
 
 - Task IDs start at "B" (the original analyst is implicitly task "A" / Source [1])

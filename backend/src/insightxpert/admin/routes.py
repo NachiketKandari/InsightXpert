@@ -528,6 +528,7 @@ async def resolve_client_config(
                 sql_executor=True,
                 model_switching=True,
                 rag_training=True,
+                rag_retrieval=True,
                 chart_rendering=True,
                 conversation_export=True,
                 agent_process_sidebar=True,

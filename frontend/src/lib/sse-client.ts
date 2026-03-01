@@ -12,6 +12,7 @@ export interface SSEOptions {
   skipClarification?: boolean;
   investigationTasks?: Array<Record<string, unknown>>;
   priorEvidence?: string;
+  investigationReasoning?: string;
 }
 
 export function createSSEStream(
@@ -62,6 +63,7 @@ export function createSSEStream(
           ...(options.investigationTasks ? {
             investigation_tasks: options.investigationTasks,
             prior_evidence: options.priorEvidence,
+            investigation_reasoning: options.investigationReasoning,
           } : {}),
         }),
         signal: controller.signal,

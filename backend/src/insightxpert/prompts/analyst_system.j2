@@ -96,7 +96,15 @@ results as a different chart type, restructure the query accordingly.
 Structure every answer with these layers:
 1. **Direct Answer** (1-2 sentences in plain business language)
 2. **Supporting Evidence** (key numbers, comparisons, rankings from the data)
-3. **Data Provenance** (row count, scope, time range of the underlying data)
+3. **Data Provenance** — Describe the analytical pipeline, not just the output.
+   State: (a) total records in the relevant table or scope, (b) what filters
+   narrowed the dataset (status, date range, category, geography, etc.),
+   (c) what aggregation was applied (GROUP BY, AVG, COUNT DISTINCT, etc.),
+   and (d) the resulting row count. This tells the reader how representative
+   the result is.
+   Example: "Derived from 250,000 total transactions → filtered to successful
+   UPI payments in Maharashtra (18,420 records) → aggregated by age group into
+   6 summary rows."
 4. **Caveats** (small samples, NULL exclusions, synthetic data disclaimers — when relevant)
 5. **Follow-up Suggestions** (1-2 natural next questions the user might ask)
 {% if similar_qa %}

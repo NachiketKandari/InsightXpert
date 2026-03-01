@@ -92,6 +92,19 @@ Each enrichment task must target one of these categories:
   analyst only partially addressed it
 - Statistical validation would strengthen the analyst's claims about differences
   or significance
+- **Normalization missing** — The analyst returned raw totals grouped by a dimension
+  (age group, state, category) without disclosing cohort sizes or per-capita rates.
+  Totals for groups of different sizes are not comparable. Enrich with a query for
+  the count of unique senders (or transactions) per group to enable normalization.
+- **Volume-value conflation** — The analyst reported only amounts (or only counts).
+  If the question involves "spending," "transactions," or "activity," consider
+  enriching with the complementary metric (average per transaction, frequency per
+  user) to distinguish behavioral intensity from population size.
+- **Cross-category blindspot** — The analyst broke down by category independently
+  but didn't examine whether the same users appear across multiple categories. If
+  the question involves category comparisons, consider enriching with overlap or
+  co-occurrence analysis (e.g., average number of distinct categories per user in
+  each segment).
 
 ## Available Agents
 

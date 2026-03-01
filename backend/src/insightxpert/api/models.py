@@ -21,6 +21,7 @@ class ChatRequest(BaseModel):
     skip_clarification: bool = False
     investigation_tasks: list[dict] | None = None
     prior_evidence: str | None = None
+    investigation_reasoning: str | None = None
 
     @field_validator("agent_mode", mode="before")
     @classmethod

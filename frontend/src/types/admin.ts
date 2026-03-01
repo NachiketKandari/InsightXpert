@@ -2,6 +2,7 @@ export interface FeatureToggles {
   sql_executor: boolean;
   model_switching: boolean;
   rag_training: boolean;
+  rag_retrieval: boolean;
   chart_rendering: boolean;
   conversation_export: boolean;
   agent_process_sidebar: boolean;

@@ -434,6 +434,7 @@ export function useSSEChat() {
       }, agentMode, {
         investigationTasks: investigation.tasks as unknown as Array<Record<string, unknown>>,
         priorEvidence: investigation.prior_evidence,
+        investigationReasoning: investigation.reasoning,
       });
 
       abortRef.current = controller;

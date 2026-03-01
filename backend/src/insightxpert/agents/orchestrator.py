@@ -36,7 +36,6 @@ from insightxpert.agents.dag_executor import (
 )
 from insightxpert.agents.orchestrator_planner import (
     evaluate_for_enrichment,
-    evaluate_for_investigation,
     evaluate_insight_quality,
 )
 from insightxpert.agents.quant_analyst import quant_analyst_loop
@@ -399,44 +398,7 @@ async def orchestrator_loop(
         timestamp=time.time(),
     )
 
-    # ── Phase 6: Evaluate for investigation follow-up ─────────────────
-    try:
-        evidence_text = build_evidence_blocks(question, enrichment_plan, results, original)
-        existing_ids = [t.id for t in enrichment_plan.tasks]
-        investigation = await evaluate_for_investigation(
-            question=question,
-            analyst_sql=collector.sql,
-            analyst_answer=collector.answer,
-            enrichment_evidence=evidence_text,
-            synthesized_insight=synthesized,
-            existing_task_ids=existing_ids,
-            llm=llm,
-            ddl=effective_ddl,
-            documentation=effective_docs,
-        )
-        if investigation:
-            yield ChatChunk(
-                type="investigation_suggestion",
-                content=investigation.reasoning,
-                data={
-                    "reasoning": investigation.reasoning,
-                    "tasks": [
-                        {
-                            "id": t.id,
-                            "agent": t.agent,
-                            "category": t.category,
-                            "task": t.task,
-                            "depends_on": t.depends_on,
-                        }
-                        for t in investigation.tasks
-                    ],
-                    "prior_evidence": evidence_text,
-                },
-                conversation_id=cid,
-                timestamp=time.time(),
-            )
-    except Exception as exc:
-        logger.warning("Investigation evaluation failed, skipping: %s", exc)
+    # Investigation is a deep think feature only — agentic mode stops here.
 
 
 async def _run_sql_analyst(

@@ -7,6 +7,7 @@ class FeatureToggles(BaseModel):
     sql_executor: bool = True
     model_switching: bool = True
     rag_training: bool = True
+    rag_retrieval: bool = True
     chart_rendering: bool = True
     conversation_export: bool = True
     agent_process_sidebar: bool = True
