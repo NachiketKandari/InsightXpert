@@ -247,6 +247,14 @@ function InsightDetail({
         </div>
       </div>
 
+      {/* Summary */}
+      {insight.summary && (
+        <div className="rounded-md border border-blue-500/20 bg-blue-500/5 p-3">
+          <p className="text-xs font-medium text-blue-600 dark:text-blue-400 mb-1">Summary</p>
+          <p className="text-sm leading-relaxed text-foreground/80">{insight.summary}</p>
+        </div>
+      )}
+
       {/* User note (manual insights) */}
       {insight.user_note && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3">

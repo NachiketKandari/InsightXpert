@@ -37,6 +37,7 @@ from insightxpert.agents.dag_executor import (
 from insightxpert.agents.orchestrator_planner import (
     evaluate_for_enrichment,
     evaluate_for_investigation,
+    evaluate_insight_quality,
 )
 from insightxpert.agents.quant_analyst import quant_analyst_loop
 from insightxpert.agents.response_generator import generate_response
@@ -64,8 +65,10 @@ async def orchestrator_loop(
     skip_clarification: bool = False,
     stats_context_injection: bool = False,
     clarification_enabled: bool = False,
+    rag_retrieval: bool = True,
     investigation_tasks: list[dict] | None = None,
     prior_evidence: str | None = None,
+    investigation_reasoning: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the orchestrator pipeline.
 
@@ -121,6 +124,7 @@ async def orchestrator_loop(
             question=question,
             investigation_tasks=investigation_tasks,
             prior_evidence=prior_evidence or "",
+            investigation_reasoning=investigation_reasoning or "",
             llm=llm,
             db=db,
             rag=rag,
@@ -151,6 +155,7 @@ async def orchestrator_loop(
             stats_context=stats_context,
             stats_groups=stats_groups,
             clarification_enabled=effective_clarification,
+            rag_retrieval=rag_retrieval,
         ):
             yield chunk
         return
@@ -172,8 +177,10 @@ async def orchestrator_loop(
             stats_context=stats_context,
             stats_groups=stats_groups,
             clarification_enabled=effective_clarification,
+            rag_retrieval=rag_retrieval,
             investigation_tasks=investigation_tasks,
             prior_evidence=prior_evidence,
+            investigation_reasoning=investigation_reasoning,
         ):
             yield chunk
         return
@@ -197,6 +204,7 @@ async def orchestrator_loop(
         stats_context=stats_context,
         stats_groups=stats_groups,
         clarification_enabled=effective_clarification,
+        rag_retrieval=rag_retrieval,
     ):
         yield chunk
         collector.process_chunk(chunk)
@@ -217,17 +225,18 @@ async def orchestrator_loop(
         timestamp=time.time(),
     )
 
-    # RAG retrieval for evaluator context
+    # RAG retrieval for evaluator context (skipped when rag_retrieval=False)
     rag_context: list[dict] = []
-    try:
-        similar = rag.search_qa(question, n=5)
-        rag_context = [
-            {"question": doc.get("question", ""), "sql": doc.get("sql", "")}
-            for doc in similar
-            if doc.get("distance", 999) <= 1.0
-        ]
-    except Exception as e:
-        logger.debug("RAG retrieval for evaluator failed: %s", e)
+    if rag_retrieval:
+        try:
+            similar = rag.search_qa(question, n=3)
+            rag_context = [
+                {"question": doc.get("question", ""), "sql": doc.get("sql", "")}
+                for doc in similar
+                if doc.get("distance", 999) <= 1.0
+            ]
+        except Exception as e:
+            logger.debug("RAG retrieval for evaluator failed: %s", e)
 
     enrichment_plan = await evaluate_for_enrichment(
         question=question,
@@ -368,10 +377,24 @@ async def orchestrator_loop(
         original_analyst=original,
     )
 
+    # Evaluate if this synthesis qualifies as a genuine insight
+    categories = list({t.category for t in enrichment_plan.tasks if t.category})
+    quality = await evaluate_insight_quality(
+        question=question,
+        synthesized_content=synthesized,
+        categories=categories,
+        enrichment_task_count=len(enrichment_plan.tasks),
+        llm=llm,
+    )
+
     yield ChatChunk(
         type="insight",
         content=synthesized,
-        data={"agent": "orchestrator"},
+        data={
+            "agent": "orchestrator",
+            "save_as_insight": quality.is_insight,
+            "insight_summary": quality.summary,
+        },
         conversation_id=cid,
         timestamp=time.time(),
     )
@@ -621,6 +644,7 @@ async def _run_investigation_followup(
     docs_override: str | None = None,
     stats_context: str | None = None,
     stats_groups: list[str] | None = None,
+    investigation_reasoning: str = "",
 ) -> AsyncGenerator[ChatChunk, None]:
     """Execute investigation follow-up tasks and re-synthesize with combined evidence.
 
@@ -656,7 +680,7 @@ async def _run_investigation_followup(
         return
 
     plan = OrchestratorPlan(
-        reasoning="Follow-up investigation",
+        reasoning=investigation_reasoning or "Follow-up investigation to fill analytical gaps",
         tasks=tasks,
     )
 
@@ -760,36 +784,36 @@ async def _run_investigation_followup(
     # Build new evidence from follow-up results
     new_evidence = build_evidence_blocks(question, plan, results)
 
-    # Combine prior + new evidence
-    combined_evidence = prior_evidence + "\n\n" + new_evidence if prior_evidence else new_evidence
-
     yield ChatChunk(
         type="status",
-        content="Re-synthesizing with investigation findings...",
+        content="Integrating investigation findings...",
         data={"agent": "orchestrator", "phase": "re_synthesizing"},
         conversation_id=cid,
         timestamp=time.time(),
     )
 
-    # Re-synthesize using the combined evidence (prior + follow-up)
+    # Re-synthesize using the investigation-focused template.
+    # This template separates prior vs new evidence and focuses on what changed.
     from insightxpert.prompts import render as render_prompt
     from insightxpert.agents.response_generator import _fallback_answer
 
+    # Extract investigation reasoning from the plan
+    inv_reasoning = plan.reasoning or "Follow-up investigation to fill analytical gaps"
+
     system_prompt = render_prompt(
-        "response_generator.j2",
+        "investigation_synthesizer.j2",
         ddl=ddl,
         documentation=documentation,
         question=question,
-        evidence_data=combined_evidence,
-        plan_reasoning=(
-            "This response combines the original analysis and enrichment evidence "
-            "with follow-up investigation findings."
-        ),
+        prior_synthesis="",  # not available in user-initiated flow
+        investigation_reasoning=inv_reasoning,
+        prior_evidence=prior_evidence or "(no prior evidence)",
+        new_evidence=new_evidence,
     )
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": "Synthesize all the evidence into a comprehensive, cited response."},
+        {"role": "user", "content": "Produce an updated insight integrating the investigation findings."},
     ]
 
     try:
@@ -799,10 +823,25 @@ async def _run_investigation_followup(
         logger.error("Investigation re-synthesis failed: %s", exc, exc_info=True)
         re_synthesized = _fallback_answer(plan, results)
 
+    # Evaluate if this investigation result qualifies as an insight
+    inv_categories = list({t.category for t in plan.tasks if t.category})
+    inv_quality = await evaluate_insight_quality(
+        question=question,
+        synthesized_content=re_synthesized,
+        categories=inv_categories,
+        enrichment_task_count=len(plan.tasks),
+        llm=llm,
+    )
+
     yield ChatChunk(
         type="insight",
         content=re_synthesized,
-        data={"agent": "orchestrator", "investigation": True},
+        data={
+            "agent": "orchestrator",
+            "investigation": True,
+            "save_as_insight": inv_quality.is_insight,
+            "insight_summary": inv_quality.summary,
+        },
         conversation_id=cid,
         timestamp=time.time(),
     )

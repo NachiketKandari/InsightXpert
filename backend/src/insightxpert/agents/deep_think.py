@@ -1,6 +1,6 @@
 """Deep Think agent -- 5W1H dimensional analysis pipeline.
 
-Implements a four-phase flow:
+Implements a six-phase flow:
 
 1. **Dimension Extraction** — Single LLM call maps the question onto
    WHO/WHAT/WHEN/WHERE/HOW dimensions, derives WHY intent, and pre-plans
@@ -14,6 +14,13 @@ Implements a four-phase flow:
 
 4. **Synthesis** — Combines all evidence into a 5W1H-structured insight with
    ``[[N]]`` citations using the ``deep_synthesizer.j2`` template.
+
+5. **Auto-Investigation** — Evaluates the synthesis for analytical gaps and,
+   if warranted, automatically executes follow-up SQL queries to fill them.
+
+6. **Investigation Re-synthesis** — Integrates investigation findings into
+   a final insight using ``investigation_synthesizer.j2``, focused on what
+   changed rather than re-narrating prior evidence.
 """
 
 from __future__ import annotations
@@ -214,6 +221,47 @@ async def _deep_synthesize(
         return _fallback_answer(plan, results, original)
 
 
+# ── Phase 6: Investigation Re-synthesis ──────────────────────────────────
+
+
+async def _investigation_synthesize(
+    question: str,
+    llm: LLMProvider,
+    ddl: str,
+    documentation: str,
+    prior_synthesis: str,
+    investigation_reasoning: str,
+    prior_evidence: str,
+    new_evidence: str,
+) -> str:
+    """Re-synthesize with investigation findings using a gap-focused prompt."""
+    system_prompt = render_prompt(
+        "investigation_synthesizer.j2",
+        ddl=ddl,
+        documentation=documentation,
+        question=question,
+        prior_synthesis=prior_synthesis,
+        investigation_reasoning=investigation_reasoning,
+        prior_evidence=prior_evidence,
+        new_evidence=new_evidence,
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Produce an updated insight integrating the investigation findings."},
+    ]
+
+    try:
+        response = await asyncio.wait_for(
+            llm.chat(messages, tools=None),
+            timeout=_SYNTHESIS_TIMEOUT,
+        )
+        return response.content or "Investigation synthesis failed — no content returned."
+    except Exception as exc:
+        logger.error("Investigation synthesis failed: %s", exc, exc_info=True)
+        return "Investigation synthesis could not be completed."
+
+
 # ── Main Loop ─────────────────────────────────────────────────────────────
 
 
@@ -230,8 +278,10 @@ async def deep_think_loop(
     stats_context: str | None = None,
     stats_groups: list[str] | None = None,
     clarification_enabled: bool = False,
+    rag_retrieval: bool = True,
     investigation_tasks: list[dict] | None = None,
     prior_evidence: str | None = None,
+    investigation_reasoning: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the Deep Think 5W1H pipeline.
 
@@ -261,6 +311,7 @@ async def deep_think_loop(
             docs_override=documentation,
             stats_context=stats_context,
             stats_groups=stats_groups,
+            investigation_reasoning=investigation_reasoning or "",
         ):
             yield chunk
         return
@@ -329,6 +380,7 @@ async def deep_think_loop(
         stats_context=stats_context,
         stats_groups=stats_groups,
         clarification_enabled=clarification_enabled,
+        rag_retrieval=rag_retrieval,
     ):
         yield chunk
         collector.process_chunk(chunk)
@@ -449,15 +501,32 @@ async def deep_think_loop(
         dimensions=dimensions or {},
     )
 
+    # Evaluate if this synthesis qualifies as a genuine insight
+    from insightxpert.agents.orchestrator_planner import evaluate_insight_quality
+
+    categories = list({t.category for t in enrichment_plan.tasks if t.category})
+    quality = await evaluate_insight_quality(
+        question=question,
+        synthesized_content=synthesized,
+        categories=categories,
+        enrichment_task_count=len(enrichment_plan.tasks),
+        llm=llm,
+    )
+
     yield ChatChunk(
         type="insight",
         content=synthesized,
-        data={"agent": "deep_think"},
+        data={
+            "agent": "deep_think",
+            "save_as_insight": quality.is_insight,
+            "insight_summary": quality.summary,
+        },
         conversation_id=cid,
         timestamp=time.time(),
     )
 
-    # ── Phase 5: Evaluate for investigation follow-up ─────────────────
+    # ── Phase 5: Auto-execute investigation ──────────────────────────
+    # In deep think mode, investigation runs automatically (no user click).
     try:
         from insightxpert.agents.orchestrator_planner import evaluate_for_investigation
 
@@ -474,26 +543,136 @@ async def deep_think_loop(
             ddl=effective_ddl,
             documentation=effective_docs,
         )
-        if investigation:
+
+        if investigation and investigation.tasks:
+            logger.info(
+                "Deep think: auto-executing %d investigation tasks",
+                len(investigation.tasks),
+            )
+
             yield ChatChunk(
-                type="investigation_suggestion",
-                content=investigation.reasoning,
+                type="orchestrator_plan",
                 data={
                     "reasoning": investigation.reasoning,
                     "tasks": [
                         {
                             "id": t.id,
                             "agent": t.agent,
-                            "category": t.category,
                             "task": t.task,
                             "depends_on": t.depends_on,
+                            "category": t.category,
                         }
                         for t in investigation.tasks
                     ],
-                    "prior_evidence": evidence_text,
                 },
+                content=f"Investigating {len(investigation.tasks)} follow-up question{'s' if len(investigation.tasks) != 1 else ''}",
                 conversation_id=cid,
                 timestamp=time.time(),
             )
+
+            yield ChatChunk(
+                type="status",
+                content=f"Running {len(investigation.tasks)} investigation quer{'ies' if len(investigation.tasks) != 1 else 'y'}...",
+                data={"agent": "deep_think", "phase": "investigating"},
+                conversation_id=cid,
+                timestamp=time.time(),
+            )
+
+            # Execute investigation tasks
+            inv_pending, inv_on_start, inv_on_complete = build_dag_callbacks("deep_think", cid)
+
+            async def run_inv_task(task: SubTask, _upstream: dict[str, SubTaskResult]) -> SubTaskResult:
+                from insightxpert.agents.orchestrator import _run_sql_analyst
+                return await _run_sql_analyst(
+                    task=task,
+                    llm=llm,
+                    db=db,
+                    rag=rag,
+                    config=config,
+                    conversation_id=cid,
+                    ddl_override=ddl,
+                    docs_override=documentation,
+                    stats_context=stats_context,
+                    stats_groups=stats_groups or [],
+                )
+
+            inv_results = await execute_dag(
+                plan=investigation,
+                run_task=run_inv_task,
+                on_task_start=inv_on_start,
+                on_task_complete=inv_on_complete,
+            )
+
+            # Yield status chunks from investigation DAG
+            for chunk in inv_pending:
+                yield chunk
+                await asyncio.sleep(0)
+
+            # Yield enrichment traces for investigation sources
+            # Source indices continue from enrichment: [1]=analyst, [2..N]=enrichment, [N+1..]=investigation
+            source_offset = len(enrichment_plan.tasks) + 1  # +1 for original analyst
+            for i, inv_task in enumerate(investigation.tasks, start=source_offset + 1):
+                inv_result = inv_results.get(inv_task.id)
+                if not inv_result or not inv_result.success:
+                    continue
+                category_label = CATEGORY_LABELS.get(
+                    inv_task.category, inv_task.agent.replace("_", " ").title(),
+                )
+                yield ChatChunk(
+                    type="enrichment_trace",
+                    data={
+                        "source_index": i,
+                        "category": category_label,
+                        "question": inv_task.task,
+                        "rationale": investigation.reasoning,
+                        "final_sql": inv_result.sql,
+                        "final_answer": inv_result.answer,
+                        "success": True,
+                        "duration_ms": inv_result.duration_ms,
+                        "steps": inv_result.trace_steps or [],
+                    },
+                    conversation_id=cid,
+                    timestamp=time.time(),
+                )
+                await asyncio.sleep(0)
+
+            # Re-synthesize if any investigation tasks succeeded
+            inv_successful = {tid: r for tid, r in inv_results.items() if r.success}
+            if inv_successful:
+                yield ChatChunk(
+                    type="status",
+                    content="Integrating investigation findings...",
+                    data={"agent": "deep_think", "phase": "re_synthesizing"},
+                    conversation_id=cid,
+                    timestamp=time.time(),
+                )
+
+                new_evidence = build_evidence_blocks(question, investigation, inv_results)
+
+                re_synthesized = await _investigation_synthesize(
+                    question=question,
+                    llm=llm,
+                    ddl=effective_ddl,
+                    documentation=effective_docs,
+                    prior_synthesis=synthesized,
+                    investigation_reasoning=investigation.reasoning,
+                    prior_evidence=evidence_text,
+                    new_evidence=new_evidence,
+                )
+
+                yield ChatChunk(
+                    type="insight",
+                    content=re_synthesized,
+                    data={
+                        "agent": "deep_think",
+                        "investigation": True,
+                        "save_as_insight": quality.is_insight,
+                        "insight_summary": quality.summary,
+                    },
+                    conversation_id=cid,
+                    timestamp=time.time(),
+                )
+            else:
+                logger.warning("All investigation tasks failed; prior synthesis stands")
     except Exception as exc:
-        logger.warning("Investigation evaluation failed, skipping: %s", exc)
+        logger.warning("Investigation auto-execution failed, prior synthesis stands: %s", exc)

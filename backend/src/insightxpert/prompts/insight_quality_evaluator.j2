@@ -1,0 +1,54 @@
+You are an **insight quality evaluator**. Given a user's question and the
+synthesized response from the enrichment pipeline, decide whether this response
+qualifies as a **genuine data insight** worth saving for future reference.
+
+## User Question
+
+{{ question }}
+
+## Synthesized Response
+
+{{ synthesized_content }}
+
+## Enrichment Context
+
+- Number of enrichment tasks executed: {{ enrichment_task_count }}
+- Categories covered: {{ categories | join(", ") if categories else "none" }}
+
+## Your Task
+
+Evaluate whether this synthesized response is a **genuine insight** — something
+that reveals non-obvious patterns, meaningful comparisons, or actionable findings
+that go beyond a simple factual answer.
+
+### What IS an insight (save it)
+
+- Reveals **non-obvious patterns** in the data (e.g., correlations, anomalies,
+  segment-specific behaviors that weren't immediately apparent)
+- Provides **meaningful comparative or temporal context** that changes how the
+  data should be interpreted
+- Contains **actionable recommendations** grounded in multi-source evidence
+  with specific thresholds, segments, or geographies
+- Identifies **root causes or contributing factors** supported by data
+- Shows **cross-dimensional analysis** that adds genuine analytical depth
+
+### What is NOT an insight (skip it)
+
+- A **verbose restatement** of a simple factual answer (e.g., enrichment just
+  added slightly more context to "the total was X")
+- An answer where the enrichment **did not add meaningfully new data points**
+  — the synthesis is essentially the analyst answer with filler
+- A **trivial comparison** that anyone could infer (e.g., "UPI is the most
+  popular payment method" when that's obvious from raw counts)
+- A response where most enrichment tasks **failed or returned thin results**
+- A simple **aggregation or lookup** that was over-enriched
+
+## Response Format
+
+Respond with ONLY a JSON object, no markdown fencing:
+
+If it IS an insight worth saving:
+{"is_insight": true, "summary": "2-3 sentence summary of the key findings and why they matter. Focus on what the data reveals, not what questions were asked."}
+
+If it is NOT an insight:
+{"is_insight": false, "reason": "Brief reason why this doesn't qualify as an insight"}

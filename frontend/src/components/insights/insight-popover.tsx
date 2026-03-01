@@ -36,6 +36,11 @@ export function InsightPopover({ onShowAll, onSelectInsight }: InsightPopoverPro
               onClick={() => onSelectInsight(i)}
             >
               <p className="text-sm font-medium truncate">{i.title}</p>
+              {i.summary && (
+                <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                  {i.summary}
+                </p>
+              )}
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">
                 {i.categories.slice(0, 3).map((cat) => (
                   <span
@@ -45,10 +50,10 @@ export function InsightPopover({ onShowAll, onSelectInsight }: InsightPopoverPro
                     {cat.replace(/_/g, " ")}
                   </span>
                 ))}
+                <span className="text-[10px] text-muted-foreground ml-auto">
+                  {new Date(i.created_at).toLocaleDateString()}
+                </span>
               </div>
-              <p className="text-xs text-muted-foreground mt-0.5">
-                {new Date(i.created_at).toLocaleString()}
-              </p>
             </div>
           ))}
         </div>
