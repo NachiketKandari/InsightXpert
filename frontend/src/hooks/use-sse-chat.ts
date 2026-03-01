@@ -264,7 +264,8 @@ export function useSSEChat() {
           finishStreaming(convId!);
           // Refresh insight badge if an insight chunk was emitted during this stream.
           if (sawInsightChunk) {
-            useInsightStore.getState().fetchCount();
+            // Delay fetch — insight is persisted in a background task after [DONE]
+            setTimeout(() => useInsightStore.getState().fetchCount(), 3000);
           }
         },
         onError: (error) => {

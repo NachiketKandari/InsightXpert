@@ -20,6 +20,8 @@ const PRIMARY_SECTIONS = ["direct answer", "supporting evidence"];
 // Sections rendered as collapsible dropdowns
 const SECONDARY_SECTIONS = [
   "data provenance",
+  "business recommendations",
+  "recommendations",
   "caveats",
   "follow-up suggestions",
   "follow up suggestions",
