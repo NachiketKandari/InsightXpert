@@ -13,6 +13,7 @@ from insightxpert.auth.models import (
     AgentExecutionRecord,
     ConversationRecord,
     EnrichmentTraceRecord,
+    InsightRecord,
     MessageRecord,
     OrchestratorPlanRecord,
 )
@@ -560,3 +561,139 @@ class PersistentConversationStore:
             ids = [r.id for r in records]
             session.commit()
         return ids
+
+    # --- Insights ----------------------------------------------------------
+
+    def save_insight(
+        self,
+        user_id: str,
+        org_id: str | None,
+        conversation_id: str,
+        message_id: str | None,
+        title: str,
+        summary: str,
+        content: str,
+        categories: list[str],
+        enrichment_task_count: int = 0,
+    ) -> str:
+        """Create a new InsightRecord. Returns the insight ID."""
+        import json as _json
+        with Session(self.engine) as session:
+            record = InsightRecord(
+                user_id=user_id,
+                org_id=org_id,
+                conversation_id=conversation_id,
+                message_id=message_id,
+                title=title,
+                summary=summary,
+                content=content,
+                categories=_json.dumps(categories),
+                enrichment_task_count=enrichment_task_count,
+            )
+            session.add(record)
+            session.commit()
+            return record.id
+
+    def _insight_to_dict(self, r: InsightRecord) -> dict:
+        import json as _json
+        return {
+            "id": r.id,
+            "user_id": r.user_id,
+            "org_id": r.org_id,
+            "conversation_id": r.conversation_id,
+            "message_id": r.message_id,
+            "title": r.title,
+            "summary": r.summary,
+            "content": r.content,
+            "categories": _json.loads(r.categories) if r.categories else [],
+            "enrichment_task_count": r.enrichment_task_count,
+            "is_bookmarked": r.is_bookmarked,
+            "created_at": _to_ist(r.created_at),
+        }
+
+    def get_insights(
+        self,
+        user_id: str,
+        org_id: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+        bookmarked_only: bool = False,
+    ) -> dict:
+        """Return user-scoped paginated insights with total count."""
+        with Session(self.engine) as session:
+            q = session.query(InsightRecord).filter(InsightRecord.user_id == user_id)
+            if org_id is not None:
+                q = q.filter(InsightRecord.org_id == org_id)
+            if bookmarked_only:
+                q = q.filter(InsightRecord.is_bookmarked == True)  # noqa: E712
+            total = q.count()
+            rows = q.order_by(desc(InsightRecord.created_at)).offset(offset).limit(limit).all()
+            return {
+                "insights": [self._insight_to_dict(r) for r in rows],
+                "total": total,
+            }
+
+    def get_insights_admin(
+        self,
+        scoped_user_ids: set[str] | None = None,
+        org_id: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> dict:
+        """Admin-scoped insights list, joins user email."""
+        from insightxpert.auth.models import User as UserModel
+        with Session(self.engine) as session:
+            q = session.query(InsightRecord, UserModel.email).join(
+                UserModel, InsightRecord.user_id == UserModel.id,
+            )
+            if scoped_user_ids is not None:
+                q = q.filter(InsightRecord.user_id.in_(scoped_user_ids))
+            if org_id is not None:
+                q = q.filter(InsightRecord.org_id == org_id)
+            total = q.count()
+            rows = q.order_by(desc(InsightRecord.created_at)).offset(offset).limit(limit).all()
+            return {
+                "insights": [
+                    {**self._insight_to_dict(r), "user_email": email}
+                    for r, email in rows
+                ],
+                "total": total,
+            }
+
+    def get_insight_count(self, user_id: str, org_id: str | None = None) -> int:
+        """Return total insight count for badge display."""
+        with Session(self.engine) as session:
+            q = session.query(func.count(InsightRecord.id)).filter(
+                InsightRecord.user_id == user_id,
+            )
+            if org_id is not None:
+                q = q.filter(InsightRecord.org_id == org_id)
+            return q.scalar() or 0
+
+    def get_insight(self, insight_id: str, user_id: str) -> dict | None:
+        """Return a single insight detail, scoped to user."""
+        with Session(self.engine) as session:
+            r = session.get(InsightRecord, insight_id)
+            if r is None or r.user_id != user_id:
+                return None
+            return self._insight_to_dict(r)
+
+    def bookmark_insight(self, insight_id: str, user_id: str, bookmarked: bool) -> bool:
+        """Toggle bookmark on an insight. Returns False if not found."""
+        with Session(self.engine) as session:
+            r = session.get(InsightRecord, insight_id)
+            if r is None or r.user_id != user_id:
+                return False
+            r.is_bookmarked = bookmarked
+            session.commit()
+            return True
+
+    def delete_insight(self, insight_id: str, user_id: str) -> bool:
+        """Delete an insight. Returns False if not found."""
+        with Session(self.engine) as session:
+            r = session.get(InsightRecord, insight_id)
+            if r is None or r.user_id != user_id:
+                return False
+            session.delete(r)
+            session.commit()
+            return True

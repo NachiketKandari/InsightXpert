@@ -15,6 +15,7 @@ import { useClientConfigStore } from "@/stores/client-config-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { DatasetSelector } from "./dataset-selector";
 import { NotificationBell } from "@/components/notifications/notification-bell";
+import { InsightBell } from "@/components/insights/insight-bell";
 
 export const Header = React.memo(function Header() {
   const isMobile = useIsMobile();
@@ -72,6 +73,7 @@ export const Header = React.memo(function Header() {
             <TooltipContent side="bottom">SQL Executor</TooltipContent>
           </Tooltip>
         )}
+        <InsightBell />
         <NotificationBell />
       </div>
     </header>

@@ -189,6 +189,8 @@ def _persist_response(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     generation_time_ms: int | None = None,
+    org_id: str | None = None,
+    question: str | None = None,
 ) -> None:
     if store_cid and final_answer:
         history_content = final_answer
@@ -237,6 +239,32 @@ def _persist_response(
                             persistent_store.save_agent_executions(plan_id, message_id, executions)
             except Exception as e:
                 logger.error("Failed to persist orchestrator plan/executions: %s", e, exc_info=True)
+
+        # Persist insight if enrichment produced a synthesized response
+        if message_id and chunks_blob and question:
+            try:
+                chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
+                insight_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "insight"]
+                if insight_chunks:
+                    insight_content = insight_chunks[0].get("content", "")
+                    plan_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "orchestrator_plan"]
+                    plan_data = plan_chunks[0].get("data", {}) if plan_chunks else {}
+                    reasoning = plan_data.get("reasoning", "")
+                    tasks = plan_data.get("tasks", [])
+                    categories = list({t.get("category", "") for t in tasks if t.get("category")})
+                    persistent_store.save_insight(
+                        user_id=user_id,
+                        org_id=org_id,
+                        conversation_id=persistent_cid,
+                        message_id=message_id,
+                        title=question,
+                        summary=reasoning,
+                        content=insight_content,
+                        categories=categories,
+                        enrichment_task_count=len(tasks),
+                    )
+            except Exception as e:
+                logger.error("Failed to persist insight: %s", e, exc_info=True)
 
 
 @router.post("/chat")
@@ -309,6 +337,8 @@ async def chat_sse(
                 counting_llm.input_tokens or None,
                 counting_llm.output_tokens or None,
                 generation_time_ms,
+                org_id=user.org_id,
+                question=chat_req.message,
             )
         )
 
@@ -361,6 +391,8 @@ async def _run_orchestrator_to_completion(
         counting_llm.input_tokens or None,
         counting_llm.output_tokens or None,
         generation_time_ms,
+        org_id=user.org_id,
+        question=body.message,
     )
 
     return {

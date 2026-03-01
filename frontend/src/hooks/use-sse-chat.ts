@@ -4,6 +4,7 @@ import { useCallback, useRef } from "react";
 import { useChatStore } from "@/stores/chat-store";
 import { createSSEStream, type AgentMode } from "@/lib/sse-client";
 import { parseChunk } from "@/lib/chunk-parser";
+import { useInsightStore } from "@/stores/insight-store";
 import type { AgentStep } from "@/types/chat";
 
 function generateStepId() {
@@ -52,6 +53,7 @@ export function useSSEChat() {
       // Track the last step that has status "running" so we can mark it
       // "done" as soon as the next chunk arrives (regardless of type).
       let lastRunningStepId: string | null = null;
+      let sawInsightChunk = false;
 
       const markLastRunningDone = () => {
         if (lastRunningStepId) {
@@ -186,6 +188,7 @@ export function useSSEChat() {
             addAgentStep(step);
           } else if (chunk.type === "insight") {
             markLastRunningDone();
+            sawInsightChunk = true;
             const stepId = generateStepId();
             const step: AgentStep = {
               id: stepId,
@@ -259,6 +262,10 @@ export function useSSEChat() {
           // Record total wall-clock time from user send to final chunk received.
           updateLastAssistantTime(Date.now() - sendTime, convId!);
           finishStreaming(convId!);
+          // Refresh insight badge if an insight chunk was emitted during this stream.
+          if (sawInsightChunk) {
+            useInsightStore.getState().fetchCount();
+          }
         },
         onError: (error) => {
           // Mark any running step as done before reporting the error.

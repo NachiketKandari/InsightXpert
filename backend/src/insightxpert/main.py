@@ -573,6 +573,7 @@ async def health_check():
 
 from insightxpert.datasets.routes import router as datasets_router
 from insightxpert.automations.routes import router as automations_router, notifications_router, templates_router
+from insightxpert.insights.routes import router as insights_router
 
 app.include_router(router)
 app.include_router(auth_router)
@@ -581,6 +582,7 @@ app.include_router(datasets_router)
 app.include_router(automations_router)
 app.include_router(notifications_router)
 app.include_router(templates_router)
+app.include_router(insights_router)
 
 if __name__ == "__main__":
     import os
