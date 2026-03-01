@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import { motion } from "framer-motion";
 import { Loader2, Zap } from "lucide-react";
 import { ChunkRenderer } from "@/components/chunks/chunk-renderer";
@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useChatStore } from "@/stores/chat-store";
 import { useAutomationStore } from "@/stores/automation-store";
 import { useClientConfig } from "@/hooks/use-client-config";
-import type { Message } from "@/types/chat";
+import type { Message, EnrichmentTrace } from "@/types/chat";
 
 const MessageMetrics = React.memo(function MessageMetrics({ message }: { message: Message }) {
   const { wallTimeMs, generationTimeMs, inputTokens, outputTokens } = message;
@@ -97,6 +97,14 @@ function MessageBubbleInner({
     [message.id, onFeedback],
   );
 
+  const enrichmentTraces = useMemo<EnrichmentTrace[]>(() => {
+    if (!message.chunks?.length) return [];
+    return message.chunks
+      .filter((c) => c.type === "enrichment_trace" && c.data)
+      .map((c) => c.data as unknown as EnrichmentTrace)
+      .sort((a, b) => a.source_index - b.source_index);
+  }, [message.chunks]);
+
   // Show "Create Automation" for admin, assistant messages with tool_result, and not streaming
   const hasToolResult = !isUser && message.chunks.some((c) => c.type === "tool_result");
   const showAutomationBtn = isAdmin && hasToolResult && !isStreaming;
@@ -134,6 +142,7 @@ function MessageBubbleInner({
                       : undefined
                   }
                   isStreaming={isStreaming && !!isLastAssistant}
+                  enrichmentTraces={enrichmentTraces}
                 />
               ))}
               {isStreaming && isLastAssistant && (() => {

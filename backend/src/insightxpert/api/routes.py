@@ -199,7 +199,7 @@ def _persist_response(
 
     if final_answer:
         try:
-            persistent_store.save_message(
+            message_id = persistent_store.save_message(
                 persistent_cid, user_id, "assistant", final_answer, chunks_blob,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
@@ -207,6 +207,19 @@ def _persist_response(
             )
         except Exception as e:
             logger.error("Failed to persist assistant message: %s", e, exc_info=True)
+            message_id = None
+
+        # Persist enrichment traces if present
+        if message_id and chunks_blob:
+            try:
+                chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
+                trace_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "enrichment_trace"]
+                if trace_chunks:
+                    traces = [c.get("data", {}) for c in trace_chunks if c.get("data")]
+                    if traces:
+                        persistent_store.save_enrichment_traces(message_id, traces)
+            except Exception as e:
+                logger.error("Failed to persist enrichment traces: %s", e, exc_info=True)
 
 
 @router.post("/chat")
@@ -423,6 +436,8 @@ async def schema(
 
 
 GEMINI_MODELS = [
+    "gemini-3-flash-preview",
+    "gemini-3.1-pro-preview",
     "gemini-2.5-flash",
     "gemini-2.5-pro",
     "gemini-2.5-flash-lite",
@@ -625,6 +640,14 @@ def _truncate_chunks(chunks: list[dict]) -> list[dict]:
                             chunk = {**chunk, "data": data}
                 except (json.JSONDecodeError, TypeError):
                     logger.debug("Could not parse tool_result for truncation, skipping chunk")
+        elif chunk.get("type") == "enrichment_trace" and isinstance(chunk.get("data"), dict):
+            steps = chunk["data"].get("steps")
+            if steps and isinstance(steps, list):
+                for step in steps:
+                    if step.get("type") == "tool_result" and step.get("result_data"):
+                        rd = step["result_data"]
+                        if isinstance(rd, str) and len(rd) > 2000:
+                            step["result_data"] = rd[:2000] + "…(truncated)"
         out.append(chunk)
     return out
 

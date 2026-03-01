@@ -100,7 +100,7 @@ export const AppShell = React.memo(function AppShell({ children }: { children: R
               <motion.aside
                 key="sql-sidebar"
                 initial={{ width: 0, opacity: 0 }}
-                animate={{ width: "50%", opacity: 1 }}
+                animate={{ width: "40%", opacity: 1 }}
                 exit={{ width: 0, opacity: 0 }}
                 transition={sidebarTransition}
                 className="shrink-0 overflow-hidden border-l border-border"

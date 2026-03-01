@@ -209,6 +209,8 @@ export function useSSEChat() {
             addAgentStep(step);
             // Store the clarification state so the input can show context
             useChatStore.getState().setPendingClarification(chunk.content || null);
+          } else if (chunk.type === "enrichment_trace") {
+            // Data-only chunk, stored via appendChunk but no UI step
           } else if (chunk.type === "error") {
             markLastRunningDone();
             const stepId = generateStepId();

@@ -8,7 +8,8 @@ export type ChunkType =
   | "clarification"
   | "metrics"
   | "stats_context"
-  | "insight";
+  | "insight"
+  | "enrichment_trace";
 
 export interface ChatChunk {
   type: ChunkType;
@@ -56,6 +57,30 @@ export interface SearchResult {
   updated_at: string;
   title_match: boolean;
   matching_messages: SearchMatchMessage[];
+}
+
+export interface TraceStep {
+  type: string;
+  content?: string | null;
+  timestamp: number;
+  sql?: string | null;
+  tool_name?: string | null;
+  tool_args?: Record<string, unknown> | null;
+  llm_reasoning?: string | null;
+  result_preview?: string | null;
+  result_data?: string | null;
+}
+
+export interface EnrichmentTrace {
+  source_index: number;
+  category: string;
+  question: string;
+  rationale: string;
+  final_sql?: string | null;
+  final_answer?: string | null;
+  success: boolean;
+  duration_ms?: number | null;
+  steps: TraceStep[];
 }
 
 export type AgentStepStatus = "pending" | "running" | "done" | "error";

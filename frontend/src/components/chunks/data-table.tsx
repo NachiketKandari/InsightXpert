@@ -1,14 +1,12 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface DataTableProps {
   columns: string[];
   rows: Record<string, unknown>[];
-  maxRows?: number;
-  showExpandToggle?: boolean;
+  /** Max height for the scrollable area. Set to "none" to disable (caller manages scroll). Defaults to "20rem". */
+  maxHeight?: string;
   showRowNumbers?: boolean;
   rowNumberOffset?: number;
   loading?: boolean;
@@ -20,13 +18,10 @@ interface DataTableProps {
   cellClassName?: string;
 }
 
-const EXPANDED_CAP = 100;
-
 export function DataTable({
   columns,
   rows,
-  maxRows = 10,
-  showExpandToggle = true,
+  maxHeight = "20rem",
   showRowNumbers = false,
   rowNumberOffset = 0,
   loading = false,
@@ -37,21 +32,21 @@ export function DataTable({
   rowClassName,
   cellClassName,
 }: DataTableProps) {
-  const [expanded, setExpanded] = useState(false);
-  const canExpand = showExpandToggle && rows.length > maxRows;
-  const displayRows = showExpandToggle
-    ? expanded
-      ? rows.slice(0, EXPANDED_CAP)
-      : rows.slice(0, maxRows)
-    : rows;
-  const cappedTotal = Math.min(rows.length, EXPANDED_CAP);
+  const scrollStyle = maxHeight !== "none" ? { maxHeight } : undefined;
 
   return (
-    <div className={cn("space-y-2", className)}>
-      <div className={cn("overflow-x-auto rounded-lg border border-border", tableClassName)}>
+    <div className={cn("", className)}>
+      <div
+        className={cn(
+          "overflow-x-auto rounded-lg border border-border",
+          maxHeight !== "none" && "overflow-y-auto",
+          tableClassName,
+        )}
+        style={scrollStyle}
+      >
         <table className="w-full text-sm">
           <thead>
-            <tr className={cn("bg-muted/50 sticky top-0", headerRowClassName)}>
+            <tr className={cn("bg-muted/50 sticky top-0 z-10", headerRowClassName)}>
               {showRowNumbers && (
                 <th
                   className={cn(
@@ -66,7 +61,7 @@ export function DataTable({
                 <th
                   key={col}
                   className={cn(
-                    "px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap",
+                    "px-3 py-2 text-left text-xs font-medium text-muted-foreground whitespace-nowrap bg-inherit",
                     headerCellClassName
                   )}
                 >
@@ -76,7 +71,7 @@ export function DataTable({
             </tr>
           </thead>
           <tbody className={loading ? "opacity-40 transition-opacity" : "transition-opacity"}>
-            {displayRows.map((row, i) => (
+            {rows.map((row, i) => (
               <tr
                 key={i}
                 className={
@@ -112,23 +107,10 @@ export function DataTable({
           </tbody>
         </table>
       </div>
-      {canExpand && (
-        <button
-          onClick={() => setExpanded((prev) => !prev)}
-          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-        >
-          {expanded ? (
-            <>
-              <ChevronUp className="size-3" />
-              Show less
-            </>
-          ) : (
-            <>
-              <ChevronDown className="size-3" />
-              Show all {cappedTotal} rows
-            </>
-          )}
-        </button>
+      {maxHeight !== "none" && rows.length > 0 && (
+        <p className="text-[10px] text-muted-foreground/60 mt-1 text-right">
+          {rows.length} row{rows.length !== 1 ? "s" : ""}
+        </p>
       )}
     </div>
   );

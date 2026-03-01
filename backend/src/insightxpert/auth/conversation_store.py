@@ -9,7 +9,7 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import true as sa_true
 
-from insightxpert.auth.models import ConversationRecord, MessageRecord
+from insightxpert.auth.models import ConversationRecord, EnrichmentTraceRecord, MessageRecord
 
 logger = logging.getLogger("insightxpert.auth")
 
@@ -454,3 +454,51 @@ class PersistentConversationStore:
             msg.feedback_comment = comment
             session.commit()
             return True
+
+    def save_enrichment_traces(self, message_id: str, traces: list[dict]) -> list[str]:
+        """Persist enrichment trace records for a message."""
+        import json as _json
+        ids = []
+        with Session(self.engine) as session:
+            for t in traces:
+                record = EnrichmentTraceRecord(
+                    message_id=message_id,
+                    source_index=t.get("source_index", 0),
+                    category=t.get("category", ""),
+                    question=t.get("question", ""),
+                    rationale=t.get("rationale", ""),
+                    final_sql=t.get("final_sql"),
+                    final_answer=t.get("final_answer"),
+                    success=t.get("success", False),
+                    trace_json=_json.dumps(t.get("steps")) if t.get("steps") else None,
+                    duration_ms=t.get("duration_ms"),
+                )
+                session.add(record)
+                ids.append(record.id)
+            session.commit()
+        return ids
+
+    def get_enrichment_traces(self, message_id: str) -> list[dict]:
+        """Get enrichment traces for a message, ordered by source_index."""
+        import json as _json
+        with Session(self.engine) as session:
+            records = (
+                session.query(EnrichmentTraceRecord)
+                .filter(EnrichmentTraceRecord.message_id == message_id)
+                .order_by(EnrichmentTraceRecord.source_index)
+                .all()
+            )
+            return [
+                {
+                    "source_index": r.source_index,
+                    "category": r.category,
+                    "question": r.question,
+                    "rationale": r.rationale,
+                    "final_sql": r.final_sql,
+                    "final_answer": r.final_answer,
+                    "success": r.success,
+                    "duration_ms": r.duration_ms,
+                    "steps": _json.loads(r.trace_json) if r.trace_json else [],
+                }
+                for r in records
+            ]

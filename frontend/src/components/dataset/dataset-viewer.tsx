@@ -163,7 +163,7 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
               <DataTable
                 columns={data.columns}
                 rows={data.rows}
-                showExpandToggle={false}
+                maxHeight="none"
                 showRowNumbers
                 rowNumberOffset={offset}
                 loading={loading}

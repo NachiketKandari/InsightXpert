@@ -52,6 +52,10 @@ class EnrichmentResult:
     answer: str
     success: bool
     error: str | None = None
+    rationale: str = ""
+    source_index: int = 0
+    trace_steps: list[dict] | None = None
+    duration_ms: int | None = None
 
 
 async def plan_enrichment(
@@ -133,6 +137,8 @@ async def _drain_sub_analyst(
     collected_sql = ""
     collected_rows: list[dict] = []
     collected_answer = ""
+    trace_steps: list[dict] = []
+    t0 = time.time()
 
     try:
         async for chunk in analyst_loop(
@@ -147,21 +153,46 @@ async def _drain_sub_analyst(
             documentation_override=documentation,
             clarification_enabled=False,
         ):
-            if chunk.type == "sql" and chunk.sql:
+            step: dict = {
+                "type": chunk.type,
+                "timestamp": chunk.timestamp or time.time(),
+            }
+
+            if chunk.type == "tool_call" and chunk.data:
+                step["tool_name"] = chunk.data.get("tool", "")
+                step["tool_args"] = chunk.data.get("args", {})
+                step["llm_reasoning"] = chunk.data.get("llm_reasoning", "")
+                if chunk.sql:
+                    step["sql"] = chunk.sql
+            elif chunk.type == "sql" and chunk.sql:
+                step["sql"] = chunk.sql
                 collected_sql = chunk.sql
             elif chunk.type == "tool_result" and chunk.data:
-                tool_name = chunk.data.get("tool")
-                raw = chunk.data.get("result", "")
-                if tool_name == "run_sql" and raw:
+                tool_name = chunk.data.get("tool", "")
+                step["tool_name"] = tool_name
+                result_str = str(chunk.data.get("result", ""))
+                step["result_preview"] = result_str[:500]
+                step["result_data"] = result_str
+                if tool_name == "run_sql" and chunk.data.get("result"):
                     try:
-                        parsed = json.loads(raw)
+                        parsed = json.loads(chunk.data["result"])
                         rows = parsed.get("rows", [])
                         if rows:
                             collected_rows = rows
                     except (json.JSONDecodeError, AttributeError):
                         pass
             elif chunk.type == "answer" and chunk.content:
+                step["content"] = chunk.content
                 collected_answer = chunk.content
+            elif chunk.type == "error" and chunk.content:
+                step["content"] = chunk.content
+            else:
+                if chunk.content:
+                    step["content"] = chunk.content
+
+            trace_steps.append(step)
+
+        duration_ms = int((time.time() - t0) * 1000)
 
         return EnrichmentResult(
             category=enrichment.category,
@@ -170,9 +201,13 @@ async def _drain_sub_analyst(
             rows=collected_rows,
             answer=collected_answer,
             success=bool(collected_answer),
+            rationale=enrichment.rationale,
+            trace_steps=trace_steps,
+            duration_ms=duration_ms,
         )
 
     except Exception as exc:
+        duration_ms = int((time.time() - t0) * 1000)
         logger.warning("Sub-analyst failed for '%s': %s", enrichment.question[:60], exc)
         return EnrichmentResult(
             category=enrichment.category,
@@ -182,6 +217,9 @@ async def _drain_sub_analyst(
             answer="",
             success=False,
             error=str(exc),
+            rationale=enrichment.rationale,
+            trace_steps=trace_steps,
+            duration_ms=duration_ms,
         )
 
 
@@ -242,7 +280,7 @@ async def synthesize_insight(
     """Synthesize all evidence into a leadership-grade insight via one LLM call."""
     results_summary = summarize_results(analyst_results)
 
-    # Build enrichment data block
+    # Build enrichment data block with source numbers for citation
     enrichment_entries = []
     for er in enrichment_results:
         if not er.success:
@@ -254,8 +292,9 @@ async def synthesize_insight(
             continue
 
         er_summary = summarize_results(er.rows, max_rows=10)
+        label = f"Source [{er.source_index}]: " if er.source_index else ""
         enrichment_entries.append(
-            f"### {er.category.replace('_', ' ').title()}\n"
+            f"### {label}{er.category.replace('_', ' ').title()}\n"
             f"**Question:** {er.question}\n"
             f"**SQL:** `{er.sql}`\n"
             f"**Results:** {er_summary}\n"
@@ -351,7 +390,35 @@ async def insight_enrichment_phase(
         elif isinstance(item, EnrichmentResult):
             enrichment_results.append(item)
 
-    successful = [er for er in enrichment_results if er.success]
+    # Re-order results to match original enrichment planning order
+    # (asyncio.as_completed returns in non-deterministic order)
+    result_map = {(er.category, er.question): er for er in enrichment_results}
+    ordered_results = [result_map[(eq.category, eq.question)] for eq in enrichments if (eq.category, eq.question) in result_map]
+
+    # Assign 1-based source indices and yield enrichment_trace chunks
+    source_idx = 0
+    for er in ordered_results:
+        if er.success:
+            source_idx += 1
+            er.source_index = source_idx
+            yield ChatChunk(
+                type="enrichment_trace",
+                data={
+                    "source_index": source_idx,
+                    "category": er.category,
+                    "question": er.question,
+                    "rationale": er.rationale,
+                    "final_sql": er.sql,
+                    "final_answer": er.answer,
+                    "success": True,
+                    "duration_ms": er.duration_ms,
+                    "steps": er.trace_steps,
+                },
+                conversation_id=cid,
+                timestamp=time.time(),
+            )
+
+    successful = [er for er in ordered_results if er.success]
     if not successful:
         logger.warning("All enrichments failed; analyst answer stands alone.")
         yield ChatChunk(
@@ -376,7 +443,7 @@ async def insight_enrichment_phase(
         analyst_answer=analyst_answer,
         analyst_sql=analyst_sql,
         analyst_results=analyst_results,
-        enrichment_results=enrichment_results,
+        enrichment_results=ordered_results,
         llm=llm,
         db=db,
         ddl=ddl,

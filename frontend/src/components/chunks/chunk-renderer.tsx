@@ -3,7 +3,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle, Loader2 } from "lucide-react";
-import type { ChatChunk } from "@/types/chat";
+import type { ChatChunk, EnrichmentTrace } from "@/types/chat";
 import { parseToolResult } from "@/lib/chunk-parser";
 import { detectChartType } from "@/lib/chart-detector";
 import { VALID_CHART_TYPES } from "@/lib/constants";
@@ -13,6 +13,7 @@ import { SqlChunk } from "./sql-chunk";
 import { ToolResultChunk } from "./tool-result-chunk";
 import { ChartBlock } from "./chart-block";
 import { AnswerChunk } from "./answer-chunk";
+import { InsightChunk } from "./insight-chunk";
 import { ErrorChunk } from "./error-chunk";
 import { ClarificationChunk } from "./clarification-chunk";
 import { StatsContextChunk } from "./stats-context-chunk";
@@ -45,9 +46,10 @@ interface ChunkRendererProps {
   isComplete?: boolean;
   /** When true, charts render eagerly (no IntersectionObserver). */
   isStreaming?: boolean;
+  enrichmentTraces?: EnrichmentTrace[];
 }
 
-function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererProps) {
+function ChunkRendererInner({ chunk, isComplete, isStreaming, enrichmentTraces }: ChunkRendererProps) {
   const parsed = useMemo(
     () => (chunk.type === "tool_result" ? parseToolResult(chunk) : null),
     [chunk],
@@ -136,10 +138,16 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming }: ChunkRendererPro
       content = (
         <>
           <ProgressStep label="Synthesized enriched insight" isComplete={isComplete} />
-          <AnswerChunk content={chunk.content ?? ""} />
+          {enrichmentTraces && enrichmentTraces.length > 0 ? (
+            <InsightChunk content={chunk.content ?? ""} traces={enrichmentTraces} />
+          ) : (
+            <AnswerChunk content={chunk.content ?? ""} />
+          )}
         </>
       );
       break;
+    case "enrichment_trace":
+      return null;
     case "error":
       content = <ErrorChunk content={chunk.content ?? "An error occurred"} />;
       break;

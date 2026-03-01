@@ -5,7 +5,6 @@ import { Play, AlertTriangle, Clock, Rows3, X, Loader2, Table2, BarChart3 } from
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sqlLang from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/chunks/data-table";
@@ -126,55 +125,57 @@ export function SqlExecutor({ onClose }: { onClose: () => void }) {
 
         {result && (
           <div className="flex flex-col h-full">
-            {/* Stats bar */}
-            <div className="flex items-center gap-4 px-4 py-2 text-xs text-muted-foreground border-b border-border/50">
-              <span className="flex items-center gap-1">
-                <Rows3 className="size-3" />
-                {result.row_count} row{result.row_count !== 1 ? "s" : ""}
-              </span>
-              <span className="flex items-center gap-1">
-                <Clock className="size-3" />
-                {result.execution_time_ms.toFixed(1)}ms
-              </span>
-            </div>
-
             {result.columns.length > 0 ? (
               <Tabs defaultValue="results" className="flex flex-col flex-1 min-h-0">
-                <TabsList className="mx-4 mt-2 w-fit">
-                  <TabsTrigger value="results" className="gap-1.5 text-xs">
-                    <Table2 className="size-3" />
-                    Results
-                  </TabsTrigger>
-                  <TabsTrigger value="visualize" className="gap-1.5 text-xs">
-                    <BarChart3 className="size-3" />
-                    Visualize
-                  </TabsTrigger>
-                </TabsList>
+                <div className="flex items-center justify-between px-4 pt-3">
+                  <TabsList className="w-fit">
+                    <TabsTrigger value="results" className="gap-1.5 text-xs">
+                      <Table2 className="size-3" />
+                      Results
+                    </TabsTrigger>
+                    <TabsTrigger value="visualize" className="gap-1.5 text-xs">
+                      <BarChart3 className="size-3" />
+                      Visualize
+                    </TabsTrigger>
+                  </TabsList>
+                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <Rows3 className="size-3" />
+                      {result.row_count} row{result.row_count !== 1 ? "s" : ""}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Clock className="size-3" />
+                      {result.execution_time_ms.toFixed(1)}ms
+                    </span>
+                  </div>
+                </div>
 
-                <TabsContent value="results" className="flex-1 min-h-0 mt-0">
-                  <ScrollArea className="h-full">
+                <TabsContent value="results" className="flex-1 min-h-0 mt-0 px-4 pb-4">
+                  <div className="rounded-lg border border-border bg-card overflow-auto h-full">
                     <DataTable
                       columns={result.columns}
                       rows={result.rows}
-                      showExpandToggle={false}
-                      headerRowClassName="bg-muted/50 sticky top-0 z-10"
-                      headerCellClassName="border-b border-border"
+                      maxHeight="none"
+                      headerRowClassName="bg-card sticky top-0 z-10"
+                      headerCellClassName="border-b border-border font-semibold"
                       rowClassName={(i) =>
                         i % 2 === 0
-                          ? "bg-transparent hover:bg-muted/30"
-                          : "bg-muted/20 hover:bg-muted/40"
+                          ? "bg-transparent hover:bg-muted/30 transition-colors"
+                          : "bg-muted/10 hover:bg-muted/30 transition-colors"
                       }
-                      cellClassName="border-b border-border/30"
+                      cellClassName="border-b border-border/20"
                       tableClassName="rounded-none border-none"
                     />
-                  </ScrollArea>
+                  </div>
                 </TabsContent>
 
-                <TabsContent value="visualize" className="flex-1 min-h-0 mt-0 overflow-auto">
-                  <ChartConfigurator
-                    columns={result.columns}
-                    rows={result.rows}
-                  />
+                <TabsContent value="visualize" className="flex-1 min-h-0 mt-0 overflow-auto px-4 pb-4">
+                  <div className="rounded-lg border border-border bg-card overflow-hidden">
+                    <ChartConfigurator
+                      columns={result.columns}
+                      rows={result.rows}
+                    />
+                  </div>
                 </TabsContent>
               </Tabs>
             ) : (
