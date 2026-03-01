@@ -2,6 +2,8 @@
 
 import { useEffect, useCallback, useState } from "react";
 import { Lightbulb, ExternalLink, Clock, Bookmark, Trash2 } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Dialog,
   DialogContent,
@@ -11,6 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useInsightStore } from "@/stores/insight-store";
+import { useChatStore } from "@/stores/chat-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { InsightCard } from "./insight-card";
 import { CATEGORY_COLOR, DEFAULT_CATEGORY_COLOR } from "./constants";
@@ -21,21 +24,26 @@ type Filter = "all" | "bookmarked" | "manual";
 interface InsightAllModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  initialInsight?: Insight | null;
 }
 
-export function InsightAllModal({ open, onOpenChange }: InsightAllModalProps) {
+export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightAllModalProps) {
   const { isAdmin, orgId } = useClientConfig();
   const allInsights = useInsightStore((s) => s.allInsights);
   const isLoadingAll = useInsightStore((s) => s.isLoadingAll);
   const fetchAllInsights = useInsightStore((s) => s.fetchAllInsights);
   const bookmarkInsight = useInsightStore((s) => s.bookmarkInsight);
   const deleteInsight = useInsightStore((s) => s.deleteInsight);
+  const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const [filter, setFilter] = useState<Filter>("all");
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
 
   useEffect(() => {
-    if (open) fetchAllInsights();
-  }, [open, fetchAllInsights]);
+    if (open) {
+      fetchAllInsights();
+      if (initialInsight) setSelectedInsight(initialInsight);
+    }
+  }, [open, fetchAllInsights, initialInsight]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -60,7 +68,7 @@ export function InsightAllModal({ open, onOpenChange }: InsightAllModalProps) {
 
   const handleNavigateToConversation = (conversationId: string) => {
     onOpenChange(false);
-    window.location.href = `/?c=${conversationId}`;
+    setActiveConversation(conversationId);
   };
 
   const isOrgAdmin = isAdmin && !!orgId;
@@ -249,19 +257,11 @@ function InsightDetail({
         </div>
       )}
 
-      {/* Summary */}
-      <div className="rounded-md border border-border/50 bg-muted/30 p-3">
-        <p className="text-sm leading-relaxed">{insight.summary}</p>
-      </div>
-
       {/* Full content */}
-      <div className="space-y-2">
-        <h4 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          Full Analysis
-        </h4>
-        <div className="rounded-md border border-border/50 p-3">
-          <p className="text-sm whitespace-pre-wrap leading-relaxed">{insight.content}</p>
-        </div>
+      <div className="rounded-md border border-border/50 p-4 prose prose-sm dark:prose-invert max-w-none">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+          {insight.content}
+        </ReactMarkdown>
       </div>
 
       {/* Metadata */}

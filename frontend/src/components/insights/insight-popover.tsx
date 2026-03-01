@@ -3,12 +3,14 @@
 import { Button } from "@/components/ui/button";
 import { useInsightStore } from "@/stores/insight-store";
 import { CATEGORY_COLOR, DEFAULT_CATEGORY_COLOR } from "./constants";
+import type { Insight } from "@/types/insight";
 
 interface InsightPopoverProps {
   onShowAll: () => void;
+  onSelectInsight: (insight: Insight) => void;
 }
 
-export function InsightPopover({ onShowAll }: InsightPopoverProps) {
+export function InsightPopover({ onShowAll, onSelectInsight }: InsightPopoverProps) {
   const insights = useInsightStore((s) => s.insights);
 
   const recent = insights.slice(0, 5);
@@ -30,7 +32,8 @@ export function InsightPopover({ onShowAll }: InsightPopoverProps) {
           {recent.map((i) => (
             <div
               key={i.id}
-              className="px-3 py-2.5 hover:bg-muted/50 transition-colors"
+              className="px-3 py-2.5 hover:bg-muted/50 transition-colors cursor-pointer"
+              onClick={() => onSelectInsight(i)}
             >
               <p className="text-sm font-medium truncate">{i.title}</p>
               <div className="flex items-center gap-1.5 mt-1 flex-wrap">

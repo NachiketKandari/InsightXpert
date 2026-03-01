@@ -23,9 +23,8 @@ const CITATION_RE = /\[\[(\d+)\]\]/g;
 
 // Section headers the response_generator.j2 produces (case-insensitive match).
 // Only Direct Answer is primary (always visible), everything else is collapsible.
-const PRIMARY_SECTIONS = ["direct answer"];
+const PRIMARY_SECTIONS = ["direct answer", "key evidence"];
 const SECONDARY_SECTIONS = [
-  "key evidence",
   "who",
   "what",
   "when",
