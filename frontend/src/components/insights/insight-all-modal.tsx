@@ -29,9 +29,13 @@ interface InsightAllModalProps {
 
 export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightAllModalProps) {
   const { isAdmin, orgId } = useClientConfig();
-  const allInsights = useInsightStore((s) => s.allInsights);
-  const isLoadingAll = useInsightStore((s) => s.isLoadingAll);
+  // Admins use the /all endpoint; regular users use the standard endpoint
+  const adminInsights = useInsightStore((s) => s.allInsights);
+  const userInsights = useInsightStore((s) => s.insights);
+  const allInsights = isAdmin ? adminInsights : userInsights;
+  const isLoadingAll = useInsightStore((s) => isAdmin ? s.isLoadingAll : s.isLoading);
   const fetchAllInsights = useInsightStore((s) => s.fetchAllInsights);
+  const fetchInsights = useInsightStore((s) => s.fetchInsights);
   const bookmarkInsight = useInsightStore((s) => s.bookmarkInsight);
   const deleteInsight = useInsightStore((s) => s.deleteInsight);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
@@ -40,8 +44,11 @@ export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightA
   const selectedInsight = open ? (userSelectedInsight ?? initialInsight ?? null) : null;
 
   useEffect(() => {
-    if (open) fetchAllInsights();
-  }, [open, fetchAllInsights]);
+    if (open) {
+      if (isAdmin) fetchAllInsights();
+      else fetchInsights();
+    }
+  }, [open, isAdmin, fetchAllInsights, fetchInsights]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
