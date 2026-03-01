@@ -176,32 +176,17 @@ export function InputToolbar({
             <DropdownMenuLabel className="text-xs text-muted-foreground">
               Analysis Mode
             </DropdownMenuLabel>
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                setAgentMode("basic");
-              }}
-            >
+            <DropdownMenuItem onSelect={() => setAgentMode("basic")}>
               <Sparkles className="size-4" />
               SQL Only
               {agentMode === "basic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                setAgentMode("agentic");
-              }}
-            >
+            <DropdownMenuItem onSelect={() => setAgentMode("agentic")}>
               <Zap className="size-4" />
               Agentic
               {agentMode === "agentic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                setAgentMode("deep");
-              }}
-            >
+            <DropdownMenuItem onSelect={() => setAgentMode("deep")}>
               <Brain className="size-4" />
               Deep Think
               {agentMode === "deep" && <Check className="size-3.5 ml-auto text-emerald-500" />}
@@ -235,32 +220,17 @@ export function InputToolbar({
                 Agent Mode
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setAgentMode("basic");
-                }}
-              >
+              <DropdownMenuItem onSelect={() => setAgentMode("basic")}>
                 <Sparkles className="size-4 text-amber-500" />
                 SQL Only
                 {agentMode === "basic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setAgentMode("agentic");
-                }}
-              >
+              <DropdownMenuItem onSelect={() => setAgentMode("agentic")}>
                 <Zap className="size-4 text-emerald-500" />
                 Agentic
                 {agentMode === "agentic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
               </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setAgentMode("deep");
-                }}
-              >
+              <DropdownMenuItem onSelect={() => setAgentMode("deep")}>
                 <Brain className="size-4 text-violet-500" />
                 Deep Think
                 {agentMode === "deep" && <Check className="size-3.5 ml-auto text-emerald-500" />}
