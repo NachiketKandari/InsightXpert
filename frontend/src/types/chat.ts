@@ -9,7 +9,9 @@ export type ChunkType =
   | "metrics"
   | "stats_context"
   | "insight"
-  | "enrichment_trace";
+  | "enrichment_trace"
+  | "orchestrator_plan"
+  | "agent_trace";
 
 export interface ChatChunk {
   type: ChunkType;
@@ -98,4 +100,31 @@ export interface AgentStep {
   resultData?: string;
   ragContext?: string[];
   timestamp: number;
+}
+
+export interface OrchestratorTask {
+  id: string;
+  agent: "sql_analyst" | "quant_analyst";
+  category?: string;
+  task: string;
+  depends_on: string[];
+}
+
+export interface OrchestratorPlan {
+  reasoning: string;
+  tasks: OrchestratorTask[];
+}
+
+export interface AgentTrace {
+  task_id: string;
+  agent: string;
+  category?: string;
+  task: string;
+  depends_on?: string[];
+  final_sql?: string | null;
+  final_answer?: string | null;
+  success: boolean;
+  error?: string | null;
+  duration_ms?: number | null;
+  steps?: TraceStep[] | null;
 }

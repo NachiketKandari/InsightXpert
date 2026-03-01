@@ -9,7 +9,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useChatStore } from "@/stores/chat-store";
 import { useAutomationStore } from "@/stores/automation-store";
 import { useClientConfig } from "@/hooks/use-client-config";
-import type { Message, EnrichmentTrace } from "@/types/chat";
+import type { Message, EnrichmentTrace, OrchestratorPlan, AgentTrace } from "@/types/chat";
 
 const MessageMetrics = React.memo(function MessageMetrics({ message }: { message: Message }) {
   const { wallTimeMs, generationTimeMs, inputTokens, outputTokens } = message;
@@ -105,6 +105,20 @@ function MessageBubbleInner({
       .sort((a, b) => a.source_index - b.source_index);
   }, [message.chunks]);
 
+  const orchestratorPlan = useMemo<OrchestratorPlan | null>(() => {
+    if (!message.chunks?.length) return null;
+    const planChunk = message.chunks.find((c) => c.type === "orchestrator_plan" && c.data);
+    if (!planChunk?.data) return null;
+    return planChunk.data as unknown as OrchestratorPlan;
+  }, [message.chunks]);
+
+  const agentTraces = useMemo<AgentTrace[]>(() => {
+    if (!message.chunks?.length) return [];
+    return message.chunks
+      .filter((c) => c.type === "agent_trace" && c.data)
+      .map((c) => c.data as unknown as AgentTrace);
+  }, [message.chunks]);
+
   // Show "Create Automation" for admin, assistant messages with tool_result, and not streaming
   const hasToolResult = !isUser && message.chunks.some((c) => c.type === "tool_result");
   const showAutomationBtn = isAdmin && hasToolResult && !isStreaming;
@@ -143,6 +157,8 @@ function MessageBubbleInner({
                   }
                   isStreaming={isStreaming && !!isLastAssistant}
                   enrichmentTraces={enrichmentTraces}
+                  orchestratorPlan={orchestratorPlan}
+                  agentTraces={agentTraces}
                 />
               ))}
               {isStreaming && isLastAssistant && (() => {

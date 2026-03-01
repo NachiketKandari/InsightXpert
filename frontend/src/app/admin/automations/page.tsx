@@ -6,6 +6,7 @@ import { ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAutomationStore } from "@/stores/automation-store";
 import { AutomationList } from "@/components/automations/automation-list";
+import { WorkflowBuilder } from "@/components/automations/workflow-builder";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export default function AutomationsPage() {
@@ -45,6 +46,7 @@ export default function AutomationsPage() {
       </main>
 
       <ConfirmDialog />
+      <WorkflowBuilder />
     </div>
   );
 }

@@ -19,5 +19,12 @@ def create_llm(provider: str, settings: Settings) -> LLMProvider:
     elif provider == "ollama":
         from insightxpert.llm.ollama import OllamaProvider
         return OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)
+    elif provider == "vertex_ai":
+        from insightxpert.llm.vertex import VertexAIProvider
+        return VertexAIProvider(
+            project_id=settings.gcp_project_id,
+            region=settings.vertex_ai_region,
+            model=settings.vertex_ai_model,
+        )
     else:
-        raise ValueError(f"Unknown LLM provider: {provider!r}. Supported: gemini, ollama")
+        raise ValueError(f"Unknown LLM provider: {provider!r}. Supported: gemini, ollama, vertex_ai")

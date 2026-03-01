@@ -100,6 +100,18 @@ async def list_datasets_public(
     ]
 
 
+@router.get("/public/{dataset_id}/columns")
+async def get_dataset_columns_public(
+    dataset_id: str,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Return column metadata for a dataset (no admin required)."""
+    svc = _get_dataset_service(request)
+    cols = await asyncio.to_thread(svc.get_dataset_columns, dataset_id)
+    return cols
+
+
 @router.get("/{dataset_id}")
 async def get_dataset(
     dataset_id: str,

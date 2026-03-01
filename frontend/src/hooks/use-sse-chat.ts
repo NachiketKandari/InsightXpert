@@ -4,6 +4,7 @@ import { useCallback, useRef } from "react";
 import { useChatStore } from "@/stores/chat-store";
 import { createSSEStream, type AgentMode } from "@/lib/sse-client";
 import { parseChunk } from "@/lib/chunk-parser";
+import { useInsightStore } from "@/stores/insight-store";
 import type { AgentStep } from "@/types/chat";
 
 function generateStepId() {
@@ -33,7 +34,7 @@ export function useSSEChat() {
   const isActiveStreaming = isStreaming && streamingConversationId === activeConversationId;
 
   const sendMessage = useCallback(
-    (message: string, agentMode: AgentMode = "auto") => {
+    (message: string, agentMode: AgentMode = "agentic") => {
       if (isActiveStreaming) return;
 
       let convId = activeConversationId;
@@ -52,6 +53,7 @@ export function useSSEChat() {
       // Track the last step that has status "running" so we can mark it
       // "done" as soon as the next chunk arrives (regardless of type).
       let lastRunningStepId: string | null = null;
+      let sawInsightChunk = false;
 
       const markLastRunningDone = () => {
         if (lastRunningStepId) {
@@ -186,6 +188,7 @@ export function useSSEChat() {
             addAgentStep(step);
           } else if (chunk.type === "insight") {
             markLastRunningDone();
+            sawInsightChunk = true;
             const stepId = generateStepId();
             const step: AgentStep = {
               id: stepId,
@@ -209,6 +212,36 @@ export function useSSEChat() {
             addAgentStep(step);
             // Store the clarification state so the input can show context
             useChatStore.getState().setPendingClarification(chunk.content || null);
+          } else if (chunk.type === "orchestrator_plan") {
+            markLastRunningDone();
+            const planData = chunk.data as Record<string, unknown> | undefined;
+            const tasks = (planData?.tasks as Array<Record<string, unknown>>) || [];
+            const stepId = generateStepId();
+            const step: AgentStep = {
+              id: stepId,
+              label: `Planned ${tasks.length} task${tasks.length !== 1 ? "s" : ""}`,
+              status: "done",
+              detail: (planData?.reasoning as string) || undefined,
+              timestamp: chunk.timestamp,
+            };
+            addAgentStep(step);
+            useChatStore.getState().setCurrentAgentPhase("orchestrator");
+          } else if (chunk.type === "agent_trace") {
+            markLastRunningDone();
+            const traceData = chunk.data as Record<string, unknown> | undefined;
+            const taskId = (traceData?.task_id as string) || "?";
+            const agent = (traceData?.agent as string) || "agent";
+            const success = traceData?.success as boolean;
+            const durationMs = traceData?.duration_ms as number | undefined;
+            const stepId = generateStepId();
+            const step: AgentStep = {
+              id: stepId,
+              label: `[${taskId}] ${agent}${durationMs ? ` (${(durationMs / 1000).toFixed(1)}s)` : ""}`,
+              status: success ? "done" : "error",
+              detail: (traceData?.task as string) || undefined,
+              timestamp: chunk.timestamp,
+            };
+            addAgentStep(step);
           } else if (chunk.type === "enrichment_trace") {
             // Data-only chunk, stored via appendChunk but no UI step
           } else if (chunk.type === "error") {
@@ -229,6 +262,10 @@ export function useSSEChat() {
           // Record total wall-clock time from user send to final chunk received.
           updateLastAssistantTime(Date.now() - sendTime, convId!);
           finishStreaming(convId!);
+          // Refresh insight badge if an insight chunk was emitted during this stream.
+          if (sawInsightChunk) {
+            useInsightStore.getState().fetchCount();
+          }
         },
         onError: (error) => {
           // Mark any running step as done before reporting the error.

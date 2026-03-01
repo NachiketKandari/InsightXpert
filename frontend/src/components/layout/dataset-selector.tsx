@@ -39,19 +39,9 @@ export function DatasetSelector() {
 
   const activeDataset = datasets.find((d) => d.is_active);
 
-  const handleView = (ds: DatasetInfo, e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
+  const handleView = (ds: DatasetInfo) => {
     setViewingDataset(ds);
     setViewerOpen(true);
-  };
-
-  const handleActivate = async (ds: DatasetInfo) => {
-    if (ds.is_active) return;
-    const ok = await apiCall(`/api/datasets/${ds.id}/activate`, { method: "POST" });
-    if (ok !== null) {
-      setDatasets((prev) => prev.map((d) => ({ ...d, is_active: d.id === ds.id })));
-    }
   };
 
   return (
@@ -81,35 +71,37 @@ export function DatasetSelector() {
             <DropdownMenuItem disabled>No datasets found</DropdownMenuItem>
           )}
           {datasets.map((ds) => (
-            <Tooltip key={ds.id} delayDuration={400}>
-              <TooltipTrigger asChild>
-                <DropdownMenuItem
-                  onClick={() => handleActivate(ds)}
-                  className="flex items-center gap-2 pr-1 cursor-pointer"
-                >
-                  {ds.is_active ? (
-                    <Check className="size-3.5 shrink-0 text-primary dark:text-cyan-accent" />
-                  ) : (
-                    <span className="size-3.5 shrink-0" />
-                  )}
-                  <span className="flex-1 truncate text-sm">{ds.name}</span>
+            <DropdownMenuItem
+              key={ds.id}
+              onClick={() => handleView(ds)}
+              className="flex items-center gap-2 pr-1 cursor-pointer"
+            >
+              {ds.is_active ? (
+                <Check className="size-3.5 shrink-0 text-primary dark:text-cyan-accent" />
+              ) : (
+                <span className="size-3.5 shrink-0" />
+              )}
+              <span className="flex-1 truncate text-sm">{ds.name}</span>
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
                   <Button
                     variant="ghost"
                     size="icon"
                     className="size-6 shrink-0 opacity-50 hover:opacity-100 hover:bg-accent"
-                    onClick={(e) => handleView(ds, e)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleView(ds);
+                    }}
                     aria-label={`Preview ${ds.name}`}
                   >
                     <Eye className="size-3.5" />
                   </Button>
-                </DropdownMenuItem>
-              </TooltipTrigger>
-              {ds.description && (
-                <TooltipContent side="right" className="max-w-56 text-xs">
-                  {ds.description}
+                </TooltipTrigger>
+                <TooltipContent side="right" className="text-xs">
+                  Preview data &amp; columns
                 </TooltipContent>
-              )}
-            </Tooltip>
+              </Tooltip>
+            </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
       </DropdownMenu>
@@ -119,6 +111,8 @@ export function DatasetSelector() {
         onOpenChange={setViewerOpen}
         tableName={viewingDataset?.table_name ?? "transactions"}
         datasetName={viewingDataset?.name}
+        description={viewingDataset?.description}
+        datasetId={viewingDataset?.id}
       />
     </>
   );

@@ -32,7 +32,7 @@ const ToolResultChunkInner = function ToolResultChunk({ chunk, parsedData }: Too
     () => parsedData !== undefined ? parsedData : parseToolResult(chunk),
     [chunk, parsedData],
   );
-  const isAdvanced = chunk.data?.agent === "advanced" || chunk.data?.agent === "statistician";
+  const isAdvanced = chunk.data?.agent === "advanced" || chunk.data?.agent === "statistician" || chunk.data?.agent === "quant_analyst";
   const [open, setOpen] = useState(!isAdvanced);
 
   if (!parsed) {

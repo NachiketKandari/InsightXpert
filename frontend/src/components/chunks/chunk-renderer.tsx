@@ -3,7 +3,8 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { CheckCircle, Loader2 } from "lucide-react";
-import type { ChatChunk, EnrichmentTrace } from "@/types/chat";
+import type { ChatChunk, EnrichmentTrace, OrchestratorPlan, AgentTrace } from "@/types/chat";
+import { ThinkingTrace } from "./thinking-trace";
 import { parseToolResult } from "@/lib/chunk-parser";
 import { detectChartType } from "@/lib/chart-detector";
 import { VALID_CHART_TYPES } from "@/lib/constants";
@@ -47,9 +48,11 @@ interface ChunkRendererProps {
   /** When true, charts render eagerly (no IntersectionObserver). */
   isStreaming?: boolean;
   enrichmentTraces?: EnrichmentTrace[];
+  orchestratorPlan?: OrchestratorPlan | null;
+  agentTraces?: AgentTrace[];
 }
 
-function ChunkRendererInner({ chunk, isComplete, isStreaming, enrichmentTraces }: ChunkRendererProps) {
+function ChunkRendererInner({ chunk, isComplete, isStreaming, enrichmentTraces, orchestratorPlan, agentTraces }: ChunkRendererProps) {
   const parsed = useMemo(
     () => (chunk.type === "tool_result" ? parseToolResult(chunk) : null),
     [chunk],
@@ -137,6 +140,11 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming, enrichmentTraces }
     case "insight":
       content = (
         <>
+          {orchestratorPlan && agentTraces && agentTraces.length > 0 && (
+            <div className="mb-3">
+              <ThinkingTrace plan={orchestratorPlan} traces={agentTraces} enrichmentTraces={enrichmentTraces} />
+            </div>
+          )}
           <ProgressStep label="Synthesized enriched insight" isComplete={isComplete} />
           {enrichmentTraces && enrichmentTraces.length > 0 ? (
             <InsightChunk content={chunk.content ?? ""} traces={enrichmentTraces} />
@@ -146,6 +154,10 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming, enrichmentTraces }
         </>
       );
       break;
+    case "orchestrator_plan":
+      return null;
+    case "agent_trace":
+      return null;
     case "enrichment_trace":
       return null;
     case "error":

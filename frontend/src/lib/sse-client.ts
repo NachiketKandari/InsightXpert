@@ -6,7 +6,7 @@ export interface SSECallbacks {
   onError: (error: Error) => void;
 }
 
-export type AgentMode = "auto" | "analyst" | "statistician" | "advanced" | "agentic";
+export type AgentMode = "basic" | "agentic";
 
 export interface SSEOptions {
   skipClarification?: boolean;
@@ -16,7 +16,7 @@ export function createSSEStream(
   message: string,
   conversationId: string | null,
   callbacks: SSECallbacks,
-  agentMode: AgentMode = "auto",
+  agentMode: AgentMode = "agentic",
   options: SSEOptions = {},
 ): AbortController {
   const controller = new AbortController();

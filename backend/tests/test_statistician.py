@@ -1,4 +1,4 @@
-"""Tests for the statistician agent and statistical tools."""
+"""Tests for statistical tools."""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ import json
 
 import pytest
 
-from .conftest import MockLLM
 from insightxpert.agents.stat_tools import (
     ComputeCorrelationTool,
     ComputeDescriptiveStatsTool,
@@ -15,9 +14,7 @@ from insightxpert.agents.stat_tools import (
     TestHypothesisTool,
     statistician_registry,
 )
-from insightxpert.agents.statistician import statistician_loop
 from insightxpert.agents.tool_base import ToolContext
-from insightxpert.llm.base import LLMResponse, ToolCall
 
 
 # ---------------------------------------------------------------------------
@@ -281,115 +278,3 @@ async def test_statistician_registry_has_all_tools():
         "compute_correlation", "fit_distribution", "run_sql",
     }
 
-
-# ---------------------------------------------------------------------------
-# Statistician Loop Tests
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_statistician_loop_basic(db_connector, rag_store, settings):
-    """Test that the statistician loop runs and produces an answer."""
-    mock_llm = MockLLM([
-        LLMResponse(
-            content=None,
-            tool_calls=[ToolCall(
-                id="tc1",
-                name="compute_descriptive_stats",
-                arguments={"column": "amount"},
-            )],
-        ),
-        LLMResponse(
-            content="The amount column has a mean of 1870 with high variance.",
-            tool_calls=[],
-        ),
-    ])
-
-    chunks = []
-    async for chunk in statistician_loop(
-        question="What is the average transaction amount?",
-        analyst_results=SAMPLE_RESULTS,
-        analyst_sql=SAMPLE_SQL,
-        llm=mock_llm,
-        db=db_connector,
-        rag=rag_store,
-        config=settings,
-        conversation_id="test-stat-1",
-    ):
-        chunks.append(chunk)
-
-    types = [c.type for c in chunks]
-    assert "status" in types
-    assert "tool_call" in types
-    assert "tool_result" in types
-    assert "answer" in types
-
-    # All chunks should have agent=statistician in data
-    for c in chunks:
-        if c.data:
-            assert c.data.get("agent") == "statistician"
-
-    answer = next(c for c in chunks if c.type == "answer")
-    assert "1870" in answer.content
-
-
-@pytest.mark.asyncio
-async def test_statistician_loop_max_iterations(db_connector, rag_store, settings):
-    """Test that the statistician stops after max iterations."""
-    settings.max_statistician_iterations = 2
-
-    infinite_tool = LLMResponse(
-        content=None,
-        tool_calls=[ToolCall(
-            id="tc1",
-            name="compute_descriptive_stats",
-            arguments={"column": "amount"},
-        )],
-    )
-    mock_llm = MockLLM([infinite_tool, infinite_tool, infinite_tool])
-
-    chunks = []
-    async for chunk in statistician_loop(
-        question="test",
-        analyst_results=SAMPLE_RESULTS,
-        analyst_sql=SAMPLE_SQL,
-        llm=mock_llm,
-        db=db_connector,
-        rag=rag_store,
-        config=settings,
-        conversation_id="test-stat-max",
-    ):
-        chunks.append(chunk)
-
-    error_chunks = [c for c in chunks if c.type == "error"]
-    assert len(error_chunks) == 1
-    assert "maximum iterations" in error_chunks[0].content.lower()
-
-
-@pytest.mark.asyncio
-async def test_statistician_loop_direct_answer(db_connector, rag_store, settings):
-    """Test statistician that answers immediately without tools."""
-    mock_llm = MockLLM([
-        LLMResponse(
-            content="The data shows a clear upward trend with statistical significance.",
-            tool_calls=[],
-        ),
-    ])
-
-    chunks = []
-    async for chunk in statistician_loop(
-        question="Summarize the trends",
-        analyst_results=SAMPLE_RESULTS,
-        analyst_sql=SAMPLE_SQL,
-        llm=mock_llm,
-        db=db_connector,
-        rag=rag_store,
-        config=settings,
-        conversation_id="test-stat-direct",
-    ):
-        chunks.append(chunk)
-
-    types = [c.type for c in chunks]
-    assert "answer" in types
-    answer = next(c for c in chunks if c.type == "answer")
-    assert "statistical significance" in answer.content

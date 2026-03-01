@@ -38,4 +38,9 @@ SCHEMA_INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_automation_triggers_auto_id ON automation_triggers (automation_id)",
     "CREATE INDEX IF NOT EXISTS ix_trigger_templates_created_by ON trigger_templates (created_by)",
     "CREATE INDEX IF NOT EXISTS ix_enrichment_traces_message ON enrichment_traces (message_id)",
+    "CREATE INDEX IF NOT EXISTS ix_insights_user_id ON insights (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_insights_org_id ON insights (org_id)",
+    "CREATE INDEX IF NOT EXISTS ix_insights_user_created ON insights (user_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_insights_org_created ON insights (org_id, created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_insights_created_at ON insights (created_at)",
 ]

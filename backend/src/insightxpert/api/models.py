@@ -3,14 +3,27 @@ from __future__ import annotations
 import time
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+
+_LEGACY_MODE_MAP = {
+    "auto": "agentic",
+    "statistician": "agentic",
+    "advanced": "agentic",
+    "analyst": "basic",
+}
 
 
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
-    agent_mode: Literal["auto", "analyst", "statistician", "advanced", "agentic"] = "auto"
+    agent_mode: Literal["basic", "agentic"] = "agentic"
     skip_clarification: bool = False
+
+    @field_validator("agent_mode", mode="before")
+    @classmethod
+    def _map_legacy_modes(cls, v: str) -> str:
+        return _LEGACY_MODE_MAP.get(v, v)
 
 
 class ChatChunk(BaseModel):

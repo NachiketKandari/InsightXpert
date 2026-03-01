@@ -5,14 +5,13 @@ import {
   Plus,
   Paperclip,
   TerminalSquare,
-  FlaskConical,
-  BrainCircuit,
   Sparkles,
   Zap,
   Check,
   ChevronDown,
   ArrowUp,
   Square,
+  Network,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -82,15 +81,11 @@ export function InputToolbar({
 
   // Resolve what the agent mode tag should display
   const showPhase = isStreaming && !!currentAgentPhase;
-  const activeKey = showPhase
-    ? currentAgentPhase!
-    : agentMode === "statistician"
-      ? "auto"
-      : agentMode;
+  const activeKey = showPhase ? currentAgentPhase! : agentMode;
 
   const modeConfig = {
-    analyst: {
-      label: "Analyst",
+    basic: {
+      label: "SQL Only",
       icon: Sparkles,
       color: "text-amber-500",
       bg: "bg-amber-500/10",
@@ -103,6 +98,20 @@ export function InputToolbar({
       bg: "bg-emerald-500/10",
       border: "border-emerald-500/30",
     },
+    analyst: {
+      label: "Analyzing",
+      icon: Sparkles,
+      color: "text-amber-500",
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/30",
+    },
+    orchestrator: {
+      label: "Orchestrating",
+      icon: Network,
+      color: "text-cyan-500",
+      bg: "bg-cyan-500/10",
+      border: "border-cyan-500/30",
+    },
     insight: {
       label: "Insight",
       icon: Zap,
@@ -110,30 +119,9 @@ export function InputToolbar({
       bg: "bg-emerald-500/10",
       border: "border-emerald-500/30",
     },
-    auto: {
-      label: "Statistician",
-      icon: FlaskConical,
-      color: "text-blue-500",
-      bg: "bg-blue-500/10",
-      border: "border-blue-500/30",
-    },
-    statistician: {
-      label: "Statistician",
-      icon: FlaskConical,
-      color: "text-blue-500",
-      bg: "bg-blue-500/10",
-      border: "border-blue-500/30",
-    },
-    advanced: {
-      label: "Advanced",
-      icon: BrainCircuit,
-      color: "text-purple-500",
-      bg: "bg-purple-500/10",
-      border: "border-purple-500/30",
-    },
   } as const;
 
-  const active = modeConfig[activeKey as keyof typeof modeConfig] ?? modeConfig.analyst;
+  const active = modeConfig[activeKey as keyof typeof modeConfig] ?? modeConfig.basic;
   const ActiveIcon = active.icon;
 
   return (
@@ -176,12 +164,12 @@ export function InputToolbar({
             <DropdownMenuItem
               onSelect={(e) => {
                 e.preventDefault();
-                setAgentMode("analyst");
+                setAgentMode("basic");
               }}
             >
               <Sparkles className="size-4" />
               SQL Only
-              {agentMode === "analyst" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+              {agentMode === "basic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
             </DropdownMenuItem>
             <DropdownMenuItem
               onSelect={(e) => {
@@ -192,26 +180,6 @@ export function InputToolbar({
               <Zap className="size-4" />
               Agentic
               {agentMode === "agentic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                setAgentMode("auto");
-              }}
-            >
-              <FlaskConical className="size-4" />
-              Statistician
-              {(agentMode === "auto" || agentMode === "statistician") && <Check className="size-3.5 ml-auto text-emerald-500" />}
-            </DropdownMenuItem>
-            <DropdownMenuItem
-              onSelect={(e) => {
-                e.preventDefault();
-                setAgentMode("advanced");
-              }}
-            >
-              <BrainCircuit className="size-4" />
-              Advanced Analytics
-              {agentMode === "advanced" && <Check className="size-3.5 ml-auto text-emerald-500" />}
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -245,12 +213,12 @@ export function InputToolbar({
               <DropdownMenuItem
                 onSelect={(e) => {
                   e.preventDefault();
-                  setAgentMode("analyst");
+                  setAgentMode("basic");
                 }}
               >
                 <Sparkles className="size-4 text-amber-500" />
-                Analyst
-                {agentMode === "analyst" && <Check className="size-3.5 ml-auto text-emerald-500" />}
+                SQL Only
+                {agentMode === "basic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={(e) => {
@@ -261,26 +229,6 @@ export function InputToolbar({
                 <Zap className="size-4 text-emerald-500" />
                 Agentic
                 {agentMode === "agentic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setAgentMode("auto");
-                }}
-              >
-                <FlaskConical className="size-4 text-blue-500" />
-                Statistician
-                {(agentMode === "auto" || agentMode === "statistician") && <Check className="size-3.5 ml-auto text-emerald-500" />}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                onSelect={(e) => {
-                  e.preventDefault();
-                  setAgentMode("advanced");
-                }}
-              >
-                <BrainCircuit className="size-4 text-purple-500" />
-                Advanced
-                {agentMode === "advanced" && <Check className="size-3.5 ml-auto text-emerald-500" />}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>

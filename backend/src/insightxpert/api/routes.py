@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import re
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 from insightxpert.agents.orchestrator import orchestrator_loop
@@ -189,6 +192,8 @@ def _persist_response(
     input_tokens: int | None = None,
     output_tokens: int | None = None,
     generation_time_ms: int | None = None,
+    org_id: str | None = None,
+    question: str | None = None,
 ) -> None:
     if store_cid and final_answer:
         history_content = final_answer
@@ -209,7 +214,7 @@ def _persist_response(
             logger.error("Failed to persist assistant message: %s", e, exc_info=True)
             message_id = None
 
-        # Persist enrichment traces if present
+        # Persist enrichment traces if present (legacy conversations)
         if message_id and chunks_blob:
             try:
                 chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
@@ -221,6 +226,49 @@ def _persist_response(
             except Exception as e:
                 logger.error("Failed to persist enrichment traces: %s", e, exc_info=True)
 
+        # Persist orchestrator plan and agent executions
+        if message_id and chunks_blob:
+            try:
+                chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
+                plan_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "orchestrator_plan"]
+                if plan_chunks:
+                    plan_data = plan_chunks[0].get("data", {})
+                    plan_id = persistent_store.save_orchestrator_plan(message_id, plan_data)
+
+                    agent_trace_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "agent_trace"]
+                    if agent_trace_chunks and plan_id:
+                        executions = [c.get("data", {}) for c in agent_trace_chunks if c.get("data")]
+                        if executions:
+                            persistent_store.save_agent_executions(plan_id, message_id, executions)
+            except Exception as e:
+                logger.error("Failed to persist orchestrator plan/executions: %s", e, exc_info=True)
+
+        # Persist insight if enrichment produced a synthesized response
+        if message_id and chunks_blob and question:
+            try:
+                chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
+                insight_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "insight"]
+                if insight_chunks:
+                    insight_content = insight_chunks[0].get("content", "")
+                    plan_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "orchestrator_plan"]
+                    plan_data = plan_chunks[0].get("data", {}) if plan_chunks else {}
+                    reasoning = plan_data.get("reasoning", "")
+                    tasks = plan_data.get("tasks", [])
+                    categories = list({t.get("category", "") for t in tasks if t.get("category")})
+                    persistent_store.save_insight(
+                        user_id=user_id,
+                        org_id=org_id,
+                        conversation_id=persistent_cid,
+                        message_id=message_id,
+                        title=question,
+                        summary=reasoning,
+                        content=insight_content,
+                        categories=categories,
+                        enrichment_task_count=len(tasks),
+                    )
+            except Exception as e:
+                logger.error("Failed to persist insight: %s", e, exc_info=True)
+
 
 @router.post("/chat")
 async def chat_sse(
@@ -228,7 +276,7 @@ async def chat_sse(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
+    logger.info("POST /chat (SSE) message=%r conv=%s user=%s mode=%s", chat_req.message[:80], chat_req.conversation_id, user.email, chat_req.agent_mode)
     llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
     features = _resolve_user_features(request, user)
 
@@ -292,6 +340,8 @@ async def chat_sse(
                 counting_llm.input_tokens or None,
                 counting_llm.output_tokens or None,
                 generation_time_ms,
+                org_id=user.org_id,
+                question=chat_req.message,
             )
         )
 
@@ -344,6 +394,8 @@ async def _run_orchestrator_to_completion(
         counting_llm.input_tokens or None,
         counting_llm.output_tokens or None,
         generation_time_ms,
+        org_id=user.org_id,
+        question=body.message,
     )
 
     return {
@@ -445,6 +497,10 @@ GEMINI_MODELS = [
     "gemini-2.0-flash-lite",
 ]
 
+VERTEX_AI_MODELS = [
+    "zai-org/glm-5-maas",
+]
+
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     request: Request,
@@ -460,6 +516,10 @@ async def get_config(
     providers = [
         ProviderModels(provider="gemini", models=GEMINI_MODELS),
     ]
+
+    # Advertise Vertex AI if GCP project is configured
+    if settings.gcp_project_id:
+        providers.append(ProviderModels(provider="vertex_ai", models=VERTEX_AI_MODELS))
 
     # Only advertise Ollama if it's actually reachable
     try:
@@ -514,6 +574,7 @@ async def switch_model(
     prev_provider = settings.llm_provider
     prev_gemini_model = settings.gemini_model
     prev_ollama_model = settings.ollama_model
+    prev_vertex_model = settings.vertex_ai_model
 
     if req.provider == "gemini":
         settings.llm_provider = LLMProviderEnum.GEMINI
@@ -521,6 +582,9 @@ async def switch_model(
     elif req.provider == "ollama":
         settings.llm_provider = LLMProviderEnum.OLLAMA
         settings.ollama_model = req.model
+    elif req.provider == "vertex_ai":
+        settings.llm_provider = LLMProviderEnum.VERTEX_AI
+        settings.vertex_ai_model = req.model
 
     try:
         new_llm = create_llm(req.provider, settings)
@@ -529,6 +593,7 @@ async def switch_model(
         settings.llm_provider = prev_provider
         settings.gemini_model = prev_gemini_model
         settings.ollama_model = prev_ollama_model
+        settings.vertex_ai_model = prev_vertex_model
         raise HTTPException(status_code=400, detail=str(e))
 
     request.app.state.llm = new_llm
@@ -580,6 +645,55 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
         rows=rows,
         row_count=len(rows),
         execution_time_ms=round(ms, 2),
+    )
+
+
+@router.get("/sql/export-csv")
+async def export_csv(request: Request, table: str = "transactions"):
+    """Export an entire table as a CSV file download."""
+    _, db, _, _, _, _ = _get_deps(request)
+
+    # Validate table name against known tables to prevent SQL injection
+    known_tables = db.get_tables()
+    if table not in known_tables:
+        raise HTTPException(status_code=400, detail=f"Unknown table: {table}")
+
+    def generate():
+        from sqlalchemy import text as sa_text
+
+        with db.engine.connect() as conn:
+            if db.dialect == "sqlite":
+                conn.execute(sa_text("PRAGMA query_only = ON"))
+            try:
+                result = conn.execute(sa_text(f"SELECT * FROM {table}"))
+                columns = list(result.keys())
+
+                # Write header
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(columns)
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
+
+                # Stream rows in batches
+                while True:
+                    rows = result.fetchmany(5000)
+                    if not rows:
+                        break
+                    for row in rows:
+                        output.seek(0)
+                        output.truncate(0)
+                        writer.writerow(row)
+                        yield output.getvalue()
+            finally:
+                if db.dialect == "sqlite":
+                    conn.execute(sa_text("PRAGMA query_only = OFF"))
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="insightxpert-{table}.csv"'},
     )
 
 
@@ -648,6 +762,14 @@ def _truncate_chunks(chunks: list[dict]) -> list[dict]:
                         rd = step["result_data"]
                         if isinstance(rd, str) and len(rd) > 2000:
                             step["result_data"] = rd[:2000] + "…(truncated)"
+        elif chunk.get("type") == "agent_trace" and isinstance(chunk.get("data"), dict):
+            steps = chunk["data"].get("steps")
+            if steps and isinstance(steps, list):
+                for step in steps:
+                    if step.get("result_preview"):
+                        rp = step["result_preview"]
+                        if isinstance(rp, str) and len(rp) > 2000:
+                            step["result_preview"] = rp[:2000] + "…(truncated)"
         out.append(chunk)
     return out
 
