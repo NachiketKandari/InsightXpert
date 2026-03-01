@@ -230,6 +230,8 @@ async def deep_think_loop(
     stats_context: str | None = None,
     stats_groups: list[str] | None = None,
     clarification_enabled: bool = False,
+    investigation_tasks: list[dict] | None = None,
+    prior_evidence: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the Deep Think 5W1H pipeline.
 
@@ -239,6 +241,29 @@ async def deep_think_loop(
 
     effective_ddl = ddl or ""
     effective_docs = documentation or ""
+
+    # --- Investigation follow-up early return ---
+    if investigation_tasks:
+        from insightxpert.agents.orchestrator import _run_investigation_followup
+
+        async for chunk in _run_investigation_followup(
+            question=question,
+            investigation_tasks=investigation_tasks,
+            prior_evidence=prior_evidence or "",
+            llm=llm,
+            db=db,
+            rag=rag,
+            config=config,
+            conversation_id=cid,
+            ddl=effective_ddl,
+            documentation=effective_docs,
+            ddl_override=ddl,
+            docs_override=documentation,
+            stats_context=stats_context,
+            stats_groups=stats_groups,
+        ):
+            yield chunk
+        return
 
     # ── Phase 1: Dimension Extraction ─────────────────────────────────
     yield ChatChunk(
@@ -431,3 +456,44 @@ async def deep_think_loop(
         conversation_id=cid,
         timestamp=time.time(),
     )
+
+    # ── Phase 5: Evaluate for investigation follow-up ─────────────────
+    try:
+        from insightxpert.agents.orchestrator_planner import evaluate_for_investigation
+
+        evidence_text = build_evidence_blocks(question, enrichment_plan, results, original)
+        existing_ids = [t.id for t in enrichment_plan.tasks]
+        investigation = await evaluate_for_investigation(
+            question=question,
+            analyst_sql=collector.sql,
+            analyst_answer=collector.answer,
+            enrichment_evidence=evidence_text,
+            synthesized_insight=synthesized,
+            existing_task_ids=existing_ids,
+            llm=llm,
+            ddl=effective_ddl,
+            documentation=effective_docs,
+        )
+        if investigation:
+            yield ChatChunk(
+                type="investigation_suggestion",
+                content=investigation.reasoning,
+                data={
+                    "reasoning": investigation.reasoning,
+                    "tasks": [
+                        {
+                            "id": t.id,
+                            "agent": t.agent,
+                            "category": t.category,
+                            "task": t.task,
+                            "depends_on": t.depends_on,
+                        }
+                        for t in investigation.tasks
+                    ],
+                    "prior_evidence": evidence_text,
+                },
+                conversation_id=cid,
+                timestamp=time.time(),
+            )
+    except Exception as exc:
+        logger.warning("Investigation evaluation failed, skipping: %s", exc)

@@ -9,15 +9,24 @@ import { MessageList } from "@/components/chat/message-list";
 import { MessageInput } from "@/components/chat/message-input";
 
 export function ChatPanel() {
-  const { sendMessage, stopStreaming, isStreaming } = useSSEChat();
+  const { sendMessage, sendInvestigation, stopStreaming, isStreaming } = useSSEChat();
   const agentMode = useSettingsStore((s) => s.agentMode);
   const conversation = useChatStore((s) => s.activeConversation());
   const isLoadingConversation = useChatStore((s) => s.isLoadingConversation);
   const hasMessages = conversation && conversation.messages.length > 0;
 
   const handleSend = useCallback(
-    (message: string) => sendMessage(message, agentMode),
-    [sendMessage, agentMode],
+    (message: string) => {
+      if (message === "__INVESTIGATE__") {
+        const investigation = useChatStore.getState().pendingInvestigation;
+        if (investigation) {
+          sendInvestigation(investigation, agentMode);
+          return;
+        }
+      }
+      sendMessage(message, agentMode);
+    },
+    [sendMessage, sendInvestigation, agentMode],
   );
 
   return (

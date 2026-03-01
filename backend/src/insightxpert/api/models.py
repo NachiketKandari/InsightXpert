@@ -19,6 +19,8 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     agent_mode: Literal["basic", "agentic", "deep"] = "agentic"
     skip_clarification: bool = False
+    investigation_tasks: list[dict] | None = None
+    prior_evidence: str | None = None
 
     @field_validator("agent_mode", mode="before")
     @classmethod

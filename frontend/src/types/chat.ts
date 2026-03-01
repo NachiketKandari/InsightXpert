@@ -11,7 +11,8 @@ export type ChunkType =
   | "insight"
   | "enrichment_trace"
   | "orchestrator_plan"
-  | "agent_trace";
+  | "agent_trace"
+  | "investigation_suggestion";
 
 export interface ChatChunk {
   type: ChunkType;
@@ -127,4 +128,16 @@ export interface AgentTrace {
   error?: string | null;
   duration_ms?: number | null;
   steps?: TraceStep[] | null;
+}
+
+export interface InvestigationSuggestion {
+  reasoning: string;
+  tasks: Array<{
+    id: string;
+    agent: string;
+    task: string;
+    depends_on: string[];
+    category?: string;
+  }>;
+  prior_evidence: string;
 }

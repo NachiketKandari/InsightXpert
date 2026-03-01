@@ -16,21 +16,28 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 from typing import AsyncGenerator
 
 from insightxpert.agents.analyst import analyst_loop
 from insightxpert.agents.common import (
+    CATEGORY_LABELS,
     AnalystCollector,
     build_dag_callbacks,
+    build_evidence_blocks,
     yield_enrichment_traces,
 )
 from insightxpert.agents.dag_executor import (
+    OrchestratorPlan,
     SubTask,
     SubTaskResult,
     execute_dag,
 )
-from insightxpert.agents.orchestrator_planner import evaluate_for_enrichment
+from insightxpert.agents.orchestrator_planner import (
+    evaluate_for_enrichment,
+    evaluate_for_investigation,
+)
 from insightxpert.agents.quant_analyst import quant_analyst_loop
 from insightxpert.agents.response_generator import generate_response
 from insightxpert.api.models import ChatChunk
@@ -57,6 +64,8 @@ async def orchestrator_loop(
     skip_clarification: bool = False,
     stats_context_injection: bool = False,
     clarification_enabled: bool = False,
+    investigation_tasks: list[dict] | None = None,
+    prior_evidence: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the orchestrator pipeline.
 
@@ -106,6 +115,27 @@ async def orchestrator_loop(
 
     cid = conversation_id or ""
 
+    # --- Investigation follow-up early return ---
+    if investigation_tasks:
+        async for chunk in _run_investigation_followup(
+            question=question,
+            investigation_tasks=investigation_tasks,
+            prior_evidence=prior_evidence or "",
+            llm=llm,
+            db=db,
+            rag=rag,
+            config=config,
+            conversation_id=cid,
+            ddl=effective_ddl,
+            documentation=effective_docs,
+            ddl_override=ddl_override,
+            docs_override=docs_override,
+            stats_context=stats_context,
+            stats_groups=stats_groups,
+        ):
+            yield chunk
+        return
+
     if agent_mode == "basic":
         # --- Basic mode: analyst only (no orchestration) ---
         async for chunk in analyst_loop(
@@ -142,6 +172,8 @@ async def orchestrator_loop(
             stats_context=stats_context,
             stats_groups=stats_groups,
             clarification_enabled=effective_clarification,
+            investigation_tasks=investigation_tasks,
+            prior_evidence=prior_evidence,
         ):
             yield chunk
         return
@@ -344,6 +376,45 @@ async def orchestrator_loop(
         timestamp=time.time(),
     )
 
+    # ── Phase 6: Evaluate for investigation follow-up ─────────────────
+    try:
+        evidence_text = build_evidence_blocks(question, enrichment_plan, results, original)
+        existing_ids = [t.id for t in enrichment_plan.tasks]
+        investigation = await evaluate_for_investigation(
+            question=question,
+            analyst_sql=collector.sql,
+            analyst_answer=collector.answer,
+            enrichment_evidence=evidence_text,
+            synthesized_insight=synthesized,
+            existing_task_ids=existing_ids,
+            llm=llm,
+            ddl=effective_ddl,
+            documentation=effective_docs,
+        )
+        if investigation:
+            yield ChatChunk(
+                type="investigation_suggestion",
+                content=investigation.reasoning,
+                data={
+                    "reasoning": investigation.reasoning,
+                    "tasks": [
+                        {
+                            "id": t.id,
+                            "agent": t.agent,
+                            "category": t.category,
+                            "task": t.task,
+                            "depends_on": t.depends_on,
+                        }
+                        for t in investigation.tasks
+                    ],
+                    "prior_evidence": evidence_text,
+                },
+                conversation_id=cid,
+                timestamp=time.time(),
+            )
+    except Exception as exc:
+        logger.warning("Investigation evaluation failed, skipping: %s", exc)
+
 
 async def _run_sql_analyst(
     task: SubTask,
@@ -528,3 +599,210 @@ async def _run_quant_analyst(
             trace_steps=trace_steps,
             duration_ms=duration_ms,
         )
+
+
+# ---------------------------------------------------------------------------
+# Investigation follow-up (stateless re-entry)
+# ---------------------------------------------------------------------------
+
+
+async def _run_investigation_followup(
+    question: str,
+    investigation_tasks: list[dict],
+    prior_evidence: str,
+    llm: LLMProvider,
+    db: DatabaseConnector,
+    rag: VectorStore,
+    config: Settings,
+    conversation_id: str,
+    ddl: str,
+    documentation: str,
+    ddl_override: str | None = None,
+    docs_override: str | None = None,
+    stats_context: str | None = None,
+    stats_groups: list[str] | None = None,
+) -> AsyncGenerator[ChatChunk, None]:
+    """Execute investigation follow-up tasks and re-synthesize with combined evidence.
+
+    This is the stateless re-entry path when the user clicks "Investigate".
+    The frontend sends the follow-up tasks + prior_evidence from the suggestion chunk.
+    """
+    cid = conversation_id
+
+    # Parse investigation tasks into SubTask objects
+    tasks: list[SubTask] = []
+    for item in investigation_tasks:
+        task_id = str(item.get("id", "")).upper()
+        task_desc = str(item.get("task", ""))
+        category = str(item.get("category", "")).lower()
+        if not task_id or not task_desc:
+            continue
+        tasks.append(SubTask(
+            id=task_id,
+            agent="sql_analyst",
+            task=task_desc,
+            depends_on=[],
+            category=category,
+        ))
+
+    if not tasks:
+        yield ChatChunk(
+            type="status",
+            content="No valid investigation tasks found",
+            data={"agent": "orchestrator", "phase": "investigation_failed"},
+            conversation_id=cid,
+            timestamp=time.time(),
+        )
+        return
+
+    plan = OrchestratorPlan(
+        reasoning="Follow-up investigation",
+        tasks=tasks,
+    )
+
+    yield ChatChunk(
+        type="orchestrator_plan",
+        data={
+            "reasoning": plan.reasoning,
+            "tasks": [
+                {
+                    "id": t.id,
+                    "agent": t.agent,
+                    "task": t.task,
+                    "depends_on": t.depends_on,
+                    "category": t.category,
+                }
+                for t in plan.tasks
+            ],
+        },
+        content=f"Investigating {len(plan.tasks)} follow-up question{'s' if len(plan.tasks) != 1 else ''}",
+        conversation_id=cid,
+        timestamp=time.time(),
+    )
+
+    yield ChatChunk(
+        type="status",
+        content=f"Running {len(plan.tasks)} investigation task{'s' if len(plan.tasks) != 1 else ''}...",
+        data={"agent": "orchestrator", "phase": "investigating"},
+        conversation_id=cid,
+        timestamp=time.time(),
+    )
+
+    pending_chunks, on_task_start, on_task_complete = build_dag_callbacks("orchestrator", cid)
+
+    async def run_task(task: SubTask, _upstream: dict[str, SubTaskResult]) -> SubTaskResult:
+        return await _run_sql_analyst(
+            task=task,
+            llm=llm,
+            db=db,
+            rag=rag,
+            config=config,
+            conversation_id=cid,
+            ddl_override=ddl_override,
+            docs_override=docs_override,
+            stats_context=stats_context,
+            stats_groups=stats_groups or [],
+        )
+
+    results = await execute_dag(
+        plan=plan,
+        run_task=run_task,
+        on_task_start=on_task_start,
+        on_task_complete=on_task_complete,
+    )
+
+    # Yield collected status and trace chunks
+    for chunk in pending_chunks:
+        yield chunk
+        await asyncio.sleep(0)
+
+    # Enrichment traces for follow-up tasks (source indices continue from prior)
+    # Count existing sources from prior_evidence
+    source_matches = re.findall(r"### Source \[(\d+)\]", prior_evidence)
+    source_offset = max((int(m) for m in source_matches), default=0) if source_matches else 0
+
+    for i, task in enumerate(plan.tasks, start=source_offset + 1):
+        result = results.get(task.id)
+        if not result or not result.success:
+            continue
+        category_label = CATEGORY_LABELS.get(task.category, task.agent.replace("_", " ").title())
+        yield ChatChunk(
+            type="enrichment_trace",
+            data={
+                "source_index": i,
+                "category": category_label,
+                "question": task.task,
+                "rationale": "Follow-up investigation",
+                "final_sql": result.sql,
+                "final_answer": result.answer,
+                "success": True,
+                "duration_ms": result.duration_ms,
+                "steps": result.trace_steps or [],
+            },
+            conversation_id=cid,
+            timestamp=time.time(),
+        )
+        await asyncio.sleep(0)
+
+    # Check if any investigation tasks succeeded
+    successful = {tid: r for tid, r in results.items() if r.success}
+    if not successful:
+        logger.warning("All investigation tasks failed")
+        yield ChatChunk(
+            type="status",
+            content="Investigation did not produce results",
+            data={"agent": "orchestrator", "phase": "investigation_failed"},
+            conversation_id=cid,
+            timestamp=time.time(),
+        )
+        return
+
+    # Build new evidence from follow-up results
+    new_evidence = build_evidence_blocks(question, plan, results)
+
+    # Combine prior + new evidence
+    combined_evidence = prior_evidence + "\n\n" + new_evidence if prior_evidence else new_evidence
+
+    yield ChatChunk(
+        type="status",
+        content="Re-synthesizing with investigation findings...",
+        data={"agent": "orchestrator", "phase": "re_synthesizing"},
+        conversation_id=cid,
+        timestamp=time.time(),
+    )
+
+    # Re-synthesize using the combined evidence (prior + follow-up)
+    from insightxpert.prompts import render as render_prompt
+    from insightxpert.agents.response_generator import _fallback_answer
+
+    system_prompt = render_prompt(
+        "response_generator.j2",
+        ddl=ddl,
+        documentation=documentation,
+        question=question,
+        evidence_data=combined_evidence,
+        plan_reasoning=(
+            "This response combines the original analysis and enrichment evidence "
+            "with follow-up investigation findings."
+        ),
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Synthesize all the evidence into a comprehensive, cited response."},
+    ]
+
+    try:
+        response = await llm.chat(messages, tools=None)
+        re_synthesized = response.content or _fallback_answer(plan, results)
+    except Exception as exc:
+        logger.error("Investigation re-synthesis failed: %s", exc, exc_info=True)
+        re_synthesized = _fallback_answer(plan, results)
+
+    yield ChatChunk(
+        type="insight",
+        content=re_synthesized,
+        data={"agent": "orchestrator", "investigation": True},
+        conversation_id=cid,
+        timestamp=time.time(),
+    )

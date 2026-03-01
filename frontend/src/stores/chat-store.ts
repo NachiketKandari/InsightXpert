@@ -6,6 +6,7 @@ import type {
   Conversation,
   Message,
   AgentStep,
+  InvestigationSuggestion,
 } from "@/types/chat";
 
 function generateId() {
@@ -25,6 +26,7 @@ interface ChatState {
   sampleQuestionsOpen: boolean;
   pendingInput: string | null;
   pendingClarification: string | null;
+  pendingInvestigation: InvestigationSuggestion | null;
   skipClarificationNext: boolean;
   currentAgentPhase: string | null;
 
@@ -61,6 +63,7 @@ interface ChatState {
   setSampleQuestionsOpen: (open: boolean) => void;
   setPendingInput: (text: string | null) => void;
   setPendingClarification: (text: string | null) => void;
+  setPendingInvestigation: (data: InvestigationSuggestion | null) => void;
   setSkipClarificationNext: (skip: boolean) => void;
   setCurrentAgentPhase: (phase: string | null) => void;
 }
@@ -78,6 +81,7 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
   sampleQuestionsOpen: false,
   pendingInput: null,
   pendingClarification: null,
+  pendingInvestigation: null,
   skipClarificationNext: false,
   currentAgentPhase: null,
   isLoadingConversation: false,
@@ -423,6 +427,10 @@ export const useChatStore = create<ChatState>()(persist((set, get) => ({
 
   setPendingClarification: (text) => {
     set({ pendingClarification: text });
+  },
+
+  setPendingInvestigation: (data) => {
+    set({ pendingInvestigation: data });
   },
 
   setSkipClarificationNext: (skip) => {

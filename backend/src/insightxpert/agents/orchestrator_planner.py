@@ -201,6 +201,8 @@ def _fallback_plan(question: str) -> OrchestratorPlan:
 
 _MAX_ENRICHMENT_TASKS = 4
 _EVALUATOR_TIMEOUT_SECONDS = 60
+_INVESTIGATION_TIMEOUT_SECONDS = 30
+_MAX_INVESTIGATION_TASKS = 3
 
 
 async def evaluate_for_enrichment(
@@ -290,6 +292,112 @@ async def evaluate_for_enrichment(
         eval_ms = int((time.time() - t0) * 1000)
         logger.warning(
             "Enrichment evaluator failed (%dms), no enrichment: %s",
+            eval_ms,
+            exc,
+        )
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Investigation evaluator (post-synthesis follow-up)
+# ---------------------------------------------------------------------------
+
+
+async def evaluate_for_investigation(
+    question: str,
+    analyst_sql: str,
+    analyst_answer: str,
+    enrichment_evidence: str,
+    synthesized_insight: str,
+    existing_task_ids: list[str],
+    llm: LLMProvider,
+    *,
+    ddl: str,
+    documentation: str,
+    max_tasks: int = _MAX_INVESTIGATION_TASKS,
+) -> OrchestratorPlan | None:
+    """Evaluate whether a synthesized insight has gaps worth investigating.
+
+    Returns ``None`` if the insight is sufficient, or an ``OrchestratorPlan``
+    with follow-up tasks if meaningful investigation is warranted.
+
+    On any failure, returns ``None`` — the insight stands as-is.
+    """
+    # Compute the next available task ID letter
+    if existing_task_ids:
+        next_task_id = chr(ord(max(existing_task_ids, default="A")) + 1)
+    else:
+        next_task_id = "B"
+
+    system_prompt = render_prompt(
+        "investigation_evaluator.j2",
+        ddl=ddl,
+        documentation=documentation,
+        question=question,
+        analyst_sql=analyst_sql,
+        analyst_answer=analyst_answer,
+        enrichment_evidence=enrichment_evidence,
+        synthesized_insight=synthesized_insight,
+        next_task_id=next_task_id,
+        max_tasks=max_tasks,
+    )
+
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": "Should this insight be investigated further with additional queries?"},
+    ]
+
+    t0 = time.time()
+    try:
+        logger.info("Investigation evaluator starting (insight_len=%d, existing_tasks=%s)",
+                     len(synthesized_insight), existing_task_ids)
+        response = await asyncio.wait_for(
+            llm.chat(messages, tools=None),
+            timeout=_INVESTIGATION_TIMEOUT_SECONDS,
+        )
+        raw = (response.content or "").strip()
+        eval_ms = int((time.time() - t0) * 1000)
+
+        # Strip markdown fencing
+        if raw.startswith("```"):
+            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+            if raw.endswith("```"):
+                raw = raw[:-3]
+            raw = raw.strip()
+
+        parsed = json.loads(raw)
+
+        if not parsed.get("investigate", False):
+            logger.info("Investigation evaluator says NO follow-up needed (%dms)", eval_ms)
+            return None
+
+        # Parse investigation plan
+        plan = _validate_plan(parsed, max_tasks)
+
+        # Force all tasks to be sql_analyst (no quant_analyst for follow-up)
+        for task in plan.tasks:
+            task.agent = "sql_analyst"
+            task.depends_on = []
+
+        logger.info(
+            "Investigation evaluator produced %d follow-up tasks in %dms: %s",
+            len(plan.tasks),
+            eval_ms,
+            [(t.id, t.category) for t in plan.tasks],
+        )
+        return plan
+
+    except asyncio.TimeoutError:
+        eval_ms = int((time.time() - t0) * 1000)
+        logger.warning(
+            "Investigation evaluator timed out after %dms (limit=%ds), no investigation",
+            eval_ms, _INVESTIGATION_TIMEOUT_SECONDS,
+        )
+        return None
+    except Exception as exc:
+        eval_ms = int((time.time() - t0) * 1000)
+        logger.warning(
+            "Investigation evaluator failed (%dms), no investigation: %s",
             eval_ms,
             exc,
         )
