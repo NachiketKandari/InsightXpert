@@ -7,14 +7,13 @@ import {
   XCircle,
   Loader2,
   ChevronRight,
-  Copy,
-  Check,
   Brain,
   Database,
   TableProperties,
   FileText,
   BookOpen,
 } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sqlLang from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
 import json from "react-syntax-highlighter/dist/esm/languages/hljs/json";
@@ -51,31 +50,6 @@ const highlighterStyle = {
   fontFamily: "var(--font-mono)",
 };
 
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <button
-      onClick={handleCopy}
-      className="text-muted-foreground hover:text-foreground transition-colors p-0.5 rounded hover:bg-accent/50"
-      aria-label="Copy"
-    >
-      {copied ? (
-        <Check className="size-3 text-emerald-400" />
-      ) : (
-        <Copy className="size-3" />
-      )}
-    </button>
-  );
-}
-
 function SectionHeader({
   icon,
   label,
@@ -93,7 +67,7 @@ function SectionHeader({
       </span>
       {copyText && (
         <span className="ml-auto">
-          <CopyButton text={copyText} />
+          <CopyButton text={copyText} className="p-0.5 rounded hover:bg-accent/50" />
         </span>
       )}
     </div>

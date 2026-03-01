@@ -12,6 +12,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ListLoading, ListEmptyState } from "@/components/ui/list-states";
 import { useInsightStore } from "@/stores/insight-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useClientConfig } from "@/hooks/use-client-config";
@@ -119,9 +120,18 @@ export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightA
             }`}
           >
             {isLoadingAll ? (
-              <InsightLoading />
+              <ListLoading spinnerClassName="border-amber-500" />
             ) : filtered.length === 0 ? (
-              <InsightEmptyState filter={filter} />
+              <ListEmptyState
+                icon={<Lightbulb className="size-8 text-muted-foreground mx-auto mb-2" />}
+                message={
+                  filter === "bookmarked"
+                    ? "No bookmarked insights"
+                    : filter === "manual"
+                      ? "No manual insights yet"
+                      : "No insights yet"
+                }
+              />
             ) : (
               filtered.map((i) => (
                 <InsightCard
@@ -328,29 +338,3 @@ function InsightDetail({
   );
 }
 
-// ---------- Loading ----------
-
-function InsightLoading() {
-  return (
-    <div className="flex items-center justify-center py-12">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500" />
-    </div>
-  );
-}
-
-// ---------- Empty state ----------
-
-function InsightEmptyState({ filter }: { filter: Filter }) {
-  return (
-    <div className="text-center py-12">
-      <Lightbulb className="size-8 text-muted-foreground mx-auto mb-2" />
-      <p className="text-sm text-muted-foreground">
-        {filter === "bookmarked"
-          ? "No bookmarked insights"
-          : filter === "manual"
-            ? "No manual insights yet"
-            : "No insights yet"}
-      </p>
-    </div>
-  );
-}
