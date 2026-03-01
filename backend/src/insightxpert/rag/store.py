@@ -150,7 +150,7 @@ class VectorStore:
     def search_qa(
         self,
         question: str,
-        n: int = 5,
+        n: int = 3,
         max_distance: float | None = None,
         sql_valid_only: bool = False,
     ) -> list[dict]:
@@ -162,7 +162,7 @@ class VectorStore:
 
         Args:
             question: The natural-language question to search for.
-            n: Maximum number of results to return (default 5).
+            n: Maximum number of results to return (default 3).
             max_distance: If set, discard results with distance > this value.
                 The analyst pipeline uses 1.0 as the threshold.
             sql_valid_only: If ``True``, only return Q&A pairs whose metadata

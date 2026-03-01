@@ -17,7 +17,7 @@ _LEGACY_MODE_MAP = {
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
-    agent_mode: Literal["basic", "agentic"] = "agentic"
+    agent_mode: Literal["basic", "agentic", "deep"] = "agentic"
     skip_clarification: bool = False
 
     @field_validator("agent_mode", mode="before")

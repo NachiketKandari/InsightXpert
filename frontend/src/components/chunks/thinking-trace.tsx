@@ -65,7 +65,7 @@ export function ThinkingTrace({ plan, traces, enrichmentTraces }: ThinkingTraceP
     const m = new Map<string, EnrichmentTrace>();
     if (!enrichmentTraces?.length) return m;
     plan.tasks.forEach((task, i) => {
-      const et = enrichmentTraces.find((t) => t.source_index === i + 1);
+      const et = enrichmentTraces.find((t) => t.source_index === i + 2);
       if (et) m.set(task.id, et);
     });
     return m;

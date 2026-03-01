@@ -22,13 +22,26 @@ interface InsightChunkProps {
 const CITATION_RE = /\[\[(\d+)\]\]/g;
 
 // Section headers the response_generator.j2 produces (case-insensitive match).
-// The first two are "primary" (always visible), the rest are "secondary" (collapsible).
+// Only Direct Answer is primary (always visible), everything else is collapsible.
 const PRIMARY_SECTIONS = ["direct answer", "key evidence"];
 const SECONDARY_SECTIONS = [
+  "who",
+  "what",
+  "when",
+  "where",
+  "how",
+  "why",
+  "why — root-cause hypothesis",
+  "why — root cause hypothesis",
+  "why -- root-cause hypothesis",
+  "why -- root cause hypothesis",
+  "why - root-cause hypothesis",
+  "why - root cause hypothesis",
   "contextual analysis",
   "root-cause hypothesis",
   "root cause hypothesis",
   "business recommendations",
+  "recommendations",
   "follow-up questions",
   "follow up questions",
   "caveats",

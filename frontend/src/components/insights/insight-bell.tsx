@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useInsightStore } from "@/stores/insight-store";
 import { InsightPopover } from "./insight-popover";
 import { InsightAllModal } from "./insight-all-modal";
+import type { Insight } from "@/types/insight";
 
 export function InsightBell() {
   const totalCount = useInsightStore((s) => s.totalCount);
@@ -13,6 +14,7 @@ export function InsightBell() {
   const fetchInsights = useInsightStore((s) => s.fetchInsights);
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const [initialInsight, setInitialInsight] = useState<Insight | null>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
   // Poll count every 60s
@@ -43,6 +45,13 @@ export function InsightBell() {
   }, [popoverOpen]);
 
   const handleShowAll = useCallback(() => {
+    setInitialInsight(null);
+    setPopoverOpen(false);
+    setModalOpen(true);
+  }, []);
+
+  const handleSelectInsight = useCallback((insight: Insight) => {
+    setInitialInsight(insight);
     setPopoverOpen(false);
     setModalOpen(true);
   }, []);
@@ -67,12 +76,12 @@ export function InsightBell() {
 
         {popoverOpen && (
           <div className="absolute right-0 top-full mt-1 z-50">
-            <InsightPopover onShowAll={handleShowAll} />
+            <InsightPopover onShowAll={handleShowAll} onSelectInsight={handleSelectInsight} />
           </div>
         )}
       </div>
 
-      <InsightAllModal open={modalOpen} onOpenChange={setModalOpen} />
+      <InsightAllModal open={modalOpen} onOpenChange={setModalOpen} initialInsight={initialInsight} />
     </>
   );
 }

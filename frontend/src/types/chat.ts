@@ -128,3 +128,4 @@ export interface AgentTrace {
   duration_ms?: number | null;
   steps?: TraceStep[] | null;
 }
+

@@ -15,6 +15,8 @@ MIGRATION_COLUMNS = [
     ("messages", "generation_time_ms", "INTEGER"),
     ("automations", "workflow_json", "TEXT"),
     ("datasets", "organization_id", "VARCHAR(100)"),
+    ("insights", "user_note", "TEXT"),
+    ("insights", "source", "VARCHAR(20) DEFAULT 'auto'"),
 ]
 
 # All indexes and unique constraints that must exist on every database.

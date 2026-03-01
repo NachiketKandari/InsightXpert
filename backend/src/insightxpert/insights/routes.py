@@ -48,7 +48,28 @@ class BookmarkRequest(BaseModel):
     bookmarked: bool
 
 
+class CreateInsightRequest(BaseModel):
+    message_id: str
+    user_note: str | None = None
+
+
 # --- User endpoints -----------------------------------------------------------
+
+@router.post("")
+async def create_insight(
+    body: CreateInsightRequest,
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    """Create a manual insight from an assistant message."""
+    store = _get_store(request)
+    insight_id = await asyncio.to_thread(
+        store.create_insight_from_message, user.id, user.org_id, body.message_id, body.user_note,
+    )
+    if insight_id is None:
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"status": "ok", "insight_id": insight_id}
+
 
 @router.get("")
 async def list_insights(

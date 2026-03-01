@@ -16,7 +16,9 @@ export function ChatPanel() {
   const hasMessages = conversation && conversation.messages.length > 0;
 
   const handleSend = useCallback(
-    (message: string) => sendMessage(message, agentMode),
+    (message: string) => {
+      sendMessage(message, agentMode);
+    },
     [sendMessage, agentMode],
   );
 

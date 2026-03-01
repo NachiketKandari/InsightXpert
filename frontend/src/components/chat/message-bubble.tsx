@@ -10,6 +10,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { useAutomationStore } from "@/stores/automation-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import type { Message, EnrichmentTrace, OrchestratorPlan, AgentTrace } from "@/types/chat";
+import { downloadMessageReport, downloadConversationReport } from "@/lib/export-report";
 
 const MessageMetrics = React.memo(function MessageMetrics({ message }: { message: Message }) {
   const { wallTimeMs, generationTimeMs, inputTokens, outputTokens } = message;
@@ -76,6 +77,7 @@ interface MessageBubbleProps {
   // Takes messageId so callers can pass a stable handler without wrapping in
   // a per-message closure, which would break React.memo's prop comparison.
   onFeedback?: (messageId: string, type: "up" | "down", comment?: string) => void;
+  onMarkInsight?: (messageId: string, note?: string) => void;
 }
 
 function MessageBubbleInner({
@@ -84,6 +86,7 @@ function MessageBubbleInner({
   onRetry,
   onResend,
   onFeedback,
+  onMarkInsight,
 }: MessageBubbleProps) {
   const isStreaming = useChatStore(selectIsActiveStreaming);
   const activeConversationId = useChatStore((s) => s.activeConversationId);
@@ -95,6 +98,11 @@ function MessageBubbleInner({
   const handleFeedbackForMsg = useCallback(
     (type: "up" | "down", comment?: string) => onFeedback?.(message.id, type, comment),
     [message.id, onFeedback],
+  );
+
+  const handleMarkInsightForMsg = useCallback(
+    (note?: string) => onMarkInsight?.(message.id, note),
+    [message.id, onMarkInsight],
   );
 
   const enrichmentTraces = useMemo<EnrichmentTrace[]>(() => {
@@ -122,6 +130,22 @@ function MessageBubbleInner({
   // Show "Create Automation" for admin, assistant messages with tool_result, and not streaming
   const hasToolResult = !isUser && message.chunks.some((c) => c.type === "tool_result");
   const showAutomationBtn = isAdmin && hasToolResult && !isStreaming;
+
+  const handleDownloadMessage = useCallback(() => {
+    const conv = useChatStore.getState().activeConversation();
+    if (!conv) return;
+    const msgs = conv.messages;
+    const idx = msgs.findIndex((m) => m.id === message.id);
+    const userQ =
+      idx > 0 && msgs[idx - 1].role === "user" ? msgs[idx - 1].content : undefined;
+    downloadMessageReport(message, userQ, conv.title);
+  }, [message]);
+
+  const handleDownloadConversation = useCallback(() => {
+    const conv = useChatStore.getState().activeConversation();
+    if (!conv) return;
+    downloadConversationReport(conv);
+  }, []);
 
   const handleCreateAutomation = useCallback(() => {
     if (!activeConversationId) return;
@@ -197,6 +221,9 @@ function MessageBubbleInner({
           onRetry={onRetry}
           onResend={isUser ? onResend : undefined}
           onFeedback={handleFeedbackForMsg}
+          onMarkInsight={!isUser ? handleMarkInsightForMsg : undefined}
+          onDownloadMessage={!isUser ? handleDownloadMessage : undefined}
+          onDownloadConversation={!isUser ? handleDownloadConversation : undefined}
         />
       )}
 
@@ -222,6 +249,7 @@ export const MessageBubble = React.memo(MessageBubbleInner, (prev, next) => {
     prev.isLastAssistant === next.isLastAssistant &&
     prev.onRetry === next.onRetry &&
     prev.onResend === next.onResend &&
-    prev.onFeedback === next.onFeedback
+    prev.onFeedback === next.onFeedback &&
+    prev.onMarkInsight === next.onMarkInsight
   );
 });

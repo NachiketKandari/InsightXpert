@@ -393,6 +393,8 @@ class InsightRecord(Base):
     categories: Mapped[str] = mapped_column(Text, nullable=False, default="[]")
     enrichment_task_count: Mapped[int] = mapped_column(Integer, default=0)
     is_bookmarked: Mapped[bool] = mapped_column(Boolean, default=False)
+    user_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    source: Mapped[str] = mapped_column(String(20), default="auto")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, index=True)
 
 

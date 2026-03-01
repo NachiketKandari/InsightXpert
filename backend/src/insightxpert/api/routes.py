@@ -243,29 +243,40 @@ def _persist_response(
             except Exception as e:
                 logger.error("Failed to persist orchestrator plan/executions: %s", e, exc_info=True)
 
-        # Persist insight if enrichment produced a synthesized response
+        # Persist insight only if quality evaluator deemed it a genuine insight
         if message_id and chunks_blob and question:
             try:
                 chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
                 insight_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "insight"]
                 if insight_chunks:
-                    insight_content = insight_chunks[0].get("content", "")
-                    plan_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "orchestrator_plan"]
-                    plan_data = plan_chunks[0].get("data", {}) if plan_chunks else {}
-                    reasoning = plan_data.get("reasoning", "")
-                    tasks = plan_data.get("tasks", [])
-                    categories = list({t.get("category", "") for t in tasks if t.get("category")})
-                    persistent_store.save_insight(
-                        user_id=user_id,
-                        org_id=org_id,
-                        conversation_id=persistent_cid,
-                        message_id=message_id,
-                        title=question,
-                        summary=reasoning,
-                        content=insight_content,
-                        categories=categories,
-                        enrichment_task_count=len(tasks),
-                    )
+                    # Use the last insight chunk (investigation re-synthesis overrides initial)
+                    last_insight = insight_chunks[-1]
+                    insight_data = last_insight.get("data", {})
+
+                    # Only save if the quality evaluator approved it
+                    if not insight_data.get("save_as_insight", False):
+                        logger.info("Insight quality gate: not saving (not deemed insightful)")
+                    else:
+                        insight_content = last_insight.get("content", "")
+                        insight_summary = insight_data.get("insight_summary", "")
+                        plan_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "orchestrator_plan"]
+                        plan_data = plan_chunks[0].get("data", {}) if plan_chunks else {}
+                        tasks = plan_data.get("tasks", [])
+                        categories = list({t.get("category", "") for t in tasks if t.get("category")})
+                        # Fall back to plan reasoning if evaluator didn't provide a summary
+                        if not insight_summary:
+                            insight_summary = plan_data.get("reasoning", "")
+                        persistent_store.save_insight(
+                            user_id=user_id,
+                            org_id=org_id,
+                            conversation_id=persistent_cid,
+                            message_id=message_id,
+                            title=question,
+                            summary=insight_summary,
+                            content=insight_content,
+                            categories=categories,
+                            enrichment_task_count=len(tasks),
+                        )
             except Exception as e:
                 logger.error("Failed to persist insight: %s", e, exc_info=True)
 
@@ -301,6 +312,7 @@ async def chat_sse(
             skip_clarification=chat_req.skip_clarification,
             stats_context_injection=features.stats_context_injection,
             clarification_enabled=features.clarification_enabled,
+            rag_retrieval=features.rag_retrieval,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -378,6 +390,7 @@ async def _run_orchestrator_to_completion(
         skip_clarification=body.skip_clarification,
         stats_context_injection=features.stats_context_injection,
         clarification_enabled=features.clarification_enabled,
+        rag_retrieval=features.rag_retrieval,
     ):
         all_chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:

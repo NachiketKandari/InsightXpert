@@ -7,6 +7,7 @@ import {
   TerminalSquare,
   RefreshCw,
   Database,
+  Search,
   BarChart3,
   Download,
   PanelRight,
@@ -37,6 +38,12 @@ const FEATURE_DEFS: {
     label: "RAG Training",
     description: "Allow users to add training data to the knowledge base",
     icon: Database,
+  },
+  {
+    key: "rag_retrieval",
+    label: "RAG Retrieval",
+    description: "Retrieve similar past queries from the knowledge base to improve SQL generation accuracy",
+    icon: Search,
   },
   {
     key: "chart_rendering",

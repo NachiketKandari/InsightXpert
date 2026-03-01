@@ -94,6 +94,7 @@ async def analyst_loop(
     stats_context: str | None = None,
     stats_groups: list[str] | None = None,
     clarification_enabled: bool = False,
+    rag_retrieval: bool = True,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst agentic loop for a single user question.
 
@@ -147,24 +148,26 @@ async def analyst_loop(
     )
 
     # -- Step 1: RAG retrieval --
-    # Retrieve up to 5 similar Q&A pairs (n=5) that are close enough
-    # (distance <= 1.0) and whose SQL was previously validated (sql_valid_only).
-    # This gives the LLM few-shot examples of correct SQL for similar questions.
-    # The distance threshold of 1.0 filters out weak matches that would add
-    # noise rather than helpful context.
-    rag_start = time.time()
-    similar_qa = await asyncio.to_thread(
-        rag.search_qa, question, n=5, max_distance=1.0, sql_valid_only=True,
-    )
-    rag_ms = (time.time() - rag_start) * 1000
+    # Retrieve up to 3 similar Q&A pairs that are close enough (distance <= 1.0)
+    # and whose SQL was previously validated. Capped at 3 to keep context tight.
+    # Skipped entirely when rag_retrieval=False (admin toggle).
+    similar_qa: list[dict] = []
+    if rag_retrieval:
+        rag_start = time.time()
+        similar_qa = await asyncio.to_thread(
+            rag.search_qa, question, n=3, max_distance=1.0, sql_valid_only=True,
+        )
+        rag_ms = (time.time() - rag_start) * 1000
 
-    logger.info(
-        "RAG retrieval (%.0fms): qa=%d (threshold=1.0, valid-only)",
-        rag_ms, len(similar_qa),
-    )
-    if similar_qa:
-        for i, qa in enumerate(similar_qa):
-            logger.debug("  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100])
+        logger.info(
+            "RAG retrieval (%.0fms): qa=%d (threshold=1.0, valid-only)",
+            rag_ms, len(similar_qa),
+        )
+        if similar_qa:
+            for i, qa in enumerate(similar_qa):
+                logger.debug("  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100])
+    else:
+        logger.info("RAG retrieval skipped (rag_retrieval=False)")
 
     # Collect titles for frontend dropdown display
     rag_titles: list[str] = []

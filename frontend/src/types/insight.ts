@@ -10,6 +10,8 @@ export interface Insight {
   categories: string[];
   enrichment_task_count: number;
   is_bookmarked: boolean;
+  user_note: string | null;
+  source: "auto" | "manual";
   created_at: string;
   user_email?: string; // admin view only
 }
