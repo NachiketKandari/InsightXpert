@@ -20,33 +20,35 @@ from insightxpert.llm.base import LLMProvider
 from insightxpert.prompts import render as render_prompt
 from insightxpert.rag.store import VectorStore
 
-from .advanced_tools import advanced_registry
+from .advanced_tools import ComputeTimeSeriesSlopeTool, ScoreFraudRiskTool
 from .common import agent_tool_loop, summarize_results
 from .stat_tools import (
     ComputeCorrelationTool,
     ComputeDescriptiveStatsTool,
-    FitDistributionTool,
+    RunPythonTool,
     TestHypothesisTool,
 )
 from .tool_base import ToolContext, ToolRegistry
+from .tools import RunSqlTool
 
 logger = logging.getLogger("insightxpert.quant_analyst")
 
 
 def _quant_registry(python_exec_timeout: int = 10) -> ToolRegistry:
-    """Create a ToolRegistry with all stat + advanced tools merged.
+    """Create a focused ToolRegistry with 7 essential tools.
 
-    The advanced_registry already includes run_sql and run_python, so we
-    only add the stat-specific tools that aren't in the advanced set.
+    Keeps only what the quant analyst actually needs on pre-aggregated data.
+    The full tool sets remain available via statistician_registry() and
+    advanced_registry() for other consumers.
     """
-    registry = advanced_registry(python_exec_timeout=python_exec_timeout)
-
-    # Add stat tools not already in the advanced registry
-    registry.register(ComputeDescriptiveStatsTool())
+    registry = ToolRegistry()
+    registry.register(RunSqlTool())
+    registry.register(RunPythonTool(timeout=python_exec_timeout))
     registry.register(TestHypothesisTool())
     registry.register(ComputeCorrelationTool())
-    registry.register(FitDistributionTool())
-
+    registry.register(ComputeDescriptiveStatsTool())
+    registry.register(ScoreFraudRiskTool())
+    registry.register(ComputeTimeSeriesSlopeTool())
     return registry
 
 

@@ -283,6 +283,7 @@ async def agent_tool_loop(
     Yields an error chunk if max iterations are exhausted.
     """
     cid = conversation_id
+    tools_executed = False
 
     for iteration in range(max_iter):
         logger.info("--- %s iteration %d/%d ---", agent_name.title(), iteration + 1, max_iter)
@@ -345,6 +346,8 @@ async def agent_tool_loop(
                     "tool_name": tc.name,
                 })
 
+                tools_executed = True
+
                 yield ChatChunk(
                     type="tool_result",
                     data={"agent": agent_name, "tool": tc.name, "result": result},
@@ -354,6 +357,24 @@ async def agent_tool_loop(
                 )
                 await asyncio.sleep(0)
         else:
+            # Guard rail: force at least one tool call before accepting a
+            # text-only answer.  Gives the LLM exactly one retry.
+            if not tools_executed:
+                logger.warning(
+                    "%s returned text without calling tools (iter %d), injecting corrective message",
+                    agent_name, iteration + 1,
+                )
+                messages.append({"role": "assistant", "content": response.content or ""})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "You MUST call one of your available tools before answering. "
+                        "The data is available in the tool context. "
+                        "Choose the most appropriate analysis tool for the task."
+                    ),
+                })
+                continue
+
             total_ms = (time.time() - loop_start) * 1000
             logger.info(
                 "%s DONE [%s] total=%.0fms iterations=%d",

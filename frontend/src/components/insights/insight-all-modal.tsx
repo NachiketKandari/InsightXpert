@@ -12,6 +12,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { ListLoading, ListEmptyState } from "@/components/ui/list-states";
 import { useInsightStore } from "@/stores/insight-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useClientConfig } from "@/hooks/use-client-config";
@@ -29,9 +30,13 @@ interface InsightAllModalProps {
 
 export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightAllModalProps) {
   const { isAdmin, orgId } = useClientConfig();
-  const allInsights = useInsightStore((s) => s.allInsights);
-  const isLoadingAll = useInsightStore((s) => s.isLoadingAll);
+  // Admins use the /all endpoint; regular users use the standard endpoint
+  const adminInsights = useInsightStore((s) => s.allInsights);
+  const userInsights = useInsightStore((s) => s.insights);
+  const allInsights = isAdmin ? adminInsights : userInsights;
+  const isLoadingAll = useInsightStore((s) => isAdmin ? s.isLoadingAll : s.isLoading);
   const fetchAllInsights = useInsightStore((s) => s.fetchAllInsights);
+  const fetchInsights = useInsightStore((s) => s.fetchInsights);
   const bookmarkInsight = useInsightStore((s) => s.bookmarkInsight);
   const deleteInsight = useInsightStore((s) => s.deleteInsight);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
@@ -40,8 +45,11 @@ export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightA
   const selectedInsight = open ? (userSelectedInsight ?? initialInsight ?? null) : null;
 
   useEffect(() => {
-    if (open) fetchAllInsights();
-  }, [open, fetchAllInsights]);
+    if (open) {
+      if (isAdmin) fetchAllInsights();
+      else fetchInsights();
+    }
+  }, [open, isAdmin, fetchAllInsights, fetchInsights]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -112,9 +120,18 @@ export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightA
             }`}
           >
             {isLoadingAll ? (
-              <InsightLoading />
+              <ListLoading spinnerClassName="border-amber-500" />
             ) : filtered.length === 0 ? (
-              <InsightEmptyState filter={filter} />
+              <ListEmptyState
+                icon={<Lightbulb className="size-8 text-muted-foreground mx-auto mb-2" />}
+                message={
+                  filter === "bookmarked"
+                    ? "No bookmarked insights"
+                    : filter === "manual"
+                      ? "No manual insights yet"
+                      : "No insights yet"
+                }
+              />
             ) : (
               filtered.map((i) => (
                 <InsightCard
@@ -321,29 +338,3 @@ function InsightDetail({
   );
 }
 
-// ---------- Loading ----------
-
-function InsightLoading() {
-  return (
-    <div className="flex items-center justify-center py-12">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-amber-500" />
-    </div>
-  );
-}
-
-// ---------- Empty state ----------
-
-function InsightEmptyState({ filter }: { filter: Filter }) {
-  return (
-    <div className="text-center py-12">
-      <Lightbulb className="size-8 text-muted-foreground mx-auto mb-2" />
-      <p className="text-sm text-muted-foreground">
-        {filter === "bookmarked"
-          ? "No bookmarked insights"
-          : filter === "manual"
-            ? "No manual insights yet"
-            : "No insights yet"}
-      </p>
-    </div>
-  );
-}

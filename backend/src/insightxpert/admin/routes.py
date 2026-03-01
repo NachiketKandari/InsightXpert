@@ -93,6 +93,24 @@ def _assert_conversation_in_scope(ctx: _AdminContext, convo: dict) -> None:
         )
 
 
+def _require_super_admin(ctx: _AdminContext) -> None:
+    """Raise 403 if the admin is org-scoped (not a super admin)."""
+    if ctx.scoped_org_id is not None:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This operation requires super-admin access",
+        )
+
+
+def _assert_org_in_scope(ctx: _AdminContext, org_id: str) -> None:
+    """Raise 403 if *org_id* is outside the org admin's scope."""
+    if ctx.scoped_org_id is not None and org_id != ctx.scoped_org_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Organization not in your scope",
+        )
+
+
 def _get_admin_context(
     request: Request,
     user: User = Depends(get_current_user),
@@ -111,7 +129,16 @@ def _get_admin_context(
 async def get_full_config(
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
-    return ctx.config
+    if ctx.scoped_org_id is None:
+        return ctx.config
+    # Org-scoped admin: return only their org, strip global settings
+    own_org = ctx.config.organizations.get(ctx.scoped_org_id)
+    return ClientConfig(
+        admin_domains=[],
+        user_org_mappings={},
+        organizations={ctx.scoped_org_id: own_org} if own_org else {},
+        defaults=ctx.config.defaults,
+    )
 
 
 @router.put("/api/admin/config")
@@ -120,6 +147,7 @@ async def update_global_config(
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
+    _require_super_admin(ctx)
     config = ctx.config
     if body.admin_domains is not None:
         config.admin_domains = body.admin_domains
@@ -137,10 +165,13 @@ async def update_global_config(
 async def list_organizations(
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
+    orgs = ctx.config.organizations.values()
+    if ctx.scoped_org_id is not None:
+        orgs = [o for o in orgs if o.org_id == ctx.scoped_org_id]
     return {
         "organizations": [
             {"org_id": org.org_id, "org_name": org.org_name}
-            for org in ctx.config.organizations.values()
+            for org in orgs
         ]
     }
 
@@ -153,8 +184,9 @@ class CreateOrgRequest(BaseModel):
 async def create_org(
     body: CreateOrgRequest,
     request: Request,
-    _ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
+    _require_super_admin(ctx)
     import uuid as _uuid
 
     engine = request.app.state.auth_engine
@@ -174,6 +206,7 @@ async def get_org(
     org_id: str,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
+    _assert_org_in_scope(ctx, org_id)
     org = ctx.config.organizations.get(org_id)
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -185,8 +218,9 @@ async def upsert_org(
     org_id: str,
     body: OrgConfig,
     request: Request,
-    _ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
+    _assert_org_in_scope(ctx, org_id)
     body.org_id = org_id
     engine = request.app.state.auth_engine
     updated = await asyncio.to_thread(set_org_config, engine, org_id, body)
@@ -199,6 +233,7 @@ async def delete_org(
     request: Request,
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
+    _require_super_admin(ctx)
     if org_id not in ctx.config.organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -216,6 +251,7 @@ async def flush_qa_pairs(
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Delete all QA pairs from ChromaDB, keeping DDL, docs, and findings."""
+    _require_super_admin(ctx)
     rag = request.app.state.rag
     count = rag.flush_qa_pairs()
     logger.info("Admin %s flushed %d QA pairs", ctx.user.email, count)
@@ -371,9 +407,10 @@ def _prompt_to_dict(p: PromptTemplate) -> dict:
 @router.get("/api/admin/prompts")
 async def list_prompts(
     request: Request,
-    _ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """List all prompt templates."""
+    _require_super_admin(ctx)
     def _query():
         engine = request.app.state.auth_engine
         with Session(engine) as session:
@@ -390,9 +427,10 @@ async def get_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
-    _ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Get a specific prompt template by name."""
+    _require_super_admin(ctx)
     def _query():
         engine = request.app.state.auth_engine
         with Session(engine) as session:
@@ -412,6 +450,7 @@ async def upsert_prompt(
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Create or update a prompt template."""
+    _require_super_admin(ctx)
     def _query():
         engine = request.app.state.auth_engine
         with Session(engine) as session:
@@ -447,6 +486,7 @@ async def delete_prompt(
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Delete a prompt template (reverts to file fallback)."""
+    _require_super_admin(ctx)
     def _query():
         engine = request.app.state.auth_engine
         with Session(engine) as session:
@@ -468,6 +508,7 @@ async def reset_prompt(
     ctx: _AdminContext = Depends(_get_admin_context),
 ):
     """Reset a prompt template to its file-based default."""
+    _require_super_admin(ctx)
     template_file = f"{name}.j2"
     try:
         file_content = get_file_content(template_file)

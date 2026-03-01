@@ -267,6 +267,12 @@ class Automation(Base):
     created_by: Mapped[str] = mapped_column(
         String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
     )
+    org_id: Mapped[str | None] = mapped_column(
+        String(100),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     workflow_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -334,6 +340,12 @@ class TriggerTemplate(Base):
         String(36),
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+    org_id: Mapped[str | None] = mapped_column(
+        String(100),
+        ForeignKey("organizations.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)

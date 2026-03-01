@@ -141,6 +141,9 @@ def _build_dimensions_context(dimensions: dict) -> str:
     return "\n".join(lines)
 
 
+_VALID_AGENTS = {"sql_analyst", "quant_analyst"}
+
+
 def _build_enrichment_plan(dimensions: dict) -> OrchestratorPlan | None:
     """Convert suggested_enrichments from dimension extraction into an OrchestratorPlan."""
     enrichments = dimensions.get("suggested_enrichments", [])
@@ -148,27 +151,49 @@ def _build_enrichment_plan(dimensions: dict) -> OrchestratorPlan | None:
         return None
 
     tasks: list[SubTask] = []
+    seen_ids: set[str] = set()
+
     for item in enrichments[:3]:
         task_id = str(item.get("id", "")).upper()
         task_desc = str(item.get("task", ""))
         category = str(item.get("category", "")).lower()
+        agent = str(item.get("agent", "sql_analyst"))
+        depends_on = item.get("depends_on", [])
 
         if not task_id or not task_desc:
             continue
 
+        if agent not in _VALID_AGENTS:
+            agent = "sql_analyst"
+
         if category not in CATEGORY_LABELS:
             category = "comparative_context"
 
+        if isinstance(depends_on, str):
+            depends_on = [depends_on]
+        depends_on = [str(d).upper() for d in depends_on if d]
+
+        seen_ids.add(task_id)
         tasks.append(SubTask(
             id=task_id,
-            agent="sql_analyst",
+            agent=agent,
             task=task_desc,
-            depends_on=[],
+            depends_on=depends_on,
             category=category,
         ))
 
     if not tasks:
         return None
+
+    # Strip references to task IDs not in this plan
+    for t in tasks:
+        t.depends_on = [d for d in t.depends_on if d in seen_ids]
+
+    # Quant analyst with no valid upstream dependencies can't operate — demote
+    for t in tasks:
+        if t.agent == "quant_analyst" and not t.depends_on:
+            logger.warning("quant_analyst task %s has no dependencies; demoting to sql_analyst", t.id)
+            t.agent = "sql_analyst"
 
     why_intent = dimensions.get("why_intent", "")
     return OrchestratorPlan(
@@ -408,9 +433,21 @@ async def deep_think_loop(
 
     pending_chunks, on_task_start, on_task_complete = build_dag_callbacks("deep_think", cid)
 
-    async def run_task(task: SubTask, _upstream: dict[str, SubTaskResult]) -> SubTaskResult:
+    async def run_task(task: SubTask, upstream: dict[str, SubTaskResult]) -> SubTaskResult:
         # Late import to avoid circular dependency
-        from insightxpert.agents.orchestrator import _run_sql_analyst
+        from insightxpert.agents.orchestrator import _run_quant_analyst, _run_sql_analyst
+        if task.agent == "quant_analyst":
+            return await _run_quant_analyst(
+                task=task,
+                upstream=upstream,
+                llm=llm,
+                db=db,
+                rag=rag,
+                config=config,
+                conversation_id=cid,
+                ddl=effective_ddl,
+                documentation=effective_docs,
+            )
         return await _run_sql_analyst(
             task=task,
             llm=llm,

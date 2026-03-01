@@ -41,6 +41,19 @@ dimensions. These tasks will run AFTER the initial analyst answers the question
 directly, so they should provide complementary context — not repeat the original
 question.
 
+## Enrichment Agents
+
+Two agent types are available:
+
+1. **sql_analyst** — Runs SQL queries to retrieve additional data. Use for all
+   data retrieval tasks (counts, aggregates, breakdowns, trends).
+
+2. **quant_analyst** — Applies statistical tools (hypothesis tests, correlations,
+   distribution fitting, descriptive stats) to data already retrieved by an
+   upstream sql_analyst task. Use when you want to validate a pattern statistically
+   (e.g. "is this difference significant?") or quantify a relationship.
+   **A quant_analyst task MUST depend on at least one sql_analyst task in the plan.**
+
 ## Response Format
 
 Respond with ONLY a JSON object, no markdown fencing:
@@ -58,15 +71,27 @@ Respond with ONLY a JSON object, no markdown fencing:
   "suggested_enrichments": [
     {
       "id": "B",
+      "agent": "sql_analyst",
       "dimension": "when",
       "category": "temporal_trend",
-      "task": "Full self-contained question for the enrichment agent"
+      "task": "Full self-contained question for the enrichment agent",
+      "depends_on": []
     },
     {
       "id": "C",
+      "agent": "sql_analyst",
       "dimension": "where",
       "category": "comparative_context",
-      "task": "Full self-contained question for the enrichment agent"
+      "task": "Full self-contained question for the enrichment agent",
+      "depends_on": []
+    },
+    {
+      "id": "D",
+      "agent": "quant_analyst",
+      "dimension": "what",
+      "category": "root_cause",
+      "task": "Statistical instruction: e.g. run chi-squared test on B's results to check if differences are significant",
+      "depends_on": ["B"]
     }
   ]
 }
@@ -111,4 +136,6 @@ conclusion.
 - Do NOT suggest enrichments that simply repeat the original question
 - If the question is trivially simple (single lookup), return an empty
   `suggested_enrichments` array — the analyst answer alone is sufficient
+- **quant_analyst** tasks must list at least one sql_analyst enrichment task ID in `depends_on`
+- **sql_analyst** tasks always have `depends_on: []`
 - **fraud_flag** means "flagged for review", NOT confirmed fraud

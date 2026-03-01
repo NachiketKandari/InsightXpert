@@ -21,29 +21,32 @@ interface InsightChunkProps {
 // Regex to match [[N]] citation markers
 const CITATION_RE = /\[\[(\d+)\]\]/g;
 
-// Section headers the response_generator.j2 produces (case-insensitive match).
-// Only Direct Answer is primary (always visible), everything else is collapsible.
-const PRIMARY_SECTIONS = ["direct answer", "key evidence"];
+/** Normalize dashes (em-dash, en-dash, hyphen) to spaces and collapse whitespace. */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[\u2014\u2013\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+// Section headers produced by synthesizer prompts (case-insensitive, dash-agnostic).
+// Only Direct Answer / Key Evidence are primary (always visible); rest are collapsible.
+const PRIMARY_SECTIONS = ["direct answer", "key evidence", "key findings"];
 const SECONDARY_SECTIONS = [
   "who",
   "what",
   "when",
   "where",
   "how",
-  "why",
-  "why — root-cause hypothesis",
-  "why — root cause hypothesis",
-  "why -- root-cause hypothesis",
-  "why -- root cause hypothesis",
-  "why - root-cause hypothesis",
-  "why - root cause hypothesis",
   "contextual analysis",
-  "root-cause hypothesis",
+  "contextual benchmarks",
+  "temporal context",
   "root cause hypothesis",
   "business recommendations",
-  "recommendations",
-  "follow-up questions",
+  "investigation insights",
   "follow up questions",
+  "remaining gaps",
   "caveats",
 ];
 
@@ -93,9 +96,9 @@ function parseSections(markdown: string): { preamble: string; sections: ParsedSe
     const firstNewline = sectionText.indexOf("\n");
     const body = firstNewline >= 0 ? sectionText.slice(firstNewline + 1).trim() : "";
 
-    const titleLower = matches[i].title.toLowerCase();
-    const isPrimary = PRIMARY_SECTIONS.some((s) => titleLower.includes(s));
-    const isKnown = allKnown.some((s) => titleLower.includes(s));
+    const normalized = normalizeTitle(matches[i].title);
+    const isPrimary = PRIMARY_SECTIONS.some((s) => normalized.includes(s));
+    const isKnown = allKnown.some((s) => normalized.includes(s));
 
     // Unknown sections get treated as primary (safe default — show them)
     sections.push({

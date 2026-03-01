@@ -29,7 +29,7 @@ class AutomationService:
     # Automations
     # ------------------------------------------------------------------
 
-    def create_automation(self, user_id: str, **fields) -> dict:
+    def create_automation(self, user_id: str, *, org_id: str | None = None, **fields) -> dict:
         with Session(self._engine) as session:
             trigger_conditions_raw = fields.get("trigger_conditions", [])
             if isinstance(trigger_conditions_raw, str):
@@ -60,6 +60,7 @@ class AutomationService:
                 trigger_conditions=json.dumps(trigger_conditions_raw),
                 is_active=True,
                 created_by=user_id,
+                org_id=org_id,
                 source_conversation_id=fields.get("source_conversation_id"),
                 source_message_id=fields.get("source_message_id"),
                 workflow_json=workflow_json,
@@ -98,10 +99,22 @@ class AutomationService:
                 return None
             return self._auto_to_dict(auto, session)
 
-    def list_automations(self, user_id: str | None = None) -> list[dict]:
+    def list_automations(
+        self,
+        user_id: str | None = None,
+        org_id: str | None = None,
+        org_scoped: bool = False,
+    ) -> list[dict]:
+        """List automations, optionally filtered by user or org.
+
+        If *org_scoped* is True the query is restricted to *org_id*
+        (pass ``None`` for super-admin = no filter).
+        """
         with Session(self._engine) as session:
             q = session.query(Automation)
-            if user_id:
+            if org_scoped and org_id is not None:
+                q = q.filter(Automation.org_id == org_id)
+            elif user_id:
                 q = q.filter(Automation.created_by == user_id)
             rows = q.order_by(Automation.created_at.desc()).all()
             return [self._auto_to_dict(a, session) for a in rows]
@@ -441,6 +454,7 @@ class AutomationService:
             "last_run_at": str(auto.last_run_at) if auto.last_run_at else None,
             "next_run_at": str(auto.next_run_at) if auto.next_run_at else None,
             "created_by": auto.created_by,
+            "org_id": auto.org_id,
             "source_conversation_id": auto.source_conversation_id,
             "source_message_id": auto.source_message_id,
             "workflow_graph": workflow_graph,
@@ -480,7 +494,10 @@ class AutomationService:
     # Trigger Templates
     # ------------------------------------------------------------------
 
-    def create_template(self, user_id: str, name: str, description: str | None, conditions: list[dict]) -> dict:
+    def create_template(
+        self, user_id: str, name: str, description: str | None, conditions: list[dict],
+        *, org_id: str | None = None,
+    ) -> dict:
         with Session(self._engine) as session:
             tpl = TriggerTemplate(
                 id=_uuid(),
@@ -488,6 +505,7 @@ class AutomationService:
                 description=description,
                 conditions_json=json.dumps(conditions),
                 created_by=user_id,
+                org_id=org_id,
                 created_at=_utcnow(),
                 updated_at=_utcnow(),
             )
@@ -496,9 +514,12 @@ class AutomationService:
             session.refresh(tpl)
             return self._template_to_dict(tpl)
 
-    def list_templates(self) -> list[dict]:
+    def list_templates(self, org_id: str | None = None, org_scoped: bool = False) -> list[dict]:
         with Session(self._engine) as session:
-            rows = session.query(TriggerTemplate).order_by(TriggerTemplate.created_at.desc()).all()
+            q = session.query(TriggerTemplate)
+            if org_scoped and org_id is not None:
+                q = q.filter(TriggerTemplate.org_id == org_id)
+            rows = q.order_by(TriggerTemplate.created_at.desc()).all()
             return [self._template_to_dict(t) for t in rows]
 
     def get_template(self, template_id: str) -> dict | None:
@@ -547,6 +568,7 @@ class AutomationService:
             "description": tpl.description,
             "conditions": conditions,
             "created_by": tpl.created_by,
+            "org_id": tpl.org_id,
             "created_at": str(tpl.created_at),
             "updated_at": str(tpl.updated_at),
         }

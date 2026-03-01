@@ -145,44 +145,68 @@ The right sidebar shows the agent process timeline with expandable details for e
 
 FastAPI app with async lifespan management. On startup:
 1. Loads settings from environment variables (Pydantic Settings)
-2. Connects to SQLite database
+2. Connects to SQLite database (single `insightxpert.db` for data + auth + conversations)
 3. Initializes ChromaDB vector store
-4. Creates LLM provider (Gemini or Ollama)
-5. Creates auth database tables and seeds admin user
-6. Initializes both conversation stores
-7. Bootstraps RAG with training data (DDL, docs, 12+ Q→SQL pairs)
-8. Registers 4 routers: API, Auth, Admin, Client Config
+4. Creates LLM provider (Gemini, Ollama, or Vertex AI)
+5. Creates auth database tables (users, conversations, messages, feedback, datasets, automations, insights, notifications, etc.) and seeds admin user
+6. Runs database migrations for schema changes
+7. Initializes both conversation stores
+8. Computes and caches dataset statistics (`dataset_stats` table)
+9. Bootstraps RAG with training data (DDL, docs, 12+ Q→SQL pairs)
+10. Starts automation scheduler (APScheduler for cron-based automations)
+11. Registers 6 routers: API, Auth, Admin, Client Config, Datasets, Insights
 
-### 4.2 Agent Loop (`agents/analyst.py`)
+### 4.2 Agent System (`agents/`)
 
-The core ~600-line engine that replaced Vanna. It's an async generator that yields `ChatChunk` objects:
+The system supports **3 analysis modes**, each with a different agent pipeline:
 
-```
-analyst_loop(question, settings, llm, db, rag, history, tool_registry)
-  → AsyncGenerator[ChatChunk]
-```
+| Mode | Pipeline | Use Case |
+|------|----------|----------|
+| **Basic** | Single analyst → answer | Simple factual queries |
+| **Agentic** | Orchestrator → DAG of analyst + quant tasks → enrichment evaluation → response synthesis → insight quality gate | Complex multi-faceted analysis |
+| **Deep Think** | Agentic pipeline + dimension extraction (5W1H) → investigation evaluator → investigation synthesis | Exhaustive exploration of a topic |
 
-**Error handling:** All LLM calls are wrapped in try/except. Failures yield error chunks instead of crashing the stream. The loop enforces a max iteration limit (default 10) to prevent infinite tool-calling cycles.
+**Key agent files:**
+- `analyst.py` — Core SQL analyst loop (RAG → LLM → tool-calling → answer)
+- `orchestrator_planner.py` — Plans and schedules parallel sub-tasks as a DAG
+- `dag_executor.py` — Executes planned tasks in parallel (respecting dependencies)
+- `quant_analyst.py` — Statistical analysis agent with Python-based tools
+- `deep_think.py` — Dimension extraction and investigation pipeline
+- `response_generator.py` — Synthesizes multi-task results into coherent response
+- `clarifier.py` — Detects ambiguous queries and asks clarifying questions
+- `common.py` — Shared types (`ChatChunk`, `ToolCallRecord`, `AgentContext`)
 
-### 4.3 Tools (`agents/tool_base.py`, `agents/tools.py`)
+All agent loops are `async def` generators yielding `ChatChunk` objects. Error handling wraps all LLM calls — failures yield error chunks instead of crashing the stream. Each loop enforces a max iteration limit (default 10).
+
+### 4.3 Tools (`agents/tool_base.py`, `agents/tools.py`, `agents/stat_tools.py`, `agents/advanced_tools.py`)
 
 **Abstract Base Class pattern:**
 - `Tool` ABC: `name`, `description`, `get_args_schema()`, `execute()`
 - `ToolRegistry`: manages tools, generates JSON schemas for the LLM, executes with error handling
 - Error sanitization: tool errors return clean messages, never stack traces
 
-**3 tools:**
-| Tool | Purpose | Key Safety |
-|------|---------|------------|
-| `RunSqlTool` | Execute SELECT queries | Row limit (1000), timeout (30s), read-only |
-| `GetSchemaTool` | Inspect table DDL | Read-only introspection |
-| `SearchSimilarTool` | Query ChromaDB knowledge base | Read-only search |
+**21 tools across 3 registries:**
 
-**Statistical tools** (`agents/stat_tools.py`): Additional tools for the statistician agent:
-- `compute_descriptive_stats` — count, mean, std, min, quartiles, max, skewness, kurtosis
-- `test_hypothesis` — chi-squared, t-test, Mann-Whitney, ANOVA, z-proportion
-- `compute_correlation` — Pearson, Spearman, Kendall with p-values
-- `fit_distribution` — normal, exponential, lognormal, gamma, Weibull ranking by KS-test
+**Core tools** (analyst — `tools.py`):
+| Tool | Purpose |
+|------|---------|
+| `RunSqlTool` | Execute SELECT queries (row limit, timeout, read-only) |
+| `GetSchemaTool` | Inspect table DDL |
+| `SearchSimilarTool` | Query ChromaDB knowledge base |
+| `ClarifyTool` | Ask the user a clarifying question (when `clarification_enabled`) |
+
+**Statistical tools** (quant analyst — `stat_tools.py`):
+| Tool | Purpose |
+|------|---------|
+| `RunSqlTool` | Execute queries for statistical analysis |
+| `DescriptiveStatsTool` | count, mean, std, quartiles, skewness, kurtosis |
+| `HypothesisTestTool` | chi-squared, t-test, Mann-Whitney, ANOVA, z-proportion |
+| `CorrelationTool` | Pearson, Spearman, Kendall with p-values |
+| `FitDistributionTool` | normal, exponential, lognormal, gamma, Weibull ranking by KS-test |
+| `RunPythonTool` | Execute Python code for custom analysis |
+
+**Advanced tools** (agentic/deep mode — `advanced_tools.py`):
+14 specialized tools including time-series analysis, fraud/risk analytics, trend detection, anomaly scoring, cohort analysis, funnel analysis, and general analytics tools.
 
 ### 4.4 LLM Providers (`llm/`)
 
@@ -196,9 +220,10 @@ LLMProvider protocol:
 
 **Factory pattern:** `create_llm("gemini", settings)` uses a registry of factory functions. No if/else chains. Adding a new provider = write the class + register a factory.
 
-**Two providers:**
-- **Gemini** (`gemini.py`) — Uses `google-genai` async client. Handles function calling, streaming, multipart content.
+**Three providers:**
+- **Gemini** (`gemini.py`) — Uses `google-genai` async client. Handles function calling, streaming, multipart content. Primary production provider.
 - **Ollama** (`ollama.py`) — Uses `ollama` async client with 120s timeout. Same protocol, local development fallback.
+- **Vertex AI** (`vertex.py`) — Google Cloud Vertex AI for enterprise deployments.
 
 **Runtime switching:** `POST /api/config/switch` hot-swaps the LLM without restart. Validates model exists first (rolls back on failure).
 
@@ -216,9 +241,25 @@ LLMProvider protocol:
 
 ### 4.6 Prompts (`prompts/`)
 
-Jinja2 templates rendered per query:
-- `analyst_system.j2` — Main analyst prompt (identity, DDL, docs, rules, RAG context, visualization guidelines)
-- `statistician_system.j2` — Statistical analysis prompt (hypothesis testing rules, response structure)
+15 Jinja2 templates rendered per query, organized by agent role:
+
+| Template | Purpose |
+|----------|---------|
+| `analyst_system.j2` | Main SQL analyst (identity, DDL, docs, rules, RAG, viz guidelines) |
+| `statistician_system.j2` | Statistical analysis (hypothesis testing, effect sizes, CIs) |
+| `quant_analyst_system.j2` | Quantitative analyst for agentic mode |
+| `orchestrator_planner.j2` | Plans multi-task DAGs from user questions |
+| `enrichment_evaluator.j2` | Evaluates if analyst results need enrichment |
+| `investigation_evaluator.j2` | Deep think: evaluates investigation completeness |
+| `dimension_extractor.j2` | Deep think: extracts 5W1H dimensions from questions |
+| `response_synthesizer.j2` | Combines multi-task results into final response |
+| `insight_quality_gate.j2` | Quality-checks generated insights before saving |
+| `investigation_synthesizer.j2` | Synthesizes investigation findings |
+| `clarifier_system.j2` | Ambiguity detection and clarification prompts |
+| `nl_trigger.j2` | Natural-language trigger evaluation for automations |
+| `automation_namer.j2` | Auto-names automations from SQL queries |
+| `sql_generator.j2` | NL→SQL generation for automation workflows |
+| `title_generator.j2` | Auto-generates conversation titles |
 
 Conditional sections inject RAG context only when matches are found:
 ```jinja2
@@ -231,12 +272,35 @@ Conditional sections inject RAG context only when matches are found:
 ### 4.7 Admin System (`admin/`)
 
 Multi-tenant configuration system:
-- **Feature toggles:** SQL executor, model switching, RAG training, chart rendering, conversation export, agent process sidebar
-- **Org branding:** Custom display name, logo URL, CSS theme variable overrides
+- **Feature toggles:** 9 switches — SQL executor, model switching, RAG training, RAG retrieval, chart rendering, conversation export, agent process sidebar, clarification enabled, stats context injection
+- **Org branding:** Custom display name, logo URL, CSS theme variable overrides, color mode (dark/light)
 - **User-org mappings:** Email → organization assignment
 - **Admin domains:** Email domains that grant admin access
 
 Stored as JSON on disk (`config/client-configs.json`). Admin endpoints require admin user.
+
+### 4.8 Automations (`automations/`)
+
+Scheduled data monitoring with trigger-based alerting:
+- **Scheduler** (`scheduler.py`) — APScheduler runs cron-based automations
+- **Evaluator** (`evaluator.py`) — Executes SQL workflows, evaluates trigger conditions (threshold, change detection, row count, column expression, slope)
+- **NL Trigger** (`nl_trigger.py`) — Natural-language trigger evaluation via LLM
+- Multi-step SQL workflows with topological execution order
+- Notifications dispatched when triggers fire (with severity levels)
+
+### 4.9 Insights (`insights/`)
+
+Auto-generated insights from the enrichment pipeline:
+- Insights created during agentic/deep analysis and quality-gated before saving
+- CRUD API for viewing, bookmarking, and managing insights
+- Categories derived from enrichment tasks (temporal, segmentation, risk, etc.)
+
+### 4.10 Datasets (`datasets/`)
+
+Multi-dataset support:
+- **Dataset service** (`service.py`) — CRUD for user-uploaded datasets
+- **Data loader** (`db/data_loader.py`) — CSV → SQLite loader with schema inference
+- **Stats computer** (`db/stats_computer.py`) — Pre-computes summary statistics for stats context injection
 
 ---
 
@@ -250,7 +314,10 @@ Stored as JSON on disk (`config/client-configs.json`). Admin endpoints require a
 |-------|-----------|------|
 | `/` | Chat interface (AppShell + ChatPanel) | Required (AuthGuard) |
 | `/login` | Email/password form | Public |
-| `/admin` | Admin panel (feature toggles, branding, user mappings) | Admin only |
+| `/register` | User registration form | Public |
+| `/admin` | Admin dashboard (config, users, conversations) | Admin only |
+| `/admin/automations` | Automation management | Admin only |
+| `/admin/notifications` | Notification management | Admin only |
 
 ### 5.2 Layout (3-Column)
 
@@ -273,24 +340,29 @@ Stored as JSON on disk (`config/client-configs.json`). Admin endpoints require a
 - **Sidebars:** Collapsible on desktop (Framer Motion), Sheet overlays on mobile
 - **Responsive:** Tailwind breakpoints + `useMediaQuery` hook + safe area padding
 
-### 5.3 State Management (4 Zustand Stores)
+### 5.3 State Management (7 Zustand Stores)
 
 | Store | State | Key Actions |
 |-------|-------|-------------|
-| **auth-store** | `user`, `isLoading`, `error` | `login()`, `logout()`, `checkAuth()` |
-| **chat-store** | `conversations[]`, `activeConversationId`, `isStreaming`, `agentSteps[]`, sidebar states | `newConversation()`, `addUserMessage()`, `appendChunk()`, `finishStreaming()`, `loadConversationMessages()` |
+| **auth-store** | `user`, `isLoading`, `error` | `login()`, `register()`, `logout()`, `checkAuth()` |
+| **chat-store** | `conversations[]`, `activeConversationId`, `isStreaming`, `agentSteps[]`, sidebar states, clarification state, agent phase | `newConversation()`, `addUserMessage()`, `appendChunk()`, `finishStreaming()`, `loadConversationMessages()` |
 | **settings-store** | `currentProvider`, `currentModel`, `providers[]`, `agentMode` | `fetchConfig()`, `switchModel()`, `setAgentMode()` |
 | **client-config-store** | `config` (org settings), `isAdmin`, `orgId` | `fetchConfig()` (applies branding CSS vars, sets document title) |
+| **insight-store** | `insights[]`, `allInsights[]`, `totalCount` | `fetchInsights()`, `bookmarkInsight()`, `deleteInsight()`, `fetchCount()` |
+| **automation-store** | `automations[]`, workflow builder state, test triggers | CRUD, workflow builder (blocks, edges, topological sort), trigger testing, SQL generation |
+| **notification-store** | `notifications[]`, `unreadCount` | `fetchNotifications()`, `markAsRead()`, `markAllAsRead()`, `fetchUnreadCount()` |
 
 ### 5.4 SSE Streaming (`hooks/use-sse-chat.ts`)
 
 The core streaming hook orchestrates:
 1. Creates/reuses conversation
 2. Opens SSE connection with POST body (not GET — supports request body)
-3. Parses newline-delimited JSON chunks with 16ms stagger delay for smooth animation
+3. Parses newline-delimited JSON chunks with microtask batching (React 18+ auto-batches state updates)
 4. Updates Zustand stores in real-time
 5. Manages agent step timeline (pending → running → done/error)
 6. Handles AbortController for stop functionality
+7. Tracks wall-clock time from send to `[DONE]`
+8. Refreshes insight badge count on insight chunks
 
 ### 5.5 Chunk Rendering (`components/chunks/`)
 
@@ -302,8 +374,15 @@ Each SSE chunk type has a dedicated React component:
 | `tool_call` | ToolCallChunk | Pulsing dot + tool name |
 | `sql` | SqlChunk | Collapsible SQL with syntax highlighting (vs2015 theme) + copy button |
 | `tool_result` | ToolResultChunk | Collapsible data table + auto-detected chart |
-| `answer` | AnswerChunk | GitHub-flavored Markdown via react-markdown |
+| `answer` | AnswerChunk | GitHub-flavored Markdown via react-markdown (React.memo optimized) |
 | `error` | ErrorChunk | Red error card with description |
+| `clarification` | ClarificationChunk | Clarification request when query is ambiguous |
+| `stats_context` | StatsContextChunk | Dataset statistics injection display |
+| `insight` | InsightChunk | Auto-generated insight with enrichment metadata |
+| `enrichment_trace` | ThinkingTrace | Enrichment task trace (collapsible) |
+| `orchestrator_plan` | ThinkingTrace | DAG plan with task breakdown |
+| `agent_trace` | ThinkingTrace | Individual agent execution trace |
+| `metrics` | (internal) | Token counts and generation time |
 
 ### 5.6 Chart Auto-Detection (`lib/chart-detector.ts`)
 
@@ -318,13 +397,24 @@ Also auto-abbreviates Indian state names to 2-letter RTO codes (Maharashtra → 
 
 ### 5.7 Key UI Features
 
-- **Welcome Screen:** Logo, subtitle, centered input, 3 animated suggested questions
+- **Welcome Screen:** Logo, subtitle, centered input, animated suggested questions
+- **Sample Questions Modal:** Categorized example questions to help users get started
 - **Message Actions:** Copy prompt/response, thumbs up/down feedback with optional comment, retry last message
 - **Model Selector:** Breadcrumb-style `Provider / Model` dropdowns in header with runtime switching
-- **SQL Executor:** Right-side sheet panel with read-only SQL editor, Ctrl/Cmd+Enter execution, results table with stats
+- **Agent Mode Toggle:** Switch between basic, agentic, and deep think modes from the input toolbar
+- **SQL Executor:** Right-side sheet panel with read-only SQL editor, Ctrl/Cmd+Enter execution, results table with chart configurator
 - **Conversation Management:** Create, rename, delete, search conversations in left sidebar
 - **Theme Toggle:** Dark/light mode with localStorage persistence
 - **Agent Timeline:** Real-time process steps with expandable details (LLM reasoning, SQL, results, RAG context)
+- **Insight Bell:** Badge with unread count, popover preview, full gallery modal with bookmark/delete
+- **Notification Bell:** Automation alerts with severity levels, mark-as-read, detail modals
+- **Dataset Viewer:** Schema browser and sample data explorer
+- **Dataset Selector:** Switch between uploaded datasets
+- **Workflow Builder:** Visual DAG editor using React Flow — drag SQL blocks, connect edges, auto-suggest edges by shared tables, topological sort for execution order
+- **Automation Management:** Create, edit, toggle, delete automations with cron scheduling, trigger conditions, run history
+- **Report Export:** Export conversation results to PDF/CSV
+- **Trace Modal:** Detailed inspection of agent reasoning traces
+- **Health Check Gate:** Backend health verification on app startup
 
 ### 5.8 Styling
 
@@ -368,14 +458,23 @@ Also auto-abbreviates Indian state names to 2-letter RTO codes (Maharashtra → 
 
 **8 indices** for query performance: transaction_type, status, merchant_category, sender_bank, device_type, fraud_flag, hour_of_day, is_weekend, sender_state.
 
-### 6.2 Auth Database
+### 6.2 Auth & Application Tables
 
-**File:** `insightxpert_auth.db` (SQLite)
+All application tables live in the same `insightxpert.db` file as the transactions data.
 
-**Tables:**
-- `users` — id (UUID), email (unique), hashed_password, is_active, is_admin, created_at, last_active
+**Core tables (22 total):**
+- `users` — id (UUID), email (unique), hashed_password, is_active, is_admin, org_id, created_at, last_active
 - `conversations` — id, user_id (FK), title, is_starred, created_at, updated_at
-- `messages` — id, conversation_id (FK), role, content, chunks_json, feedback, feedback_comment, created_at
+- `messages` — id, conversation_id (FK), role, content, chunks_json, feedback, feedback_comment, input_tokens, output_tokens, generation_time_ms, created_at
+- `feedback` — id, user_id (FK), conversation_id, message_id, rating, comment, created_at
+- `automations` — id, user_id, name, description, nl_query, sql_query, sql_queries (JSON), cron_expression, trigger_conditions (JSON), is_active, workflow_graph (JSON), etc.
+- `automation_runs` — id, automation_id (FK), status, result_json, triggers_fired, error_message, etc.
+- `insights` — id, user_id, org_id, conversation_id, message_id, title, summary, content, categories (JSON), is_bookmarked, source, etc.
+- `notifications` — id, user_id, automation_id, run_id, title, message, severity, is_read, etc.
+- `datasets` — id, user_id, name, file_path, table_name, row_count, schema_json, etc.
+- `dataset_stats` — pre-computed summary statistics per dataset dimension
+- `trigger_templates` — reusable trigger condition templates
+- `_sync_deletes` — delete tracking for Turso background sync (when enabled)
 
 **Default admin:** `admin@insightxpert.ai` / `admin123` (auto-seeded on startup)
 
@@ -417,7 +516,7 @@ Also auto-abbreviates Indian state names to 2-letter RTO codes (Maharashtra → 
 | Store | Purpose | Capacity | Storage |
 |-------|---------|----------|---------|
 | **In-memory** (LRU) | Fast LLM context | 500 conversations, 2h TTL, last 20 turns | RAM |
-| **Persistent** (SQLite) | Full history replay | Unlimited | `insightxpert_auth.db` |
+| **Persistent** (SQLite) | Full history replay | Unlimited | `insightxpert.db` |
 
 The in-memory store holds condensed messages (user questions + assistant answers only, no tool intermediaries) for injecting into LLM context. The persistent store holds everything including full chunks JSON for UI replay.
 
@@ -449,15 +548,15 @@ Protected route:
 
 Multi-tenant configuration via JSON file on disk:
 
-- **Feature Toggles:** 6 boolean flags control which features are visible per organization
-  - sql_executor, model_switching, rag_training, chart_rendering, conversation_export, agent_process_sidebar
-- **Org Branding:** Custom display name, logo URL, CSS theme color overrides
+- **Feature Toggles:** 9 boolean flags control which features are visible per organization
+  - sql_executor, model_switching, rag_training, rag_retrieval, chart_rendering, conversation_export, agent_process_sidebar, clarification_enabled, stats_context_injection
+- **Org Branding:** Custom display name, logo URL, CSS theme color overrides, color mode
 - **User-Org Mappings:** Map email addresses to organizations
 - **Admin Domains:** Email domains that automatically grant admin access
 
 Admin endpoints (`/api/admin/*`) require admin user. Public endpoint (`/api/client-config`) returns resolved config for the current user based on their org mapping.
 
-Frontend admin page at `/admin` provides UI for all configuration with guards that redirect non-admins.
+Frontend admin pages at `/admin`, `/admin/automations`, and `/admin/notifications` provide UI for all configuration with guards that redirect non-admins.
 
 ---
 
@@ -510,6 +609,50 @@ Frontend admin page at `/admin` provides UI for all configuration with guards th
 | POST | `/api/train` | Yes | Add Q→SQL pair, DDL, or documentation to RAG |
 | GET | `/api/rag/delete` | Yes | Clear all RAG embeddings |
 | POST | `/api/feedback` | Yes | Submit message feedback (thumbs up/down + comment) |
+
+### Automations
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/api/automations` | Yes | List automations |
+| POST | `/api/automations` | Yes | Create automation |
+| PUT | `/api/automations/{id}` | Yes | Update automation |
+| DELETE | `/api/automations/{id}` | Yes | Delete automation |
+| PATCH | `/api/automations/{id}/toggle` | Yes | Toggle automation active/inactive |
+| POST | `/api/automations/{id}/run` | Yes | Run automation now |
+| GET | `/api/automations/{id}/runs` | Yes | Get run history |
+| POST | `/api/automations/generate-sql` | Yes | NL → SQL generation for workflows |
+
+### Insights
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/api/insights` | Yes | List insights (with optional `?bookmarked=true`) |
+| GET | `/api/insights/all` | Yes | All insights (for gallery) |
+| GET | `/api/insights/count` | Yes | Badge count |
+| PATCH | `/api/insights/{id}/bookmark` | Yes | Toggle bookmark |
+| DELETE | `/api/insights/{id}` | Yes | Delete insight |
+
+### Notifications
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/api/notifications` | Yes | List notifications |
+| GET | `/api/notifications/all` | Yes | All notifications |
+| GET | `/api/notifications/count` | Yes | Unread count |
+| PATCH | `/api/notifications/{id}/read` | Yes | Mark as read |
+| POST | `/api/notifications/mark-all-read` | Yes | Mark all as read |
+
+### Datasets
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| GET | `/api/datasets` | Yes | List datasets |
+| POST | `/api/datasets` | Yes | Upload dataset |
+| GET | `/api/datasets/{id}` | Yes | Get dataset details |
+| DELETE | `/api/datasets/{id}` | Yes | Delete dataset |
+| GET | `/api/datasets/{id}/schema` | Yes | Get dataset schema |
+| GET | `/api/datasets/{id}/sample` | Yes | Get sample rows |
 
 ### Admin
 
@@ -664,29 +807,51 @@ Run: `cd frontend && npm run lint`
 
 ### Implemented (Production-Ready)
 
-- Analyst agent with full tool-calling loop and error recovery
-- Tool ABC + ToolRegistry with 3 tools (run_sql, get_schema, search_similar)
-- Statistical tools (descriptive stats, hypothesis testing, correlation, distribution fitting)
-- Gemini + Ollama LLM providers with runtime switching
-- Database connector with dual read-only enforcement
+**Agent Pipeline:**
+- 3 analysis modes: basic (single analyst), agentic (multi-agent DAG), deep think (exhaustive investigation)
+- Orchestrator planner with DAG-based task decomposition and parallel execution
+- SQL analyst agent with full tool-calling loop and error recovery
+- Quant analyst agent with statistical Python tools
+- Enrichment evaluator — decides if analyst results need additional analysis
+- Response synthesizer — combines multi-task results into coherent response
+- Insight quality gate — validates generated insights before saving
+- Deep think pipeline: dimension extraction (5W1H) → investigation evaluator → investigation synthesis
+- Ambiguity detection with clarification requests (clarifier agent)
+- 21 tools across 3 registries (core, statistical, advanced)
+
+**LLM & RAG:**
+- 3 LLM providers: Gemini, Ollama, Vertex AI with runtime switching
 - ChromaDB vector store with 4 collections and auto-learning
+- Pre-computed dataset statistics with context injection
+
+**Backend Infrastructure:**
+- Database connector with dual read-only enforcement
 - JWT + bcrypt authentication with persistent conversations
-- Admin system with feature toggles, org branding, user-org mappings
-- 20+ API endpoints
-- Full frontend with SSE streaming, agent timeline, chart auto-detection
-- 3-column responsive layout with dark/light theme
-- 4 Zustand stores (auth, chat, settings, client-config)
-- SQL executor panel
+- Admin system with 9 feature toggles, org branding, user-org mappings
+- Automation scheduler with cron-based execution, trigger conditions, and notifications
+- Auto-generated insights with bookmark/delete management
+- Multi-dataset support with upload, schema inference, and stats computation
+- 50+ API endpoints across 6 routers
+- 15 Jinja2 prompt templates
 - CI/CD with GitHub Actions, Cloud Run, Firebase Hosting
 
-### Planned/Stubbed
+**Frontend:**
+- Full chat UI with SSE streaming, 13+ chunk types, agent timeline
+- 3-column responsive layout with dark/light theme
+- 7 Zustand stores (auth, chat, settings, client-config, insight, automation, notification)
+- Workflow builder with React Flow visual DAG editor
+- Insight bell with gallery modal and bookmarking
+- Notification bell with severity levels and detail modals
+- Dataset viewer and selector
+- SQL executor with chart configurator
+- Sample questions modal
+- Report export (PDF/CSV)
+- Health check gate on startup
 
-- Multi-agent orchestrator (6-line stub, no routing logic)
-- Statistician agent integration into pipeline
-- Creative Narrator agent
-- Anomaly Detector (background scan)
-- Observability dashboard (tracer + store are stubs)
-- Ambiguity detection (ask clarifying questions for vague queries)
+### Not Implemented
+
+- Observability dashboard (tracer + store stubs exist but are unused)
+- Starred conversations UI (backend column exists, no frontend toggle)
 
 ---
 
@@ -694,26 +859,34 @@ Run: `cd frontend && npm run lint`
 
 ```
 InsightXpert/
-├── README.md                       # Project overview & setup
-├── ARCHITECTURE.md                 # Technical blueprint & design decisions
+├── README.md                       # Project overview & setup guide
+├── ARCHITECTURE.md                 # Original technical blueprint (Feb 17)
 ├── DEPLOY.md                       # Deployment guide
 ├── WALKTHROUGH.md                  # This file
 ├── CLAUDE.md                       # AI assistant instructions
+├── TODO.md                         # Remaining work items
+├── DESIGN_PATTERNS.md              # Design patterns reference
 ├── firebase.json                   # Firebase Hosting config
 ├── .env.example                    # Environment variable template
+│
+├── docs/                           # Comprehensive documentation
+│   ├── architecture.md             # System architecture
+│   ├── agent-pipeline.md           # Agent pipeline deep dive
+│   ├── agent-tools.md              # All 21 tools reference
+│   ├── AGENTS_AND_MODES.md         # Agent modes & orchestration
+│   ├── api-reference.md            # Full API reference
+│   ├── automations.md              # Automations system
+│   ├── configuration.md            # Configuration reference
+│   ├── contributing.md             # Contributing guide
+│   ├── dataset.md                  # Dataset documentation
+│   ├── frontend.md                 # Frontend architecture
+│   └── top-10-analyses.md          # Example analysis showcase
 │
 ├── .github/workflows/
 │   ├── deploy.yml                  # Production CI/CD
 │   └── preview.yml                 # PR preview CI/CD
 │
 ├── prd/QuestionBank/               # Problem statement & evaluation criteria
-│   ├── 01_problem_understanding.md
-│   ├── 02_leadership_questions.md
-│   ├── 03_data_computation.md
-│   ├── 04_assumptions.md
-│   ├── 05_explainability.md
-│   ├── 06_scope_exclusions.md
-│   └── 07_team_execution_plan.md
 │
 ├── postman/                        # API collection for testing
 │
@@ -722,48 +895,73 @@ InsightXpert/
 │   ├── uv.lock                     # Locked dependency versions
 │   ├── Dockerfile                  # Cloud Run container
 │   ├── generate_data.py            # 250K transaction data generator
-│   ├── seed_turso.py               # Cloud Turso DB seeder
-│   ├── insightxpert.db             # SQLite main DB (80MB, 250K rows)
-│   ├── insightxpert_auth.db        # SQLite auth + conversations DB
+│   ├── insightxpert.db             # SQLite DB (data + auth + conversations)
 │   ├── chroma_data/                # ChromaDB persistent vector store
 │   ├── config/client-configs.json  # Admin configuration
 │   │
 │   ├── tests/
 │   │   ├── conftest.py             # Test fixtures
 │   │   ├── test_agent.py           # Agent loop tests
+│   │   ├── test_api_chat.py        # Chat API integration tests
 │   │   ├── test_db.py              # Database tests
 │   │   ├── test_rag.py             # RAG tests
 │   │   └── test_statistician.py    # Stats tools tests
 │   │
 │   └── src/insightxpert/
-│       ├── main.py                 # FastAPI app entry point
+│       ├── main.py                 # FastAPI app entry point + lifespan
 │       ├── config.py               # Pydantic Settings
+│       ├── exceptions.py           # Custom exception classes
 │       │
 │       ├── api/
-│       │   ├── routes.py           # 20+ API endpoints
-│       │   └── models.py           # Request/response models
+│       │   ├── routes.py           # Chat, config, SQL, conversation, feedback endpoints
+│       │   └── models.py           # Request/response Pydantic models
 │       │
 │       ├── agents/
-│       │   ├── analyst.py          # Core agent loop
+│       │   ├── analyst.py          # SQL analyst agent loop
+│       │   ├── orchestrator_planner.py  # DAG task planner
+│       │   ├── dag_executor.py     # Parallel task executor
+│       │   ├── quant_analyst.py    # Statistical analysis agent
+│       │   ├── deep_think.py       # Dimension extraction + investigation pipeline
+│       │   ├── response_generator.py  # Multi-task response synthesizer
+│       │   ├── clarifier.py        # Ambiguity detection + clarification
+│       │   ├── common.py           # Shared types (ChatChunk, AgentContext)
 │       │   ├── tool_base.py        # Tool ABC + ToolRegistry
-│       │   ├── tools.py            # RunSql, GetSchema, SearchSimilar
-│       │   ├── stat_tools.py       # Statistical analysis tools
-│       │   └── orchestrator.py     # Multi-agent routing (stub)
+│       │   ├── tools.py            # Core tools (RunSql, GetSchema, SearchSimilar, Clarify)
+│       │   ├── stat_tools.py       # Statistical tools (6 tools)
+│       │   ├── advanced_tools.py   # Advanced analytics tools (14 tools)
+│       │   └── stats_resolver.py   # Stats context resolution
 │       │
-│       ├── prompts/
-│       │   ├── __init__.py         # Jinja2 template loader
-│       │   ├── analyst_system.j2   # Analyst system prompt
-│       │   └── statistician_system.j2  # Statistician system prompt
+│       ├── prompts/                # 15 Jinja2 templates
+│       │   ├── __init__.py         # Template loader
+│       │   ├── analyst_system.j2
+│       │   ├── statistician_system.j2
+│       │   ├── quant_analyst_system.j2
+│       │   ├── orchestrator_planner.j2
+│       │   ├── enrichment_evaluator.j2
+│       │   ├── investigation_evaluator.j2
+│       │   ├── dimension_extractor.j2
+│       │   ├── response_synthesizer.j2
+│       │   ├── insight_quality_gate.j2
+│       │   ├── investigation_synthesizer.j2
+│       │   ├── clarifier_system.j2
+│       │   ├── nl_trigger.j2
+│       │   ├── automation_namer.j2
+│       │   ├── sql_generator.j2
+│       │   └── title_generator.j2
 │       │
 │       ├── llm/
 │       │   ├── base.py             # LLMProvider protocol
 │       │   ├── factory.py          # Registry-based factory
 │       │   ├── gemini.py           # Google Gemini provider
-│       │   └── ollama.py           # Ollama local provider
+│       │   ├── ollama.py           # Ollama local provider
+│       │   └── vertex.py           # Google Vertex AI provider
 │       │
 │       ├── db/
 │       │   ├── connector.py        # SQLAlchemy wrapper
-│       │   └── schema.py           # DDL introspection
+│       │   ├── schema.py           # DDL introspection
+│       │   ├── data_loader.py      # CSV → SQLite loader
+│       │   ├── stats_computer.py   # Pre-computed dataset statistics
+│       │   └── migrations.py       # Schema migrations
 │       │
 │       ├── rag/
 │       │   ├── base.py             # VectorStoreBackend protocol
@@ -774,11 +972,12 @@ InsightXpert/
 │       │   └── conversation_store.py   # In-memory LRU + TTL
 │       │
 │       ├── auth/
-│       │   ├── routes.py           # Login, logout, me
-│       │   ├── models.py           # User, Conversation, Message ORM
+│       │   ├── routes.py           # Login, logout, register, me
+│       │   ├── models.py           # 20+ ORM models (User, Conversation, Message, etc.)
 │       │   ├── security.py         # JWT + bcrypt
 │       │   ├── dependencies.py     # get_current_user
 │       │   ├── conversation_store.py   # Persistent CRUD
+│       │   ├── permissions.py      # Org-scoped permission checks
 │       │   └── seed.py             # Admin user bootstrap
 │       │
 │       ├── admin/
@@ -786,15 +985,27 @@ InsightXpert/
 │       │   ├── config_store.py     # JSON config file management
 │       │   └── models.py           # FeatureToggles, OrgConfig, etc.
 │       │
+│       ├── automations/
+│       │   ├── routes.py           # Automation CRUD + run endpoints
+│       │   ├── scheduler.py        # APScheduler cron-based execution
+│       │   ├── evaluator.py        # SQL workflow executor + trigger evaluator
+│       │   └── nl_trigger.py       # Natural-language trigger evaluation
+│       │
+│       ├── datasets/
+│       │   ├── routes.py           # Dataset CRUD endpoints
+│       │   └── service.py          # Dataset management service
+│       │
+│       ├── insights/
+│       │   └── routes.py           # Insight CRUD + bookmark endpoints
+│       │
 │       ├── training/
 │       │   ├── trainer.py          # RAG bootstrap
 │       │   ├── schema.py           # DDL constant
 │       │   ├── documentation.py    # Business context
 │       │   └── queries.py          # 12+ example Q→SQL pairs
 │       │
-│       └── observability/          # Stubs for future tracing
-│           ├── tracer.py
-│           └── store.py
+│       └── benchmark/              # Performance benchmarking
+│           └── ...
 │
 └── frontend/
     ├── package.json                # Next.js 16, React 19, deps
@@ -805,58 +1016,95 @@ InsightXpert/
     │
     └── src/
         ├── app/
-        │   ├── layout.tsx          # Root layout (fonts, metadata)
+        │   ├── layout.tsx          # Root layout (fonts, metadata, health gate)
         │   ├── globals.css         # Tailwind 4 + OKLch + glassmorphism
         │   ├── page.tsx            # Home (AuthGuard + AppShell + ChatPanel)
         │   ├── login/page.tsx      # Login form
+        │   ├── register/page.tsx   # Registration form
         │   └── admin/
         │       ├── layout.tsx      # Admin layout with guards
-        │       └── page.tsx        # Admin panel
+        │       ├── page.tsx        # Admin dashboard
+        │       ├── automations/    # Automation management page
+        │       └── notifications/  # Notification management page
         │
         ├── components/
-        │   ├── auth/auth-guard.tsx
+        │   ├── auth/               # AuthGuard
+        │   ├── health/             # HealthCheckGate
         │   ├── chat/               # ChatPanel, MessageList, MessageBubble,
         │   │                       # MessageInput, MessageActions, WelcomeScreen,
         │   │                       # InputToolbar
-        │   ├── chunks/             # ChunkRenderer, StatusChunk, SqlChunk,
-        │   │                       # ToolResultChunk, ToolCallChunk, AnswerChunk,
-        │   │                       # ErrorChunk, ChartBlock, DataTable
+        │   ├── chunks/             # ChunkRenderer + 15 chunk components:
+        │   │                       # AnswerChunk, SqlChunk, ToolCallChunk,
+        │   │                       # ToolResultChunk, StatusChunk, ErrorChunk,
+        │   │                       # ClarificationChunk, InsightChunk,
+        │   │                       # StatsContextChunk, ThinkingTrace,
+        │   │                       # TraceModal, ChartBlock, DataTable,
+        │   │                       # CitationLink
         │   ├── layout/             # AppShell, Header, LeftSidebar,
-        │   │                       # RightSidebar, UserMenu
+        │   │                       # RightSidebar, UserMenu, DatasetSelector
         │   ├── sidebar/            # ConversationList, ConversationItem,
         │   │                       # SearchResults, ProcessSteps, StepItem
-        │   ├── sql/sql-executor.tsx
+        │   ├── sql/                # SqlExecutor, ChartConfigurator
+        │   ├── insights/           # InsightBell, InsightPopover, InsightCard,
+        │   │                       # InsightAllModal
+        │   ├── automations/        # AutomationList, AutomationCard,
+        │   │                       # WorkflowBuilder, WorkflowCanvas,
+        │   │                       # WorkflowSidebar, SqlBlockNode,
+        │   │                       # SqlEditorModal, TriggerConditionBuilder,
+        │   │                       # TriggerTemplatePicker, SchedulePicker,
+        │   │                       # RunHistory, RunDetailModal,
+        │   │                       # AiSqlGenerator, ConditionRow
+        │   ├── notifications/      # NotificationBell, NotificationPopover,
+        │   │                       # NotificationCard, NotificationList,
+        │   │                       # NotificationDetailModal, NotificationAllModal
+        │   ├── dataset/            # DatasetViewer
+        │   ├── sample-questions/   # SampleQuestionsModal
         │   ├── admin/              # FeatureToggles, BrandingEditor,
-        │   │                       # UserOrgMappings, AdminDomainEditor
-        │   └── ui/                 # 14+ shadcn/Radix components
+        │   │                       # UserOrgMappings, AdminDomainEditor,
+        │   │                       # ConversationViewer
+        │   └── ui/                 # 30+ shadcn/Radix components
         │
         ├── hooks/
         │   ├── use-sse-chat.ts     # SSE streaming orchestration
         │   ├── use-client-config.ts # Org config + feature flags
+        │   ├── use-health-check.ts # Backend health polling
         │   ├── use-theme.ts        # Dark/light mode toggle
+        │   ├── use-syntax-theme.ts # Code syntax highlighting theme
         │   ├── use-auto-scroll.ts  # Auto-scroll to bottom
         │   └── use-media-query.ts  # Mobile detection
         │
         ├── stores/
-        │   ├── auth-store.ts       # Zustand auth state
-        │   ├── chat-store.ts       # Zustand chat state
-        │   ├── settings-store.ts   # Zustand model settings
-        │   └── client-config-store.ts  # Zustand org config
+        │   ├── auth-store.ts       # Auth state (login, register, logout)
+        │   ├── chat-store.ts       # Chat state (conversations, streaming, steps)
+        │   ├── settings-store.ts   # Model settings (provider, model, agent mode)
+        │   ├── client-config-store.ts  # Org config (features, branding)
+        │   ├── insight-store.ts    # Insights (fetch, bookmark, delete)
+        │   ├── automation-store.ts # Automations (CRUD, workflow builder, triggers)
+        │   └── notification-store.ts  # Notifications (fetch, read, count)
         │
         ├── lib/
         │   ├── api.ts              # Fetch wrapper with credentials
-        │   ├── sse-client.ts       # SSE stream reader + chunk stagger
+        │   ├── sse-client.ts       # SSE stream reader + microtask batching
         │   ├── chunk-parser.ts     # JSON parsing + tool result extraction
         │   ├── chart-detector.ts   # Auto chart type + state abbreviation
+        │   ├── sql-utils.ts        # Table extraction for workflow edges
+        │   ├── automation-utils.ts # Automation helper functions
+        │   ├── export-report.ts    # PDF/CSV export
+        │   ├── sample-questions.ts # Sample question data
         │   ├── model-utils.ts      # Model name formatting
         │   ├── constants.ts        # API URL, suggested questions
         │   └── utils.ts            # cn() class merge utility
         │
         └── types/
-            ├── chat.ts             # ChatChunk, Message, Conversation, AgentStep
-            └── admin.ts            # FeatureToggles, OrgConfig, Branding
+            ├── chat.ts             # ChatChunk, Message, Conversation, AgentStep,
+            │                       # OrchestratorPlan, AgentTrace, EnrichmentTrace
+            ├── admin.ts            # FeatureToggles, OrgConfig, Branding
+            ├── api.ts              # QueryResult, QueryError
+            ├── automation.ts       # Automation, AutomationRun, TriggerCondition,
+            │                       # WorkflowBlock, WorkflowEdge, Notification
+            └── insight.ts          # Insight
 ```
 
 ---
 
-*Last updated: Feb 17, 2026*
+*Last updated: Mar 2, 2026*

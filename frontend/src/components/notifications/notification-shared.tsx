@@ -1,5 +1,6 @@
 import { Bell, CheckCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ListLoading, ListEmptyState } from "@/components/ui/list-states";
 
 /* ---------- Filter bar ---------- */
 
@@ -55,11 +56,7 @@ export function NotificationFilterBar({
 /* ---------- Loading spinner ---------- */
 
 export function NotificationLoading() {
-  return (
-    <div className="flex items-center justify-center py-12">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary" />
-    </div>
-  );
+  return <ListLoading />;
 }
 
 /* ---------- Empty state ---------- */
@@ -70,11 +67,9 @@ interface NotificationEmptyStateProps {
 
 export function NotificationEmptyState({ filter }: NotificationEmptyStateProps) {
   return (
-    <div className="text-center py-12">
-      <Bell className="size-8 text-muted-foreground mx-auto mb-2" />
-      <p className="text-sm text-muted-foreground">
-        {filter === "unread" ? "No unread notifications" : "No notifications yet"}
-      </p>
-    </div>
+    <ListEmptyState
+      icon={<Bell className="size-8 text-muted-foreground mx-auto mb-2" />}
+      message={filter === "unread" ? "No unread notifications" : "No notifications yet"}
+    />
   );
 }

@@ -42,6 +42,15 @@ def _get_admin_domains(request: Request) -> list[str]:
     return config.admin_domains
 
 
+def _require_super_admin_for_datasets(user: User) -> None:
+    """Raise 403 if the admin is org-scoped (not a super admin)."""
+    if user.org_id is not None:
+        raise HTTPException(
+            status_code=403,
+            detail="Dataset management requires super-admin access",
+        )
+
+
 # --- Request/response models ---
 
 class DatasetUpdateRequest(BaseModel):
@@ -75,6 +84,7 @@ async def list_datasets(
     user: User = Depends(get_current_user),
 ):
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
     return await asyncio.to_thread(svc.list_datasets)
 
@@ -119,6 +129,7 @@ async def get_dataset(
     user: User = Depends(get_current_user),
 ):
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
     ds = await asyncio.to_thread(svc.get_dataset_by_id, dataset_id)
     if not ds:
@@ -136,6 +147,7 @@ async def update_dataset(
     user: User = Depends(get_current_user),
 ):
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
     if not fields:
@@ -154,6 +166,7 @@ async def add_column(
     user: User = Depends(get_current_user),
 ):
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
     result = await asyncio.to_thread(svc.add_column, dataset_id, **body.model_dump())
     if not result:
@@ -170,6 +183,7 @@ async def update_column(
     user: User = Depends(get_current_user),
 ):
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
     result = await asyncio.to_thread(svc.update_column, dataset_id, col_id, **body.model_dump())
     if not result:
@@ -185,6 +199,7 @@ async def add_example_query(
     user: User = Depends(get_current_user),
 ):
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
     result = await asyncio.to_thread(svc.add_example_query, dataset_id, **body.model_dump())
     if not result:
@@ -200,6 +215,7 @@ async def delete_example_query(
     user: User = Depends(get_current_user),
 ):
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
     deleted = await asyncio.to_thread(svc.delete_example_query, dataset_id, query_id)
     if not deleted:
@@ -214,6 +230,7 @@ async def activate_dataset(
     user: User = Depends(get_current_user),
 ):
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
     ok = await asyncio.to_thread(svc.activate_dataset, dataset_id)
     if not ok:
@@ -229,6 +246,7 @@ async def retrain_dataset(
 ):
     """Re-run RAG training for a specific dataset."""
     require_admin(user, _get_admin_domains(request))
+    _require_super_admin_for_datasets(user)
     svc = _get_dataset_service(request)
 
     ds = await asyncio.to_thread(svc.get_dataset_by_id, dataset_id)

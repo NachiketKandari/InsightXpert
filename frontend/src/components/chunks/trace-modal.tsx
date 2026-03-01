@@ -28,10 +28,9 @@ import {
   Clock,
   ChevronRight,
   CheckCircle2,
-  Copy,
-  Check,
   Table2,
 } from "lucide-react";
+import { CopyButton } from "@/components/ui/copy-button";
 import type { EnrichmentTrace, TraceStep } from "@/types/chat";
 
 SyntaxHighlighter.registerLanguage("sql", sqlLang);
@@ -193,32 +192,6 @@ function parseResultTable(
     /* not JSON */
   }
   return null;
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = async (e: React.MouseEvent) => {
-    e.stopPropagation();
-    await navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <button
-      type="button"
-      onClick={handleCopy}
-      className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-md hover:bg-accent"
-      aria-label="Copy"
-    >
-      {copied ? (
-        <Check className="size-3 text-emerald-400" />
-      ) : (
-        <Copy className="size-3" />
-      )}
-    </button>
-  );
 }
 
 function SqlBlock({ sql }: { sql: string }) {

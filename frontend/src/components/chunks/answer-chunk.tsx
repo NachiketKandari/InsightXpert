@@ -14,14 +14,23 @@ interface AnswerChunkProps {
   content: string;
 }
 
+/** Normalize dashes (em-dash, en-dash, hyphen) to spaces and collapse whitespace. */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[\u2014\u2013\-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // Sections always shown expanded
 const PRIMARY_SECTIONS = ["direct answer", "supporting evidence"];
 
 // Sections rendered as collapsible dropdowns
 const SECONDARY_SECTIONS = [
   "data provenance",
+  "business recommendations",
   "caveats",
-  "follow-up suggestions",
   "follow up suggestions",
 ];
 
@@ -72,9 +81,9 @@ function parseSections(markdown: string): {
     const body =
       firstNewline >= 0 ? sectionText.slice(firstNewline + 1).trim() : "";
 
-    const titleLower = matches[i].title.toLowerCase();
-    const isPrimary = PRIMARY_SECTIONS.some((s) => titleLower.includes(s));
-    const isKnown = allKnown.some((s) => titleLower.includes(s));
+    const normalized = normalizeTitle(matches[i].title);
+    const isPrimary = PRIMARY_SECTIONS.some((s) => normalized.includes(s));
+    const isKnown = allKnown.some((s) => normalized.includes(s));
 
     // Unknown sections shown expanded (safe default)
     sections.push({

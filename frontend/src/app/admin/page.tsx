@@ -21,6 +21,7 @@ import { UserOrgMappingsEditor } from "@/components/admin/user-org-mappings";
 import { AdminDomainEditor } from "@/components/admin/admin-domain-editor";
 import { ConversationViewer } from "@/components/admin/conversation-viewer";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useClientConfig } from "@/hooks/use-client-config";
 import type {
   ClientConfig,
   OrgConfig,
@@ -77,6 +78,8 @@ export default function AdminPage() {
     text: string;
   } | null>(null);
   const { confirm, ConfirmDialog } = useConfirm();
+  const { orgId } = useClientConfig();
+  const isSuperAdmin = !orgId;
 
   const loadConfig = useCallback(async () => {
     try {
@@ -473,15 +476,16 @@ export default function AdminPage() {
         <Tabs defaultValue="organizations" className="space-y-6">
           <TabsList>
             <TabsTrigger value="organizations">Organizations</TabsTrigger>
-            <TabsTrigger value="global">Global Settings</TabsTrigger>
-            <TabsTrigger value="rag">RAG Management</TabsTrigger>
+            {isSuperAdmin && <TabsTrigger value="global">Global Settings</TabsTrigger>}
+            {isSuperAdmin && <TabsTrigger value="rag">RAG Management</TabsTrigger>}
             <TabsTrigger value="conversations">Conversations</TabsTrigger>
-            <TabsTrigger value="prompts">Prompts</TabsTrigger>
+            {isSuperAdmin && <TabsTrigger value="prompts">Prompts</TabsTrigger>}
           </TabsList>
 
           {/* Organizations Tab */}
           <TabsContent value="organizations" className="space-y-6">
-            {/* Create new org */}
+            {/* Create new org (super admin only) */}
+            {isSuperAdmin && (
             <div className="rounded-lg border border-border p-4 space-y-3">
               <h3 className="text-sm font-medium">Create Organization</h3>
               <div className="flex items-end gap-2">
@@ -505,6 +509,7 @@ export default function AdminPage() {
                 </Button>
               </div>
             </div>
+            )}
 
             {/* Org selector + editor */}
             <div className="space-y-4">
@@ -517,7 +522,7 @@ export default function AdminPage() {
                     <SelectValue placeholder="Select organization" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__all__">All (Default)</SelectItem>
+                    {isSuperAdmin && <SelectItem value="__all__">All (Default)</SelectItem>}
                     {orgList.map((org) => (
                       <SelectItem key={org.org_id} value={org.org_id}>
                         {org.org_name}
@@ -535,7 +540,7 @@ export default function AdminPage() {
                       <Save className="size-4 mr-1" />
                       {selectedOrgId === "__all__" ? "Save Defaults" : "Save"}
                     </Button>
-                    {selectedOrgId !== "__all__" && (
+                    {isSuperAdmin && selectedOrgId !== "__all__" && (
                       <Button
                         variant="destructive"
                         onClick={deleteOrg}
@@ -580,8 +585,8 @@ export default function AdminPage() {
             </div>
           </TabsContent>
 
-          {/* Global Settings Tab */}
-          <TabsContent value="global" className="space-y-6">
+          {/* Global Settings Tab (super admin only) */}
+          {isSuperAdmin && <TabsContent value="global" className="space-y-6">
             <AdminDomainEditor
               domains={fullConfig.admin_domains}
               onChange={(admin_domains) =>
@@ -602,10 +607,10 @@ export default function AdminPage() {
               <Save className="size-4 mr-1" />
               Save Global Settings
             </Button>
-          </TabsContent>
+          </TabsContent>}
 
-          {/* RAG Management Tab */}
-          <TabsContent value="rag" className="space-y-6">
+          {/* RAG Management Tab (super admin only) */}
+          {isSuperAdmin && <TabsContent value="rag" className="space-y-6">
             <div className="rounded-lg border border-border p-4 space-y-3">
               <h3 className="text-sm font-medium">Clear QA Pairs</h3>
               <p className="text-sm text-muted-foreground">
@@ -622,7 +627,7 @@ export default function AdminPage() {
                 {isFlushing ? "Clearing..." : "Clear QA Pairs"}
               </Button>
             </div>
-          </TabsContent>
+          </TabsContent>}
 
           {/* Conversations Tab */}
           <TabsContent value="conversations" className="space-y-6">
@@ -799,8 +804,8 @@ export default function AdminPage() {
             />
           </TabsContent>
 
-          {/* Prompts Tab */}
-          <TabsContent value="prompts" className="space-y-6">
+          {/* Prompts Tab (super admin only) */}
+          {isSuperAdmin && <TabsContent value="prompts" className="space-y-6">
             <div className="rounded-lg border border-border p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -939,7 +944,7 @@ export default function AdminPage() {
                 </div>
               )}
             </div>
-          </TabsContent>
+          </TabsContent>}
         </Tabs>
       </main>
       <ConfirmDialog />

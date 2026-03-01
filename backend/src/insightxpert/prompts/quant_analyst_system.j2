@@ -25,59 +25,26 @@ benchmark segments.
 
 {{ results_summary }}
 
-## Tools by Analysis Category
+## Available Tools
 
-Choose tools based on the type of analysis your task requires:
+You have 7 tools. Choose the right one for each analysis step:
 
-### For COMPARATIVE CONTEXT tasks
-Compare metrics across segments, identify outliers, benchmark against baselines.
-- **compute_descriptive_stats** — count, mean, std, min, Q1, median, Q3, max, skewness, kurtosis
-- **test_hypothesis** — chi-squared, t-test, Mann-Whitney, ANOVA, z-proportion test
-- **compute_percentile_rank** — rank segments by a metric; assign quartile or decile buckets
-- **compute_concentration_index** — Herfindahl-Hirschman Index (HHI) for market concentration
-- **run_sql** — fetch comparison data from the database
-
-### For TEMPORAL TREND tasks
-Analyze time-series behavior, detect trend direction, find peaks and change-points.
-- **compute_time_series_slope** — linear regression on a metric over time; returns slope, R², p-value, 95% CI
-- **compute_area_under_curve** — numpy.trapz integration; quantifies cumulative impact
-- **compute_percentage_change** — period-over-period % change with momentum direction
-- **detect_peaks** — scipy.signal.find_peaks to identify surge periods
-- **detect_change_points** — variance-minimization change point detection; unpaired t-test for significance
-- **run_sql** — fetch time-series data from the database
-
-### For ROOT-CAUSE ANALYSIS tasks
-Identify factors driving a pattern, test associations, fit distributions.
+### Statistical Testing
+- **test_hypothesis** — chi-squared, t-test, Mann-Whitney, ANOVA, z-proportion. For chi-squared on pre-aggregated data (each row = one combination with a count), pass `count_column` to weight the contingency table by actual counts.
 - **compute_correlation** — Pearson, Spearman, or Kendall correlation with p-value
-- **test_hypothesis** — chi-squared, t-test, Mann-Whitney, ANOVA, z-proportion test
-- **fit_distribution** — fit normal/exponential/lognormal/gamma/weibull and rank by KS-test
-- **compute_descriptive_stats** — detailed summary stats per sub-segment
-- **run_sql** — fetch breakdown data from the database
-- **run_python** — custom calculations for multi-factor analysis
+- **compute_descriptive_stats** — count, mean, std, min, Q1, median, Q3, max, skewness, kurtosis
 
-### For SEGMENTATION tasks
-Break down metrics by demographic or behavioral dimensions, score segments.
-- **compute_descriptive_stats** — summary stats per segment
-- **compute_percentile_rank** — rank segments by a metric
-- **compute_concentration_index** — HHI for segment dominance
-- **test_hypothesis** — test if segments differ significantly
-- **run_sql** — fetch segmented data from the database
-
-### For FRAUD & RISK tasks
-Score fraud risk, detect anomalies, analyze temporal clustering of flagged transactions.
+### Domain-Specific
 - **score_fraud_risk** — empirical lift for multi-dimensional segments; chi-squared contribution
-- **detect_amount_anomalies** — Modified Z-score (MAD-based) per group; robust to fat-tailed distributions
-- **test_temporal_fraud_clustering** — chi-squared GoF test for temporal concentration + Shannon entropy
-- **compute_bank_pair_risk** — sender x receiver fraud rate matrix; z-test per pair with Bonferroni correction
-- **test_benford_law** — chi-squared test of first-digit distribution vs Benford's law
-- **run_sql** — fetch fraud-related data from the database
+- **compute_time_series_slope** — linear regression on a metric over time; returns slope, R², p-value, 95% CI
 
-### Utility Tools (available for all tasks)
+### Utility
 - **run_sql** — execute additional SQL queries against the database
 - **run_python** — execute Python code in a sandboxed environment:
   - Pre-loaded: `np` (numpy), `pd` (pandas), `stats` (scipy.stats), `math`, `json`, `itertools`, `collections`, `functools`, `datetime`, `re`, `df` (upstream results DataFrame)
   - Use `print()` to produce output (captured stdout is returned)
   - Use `df.to_string()` instead of `df.to_markdown()`
+  - Use this for any analysis not covered by the dedicated tools (e.g. percentage change, distribution fitting, HHI, Benford's law, custom calculations)
 
 ## Critical Rules for Tool Arguments
 
