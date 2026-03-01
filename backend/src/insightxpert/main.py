@@ -40,8 +40,12 @@ def _migrate_schema(engine) -> None:
     insp = inspect(engine)
     dialect = engine.dialect.name
 
+    existing_tables = set(insp.get_table_names())
+
     with engine.begin() as conn:
         def _add_column(table: str, column: str, col_def: str) -> None:
+            if table not in existing_tables:
+                return
             cols = {c["name"] for c in insp.get_columns(table)}
             if column in cols:
                 return
@@ -176,6 +180,34 @@ def _backfill_conversation_org(engine) -> None:
         ))
         if result.rowcount:
             logger.info("Backfilled org_id on %d conversations", result.rowcount)
+
+
+def _backfill_automation_org(engine) -> None:
+    """Stamp automations.org_id and trigger_templates.org_id from creator's users.org_id."""
+    with engine.begin() as conn:
+        result = conn.execute(text(
+            "UPDATE automations SET org_id = ("
+            "  SELECT users.org_id FROM users WHERE users.id = automations.created_by"
+            ") WHERE automations.org_id IS NULL"
+            "  AND EXISTS ("
+            "    SELECT 1 FROM users"
+            "    WHERE users.id = automations.created_by AND users.org_id IS NOT NULL"
+            "  )"
+        ))
+        if result.rowcount:
+            logger.info("Backfilled org_id on %d automations", result.rowcount)
+
+        result2 = conn.execute(text(
+            "UPDATE trigger_templates SET org_id = ("
+            "  SELECT users.org_id FROM users WHERE users.id = trigger_templates.created_by"
+            ") WHERE trigger_templates.org_id IS NULL"
+            "  AND EXISTS ("
+            "    SELECT 1 FROM users"
+            "    WHERE users.id = trigger_templates.created_by AND users.org_id IS NOT NULL"
+            "  )"
+        ))
+        if result2.rowcount:
+            logger.info("Backfilled org_id on %d trigger_templates", result2.rowcount)
 
 
 def _seed_datasets(engine) -> None:
@@ -369,6 +401,7 @@ async def lifespan(app: FastAPI):
         _migrate_trigger_conditions(auth_engine)
         seed_admin(auth_engine, settings)
         _backfill_conversation_org(auth_engine)
+        _backfill_automation_org(auth_engine)
         logger.info("Auth tables initialized, admin user ensured")
     except Exception as e:
         logger.error("Auth table setup failed: %s", e, exc_info=True)
