@@ -246,8 +246,8 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
                     loading={loading}
                     className="space-y-0"
                     tableClassName="rounded-none border-none"
-                    headerRowClassName="bg-secondary dark:bg-accent border-b border-border sticky top-0 z-10"
-                    headerCellClassName="py-2.5 text-[11px] font-semibold uppercase tracking-wider text-primary/70 dark:text-cyan-accent/80 bg-inherit"
+                    headerRowClassName="border-b border-border sticky top-0 z-10 bg-[hsl(var(--secondary))] dark:bg-[hsl(var(--accent))]"
+                    headerCellClassName="py-2.5 text-[11px] font-semibold uppercase tracking-wider text-primary/70 dark:text-cyan-accent/80 bg-[hsl(var(--secondary))] dark:bg-[hsl(var(--accent))]"
                     rowClassName={(i) =>
                       i % 2 === 0
                         ? "bg-card hover:bg-accent/50 dark:hover:bg-accent/60 transition-colors"

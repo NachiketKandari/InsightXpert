@@ -85,7 +85,7 @@ export function InputToolbar({
 
   const modeConfig = {
     basic: {
-      label: "Basic",
+      label: "SQL Only",
       icon: Sparkles,
       color: "text-amber-500",
       bg: "bg-amber-500/10",
