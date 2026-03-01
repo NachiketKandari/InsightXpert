@@ -209,6 +209,13 @@ async def orchestrator_loop(
     if enrichment_plan is None:
         # Analyst answer is sufficient — no enrichment needed
         logger.info("Enrichment not needed; analyst answer stands")
+        yield ChatChunk(
+            type="status",
+            content="Analysis complete",
+            data={"agent": "orchestrator", "phase": "done"},
+            conversation_id=cid,
+            timestamp=time.time(),
+        )
         return
 
     # ── Phase 3: Execute additional enrichment tasks via DAG ─────────
