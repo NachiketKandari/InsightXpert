@@ -223,7 +223,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "chat"]
             },
-            "description": "Send a natural language question and receive Server-Sent Events (SSE) stream.\n\n`agent_mode` values: `\"auto\"` (default), `\"analyst\"`, `\"statistician\"`.\n\nChunk types in the stream:\n- `status` — progress update (e.g., \"Searching knowledge base...\")\n- `tool_call` — agent is calling a tool (run_sql, get_schema, search_similar)\n- `sql` — the SQL query being executed\n- `tool_result` — result from tool execution\n- `answer` — final natural language answer\n- `error` — error message\n- `metrics` — token usage and timing: `{\"input_tokens\": 1234, \"output_tokens\": 567, \"generation_time_ms\": 4200}`\n\nStream ends with `data: [DONE]`.\n\n**Note:** Postman does not render SSE streams well. Use curl for best results:\n```\ncurl -N -X POST http://localhost:8000/api/chat \\\n  -H 'Content-Type: application/json' \\\n  -b '__session=YOUR_SESSION' \\\n  -d '{\"message\":\"What is the average transaction amount?\",\"agent_mode\":\"auto\",\"skip_clarification\":false}'\n```"
+            "description": "Send a natural language question and receive Server-Sent Events (SSE) stream.\n\n`agent_mode` values: `\"auto\"` (default), `\"analyst\"`, `\"statistician\"`.\n\nChunk types in the stream:\n- `status` — progress update (e.g., \"Searching knowledge base...\")\n- `tool_call` — agent is calling a tool (run_sql, get_schema, search_similar)\n- `sql` — the SQL query being executed\n- `tool_result` — result from tool execution\n- `answer` — final natural language answer\n- `insight` — enriched analytical insight (deeper follow-up analysis)\n- `enrichment_trace` — agentic enrichment pipeline trace with steps and tool calls\n- `error` — error message\n- `metrics` — token usage and timing: `{\"input_tokens\": 1234, \"output_tokens\": 567, \"generation_time_ms\": 4200}`\n\nStream ends with `data: [DONE]`.\n\n**Note:** Postman does not render SSE streams well. Use curl for best results:\n```\ncurl -N -X POST http://localhost:8000/api/chat \\\n  -H 'Content-Type: application/json' \\\n  -b '__session=YOUR_SESSION' \\\n  -d '{\"message\":\"What is the average transaction amount?\",\"agent_mode\":\"auto\",\"skip_clarification\":false}'\n```"
           },
           "response": [
             {
@@ -236,7 +236,7 @@
                   "value": "text/event-stream"
                 }
               ],
-              "body": "data: {\"type\":\"status\",\"content\":\"Searching knowledge base for context...\",\"conversation_id\":\"a1b2c3\"}\n\ndata: {\"type\":\"tool_call\",\"content\":\"Calling run_sql...\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"sql\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"tool_result\",\"data\":{\"tool\":\"run_sql\",\"result\":\"{\\\"rows\\\":[{\\\"avg_amount\\\":1847.23}],\\\"row_count\\\":1}\"}}\n\ndata: {\"type\":\"answer\",\"content\":\"The average transaction amount for bill payments is INR 1,847.23.\"}\n\ndata: {\"type\":\"metrics\",\"input_tokens\":1234,\"output_tokens\":87,\"generation_time_ms\":3850}\n\ndata: [DONE]"
+              "body": "data: {\"type\":\"status\",\"content\":\"Searching knowledge base for context...\",\"conversation_id\":\"a1b2c3\"}\n\ndata: {\"type\":\"tool_call\",\"content\":\"Calling run_sql...\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"sql\",\"sql\":\"SELECT ROUND(AVG(amount_inr), 2) AS avg_amount FROM transactions WHERE transaction_type = 'Bill Payment'\"}\n\ndata: {\"type\":\"tool_result\",\"data\":{\"tool\":\"run_sql\",\"result\":\"{\\\"rows\\\":[{\\\"avg_amount\\\":1847.23}],\\\"row_count\\\":1}\"}}\n\ndata: {\"type\":\"answer\",\"content\":\"The average transaction amount for bill payments is INR 1,847.23.\"}\n\ndata: {\"type\":\"insight\",\"content\":\"This is notably higher than the overall average of INR 1,200. Bill payments tend to be larger due to utility and subscription costs.\"}\n\ndata: {\"type\":\"enrichment_trace\",\"data\":{\"steps\":[{\"type\":\"tool_call\",\"tool\":\"run_sql\",\"args\":{\"sql\":\"SELECT AVG(amount_inr) FROM transactions\"}},{\"type\":\"tool_result\",\"result_data\":\"{\\\"rows\\\":[{\\\"avg\\\":1200.50}]}\"}]}}\n\ndata: {\"type\":\"metrics\",\"input_tokens\":1234,\"output_tokens\":87,\"generation_time_ms\":3850}\n\ndata: [DONE]"
             }
           ]
         },
@@ -259,14 +259,14 @@
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "poll"]
             },
-            "description": "Send a question and get all response chunks at once (non-streaming).\n\nReturns a JSON object with a `chunks` array containing all the same chunk types as the SSE endpoint, but collected into a single response. Better for Postman testing since it returns normal JSON."
+            "description": "Send a question and get all response chunks at once (non-streaming).\n\nReturns a JSON object with a `chunks` array containing all the same chunk types as the SSE endpoint (including `insight` and `enrichment_trace`), but collected into a single response. Better for Postman testing since it returns normal JSON."
           },
           "response": [
             {
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"chunks\": [\n    {\n      \"type\": \"status\",\n      \"content\": \"Searching knowledge base for context...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840000.0\n    },\n    {\n      \"type\": \"sql\",\n      \"content\": null,\n      \"data\": null,\n      \"sql\": \"SELECT device_type, COUNT(*) AS total_txns, ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct FROM transactions WHERE device_type IN ('Android', 'iOS') GROUP BY device_type\",\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840001.0\n    },\n    {\n      \"type\": \"answer\",\n      \"content\": \"Android and iOS users show similar failure rates...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.0\n    },\n    {\n      \"type\": \"metrics\",\n      \"input_tokens\": 1456,\n      \"output_tokens\": 102,\n      \"generation_time_ms\": 4120,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.1\n    }\n  ]\n}"
+              "body": "{\n  \"chunks\": [\n    {\n      \"type\": \"status\",\n      \"content\": \"Searching knowledge base for context...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840000.0\n    },\n    {\n      \"type\": \"sql\",\n      \"content\": null,\n      \"data\": null,\n      \"sql\": \"SELECT device_type, COUNT(*) AS total_txns, ROUND(SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 2) AS failure_rate_pct FROM transactions WHERE device_type IN ('Android', 'iOS') GROUP BY device_type\",\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840001.0\n    },\n    {\n      \"type\": \"answer\",\n      \"content\": \"Android and iOS users show similar failure rates...\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.0\n    },\n    {\n      \"type\": \"insight\",\n      \"content\": \"Interestingly, Android shows marginally higher failure rates during peak hours (6-9 PM), likely due to network congestion on mobile data.\",\n      \"data\": null,\n      \"sql\": null,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.5\n    },\n    {\n      \"type\": \"metrics\",\n      \"input_tokens\": 1456,\n      \"output_tokens\": 102,\n      \"generation_time_ms\": 4120,\n      \"conversation_id\": \"a1b2c3\",\n      \"timestamp\": 1707840002.1\n    }\n  ]\n}"
             }
           ]
         },
@@ -289,7 +289,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "chat", "answer"]
             },
-            "description": "Run the full pipeline and return only the final answer text, conversation ID, and any SQL that was executed.\n\nUse this when you only need the answer string and don't care about intermediate status/tool chunks.\n\nResponse fields:\n- `answer` — the final natural language answer\n- `conversation_id` — use this to continue the conversation in subsequent requests\n- `sql` — list of SQL queries executed (may be empty for non-SQL questions)"
+            "description": "Run the full pipeline and return only the final answer text, conversation ID, and any SQL that was executed.\n\nUse this when you only need the answer string and don't care about intermediate status/tool chunks.\n\nResponse fields:\n- `answer` — the final natural language answer (includes both `answer` and `insight` chunk content)\n- `conversation_id` — use this to continue the conversation in subsequent requests\n- `sql` — list of SQL queries executed (may be empty for non-SQL questions)"
           },
           "response": [
             {
@@ -486,7 +486,7 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"id\": \"conv-abc-123\",\n  \"title\": \"Average transaction amount\",\n  \"is_starred\": false,\n  \"messages\": [\n    {\n      \"id\": \"msg-001\",\n      \"role\": \"user\",\n      \"content\": \"What is the average transaction amount?\",\n      \"chunks\": null,\n      \"created_at\": \"2026-02-15T10:30:00Z\"\n    },\n    {\n      \"id\": \"msg-002\",\n      \"role\": \"assistant\",\n      \"content\": \"The average transaction amount is INR 1,847.23.\",\n      \"chunks\": [{\"type\": \"answer\", \"content\": \"The average transaction amount is INR 1,847.23.\"}],\n      \"created_at\": \"2026-02-15T10:30:05Z\"\n    }\n  ],\n  \"created_at\": \"2026-02-15T10:30:00Z\",\n  \"updated_at\": \"2026-02-15T10:30:05Z\"\n}"
+              "body": "{\n  \"id\": \"conv-abc-123\",\n  \"title\": \"Average transaction amount\",\n  \"is_starred\": false,\n  \"messages\": [\n    {\n      \"id\": \"msg-001\",\n      \"role\": \"user\",\n      \"content\": \"What is the average transaction amount?\",\n      \"chunks\": null,\n      \"created_at\": \"2026-02-15T10:30:00Z\"\n    },\n    {\n      \"id\": \"msg-002\",\n      \"role\": \"assistant\",\n      \"content\": \"The average transaction amount is INR 1,847.23.\",\n      \"chunks\": [{\"type\": \"answer\", \"content\": \"The average transaction amount is INR 1,847.23.\"}, {\"type\": \"insight\", \"content\": \"This is consistent with the typical range for Indian digital payments.\"}, {\"type\": \"enrichment_trace\", \"data\": {\"steps\": [{\"type\": \"tool_call\", \"tool\": \"run_sql\"}]}}],\n      \"created_at\": \"2026-02-15T10:30:05Z\"\n    }\n  ],\n  \"created_at\": \"2026-02-15T10:30:00Z\",\n  \"updated_at\": \"2026-02-15T10:30:05Z\"\n}"
             },
             {
               "name": "404 Not Found",
@@ -698,7 +698,7 @@
               "name": "200 OK",
               "status": "OK",
               "code": 200,
-              "body": "{\n  \"current_provider\": \"gemini\",\n  \"current_model\": \"gemini-2.5-flash\",\n  \"providers\": [\n    {\n      \"provider\": \"gemini\",\n      \"models\": [\"gemini-2.5-flash\", \"gemini-2.5-pro\", \"gemini-2.5-flash-lite\", \"gemini-2.0-flash\", \"gemini-2.0-flash-lite\"]\n    },\n    {\n      \"provider\": \"ollama\",\n      \"models\": [\"llama3.1\", \"ministral:3b\"]\n    }\n  ]\n}"
+              "body": "{\n  \"current_provider\": \"gemini\",\n  \"current_model\": \"gemini-2.5-flash\",\n  \"providers\": [\n    {\n      \"provider\": \"gemini\",\n      \"models\": [\"gemini-3-flash-preview\", \"gemini-3.1-pro-preview\", \"gemini-2.5-flash\", \"gemini-2.5-pro\", \"gemini-2.5-flash-lite\", \"gemini-2.0-flash\", \"gemini-2.0-flash-lite\"]\n    },\n    {\n      \"provider\": \"ollama\",\n      \"models\": [\"llama3.1\", \"ministral:3b\"]\n    }\n  ]\n}"
             }
           ]
         },
@@ -718,7 +718,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "config", "switch"]
             },
-            "description": "Switch the active LLM provider and model at runtime. Takes effect immediately for all subsequent chat requests.\n\nAvailable Gemini models: gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite, gemini-2.0-flash, gemini-2.0-flash-lite."
+            "description": "Switch the active LLM provider and model at runtime. Takes effect immediately for all subsequent chat requests.\n\nAvailable Gemini models: gemini-3-flash-preview, gemini-3.1-pro-preview, gemini-2.5-flash, gemini-2.5-pro, gemini-2.5-flash-lite, gemini-2.0-flash, gemini-2.0-flash-lite."
           },
           "response": [
             {
