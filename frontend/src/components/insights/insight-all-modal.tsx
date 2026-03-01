@@ -36,18 +36,16 @@ export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightA
   const deleteInsight = useInsightStore((s) => s.deleteInsight);
   const setActiveConversation = useChatStore((s) => s.setActiveConversation);
   const [filter, setFilter] = useState<Filter>("all");
-  const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
+  const [userSelectedInsight, setUserSelectedInsight] = useState<Insight | null>(null);
+  const selectedInsight = open ? (userSelectedInsight ?? initialInsight ?? null) : null;
 
   useEffect(() => {
-    if (open) {
-      fetchAllInsights();
-      if (initialInsight) setSelectedInsight(initialInsight);
-    }
-  }, [open, fetchAllInsights, initialInsight]);
+    if (open) fetchAllInsights();
+  }, [open, fetchAllInsights]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (!nextOpen) setSelectedInsight(null);
+      if (!nextOpen) setUserSelectedInsight(null);
       onOpenChange(nextOpen);
     },
     [onOpenChange],
@@ -63,7 +61,7 @@ export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightA
         : allInsights;
 
   const handleClick = (insight: Insight) => {
-    setSelectedInsight(insight);
+    setUserSelectedInsight(insight);
   };
 
   const handleNavigateToConversation = (conversationId: string) => {
@@ -140,7 +138,7 @@ export function InsightAllModal({ open, onOpenChange, initialInsight }: InsightA
                 onBookmark={bookmarkInsight}
                 onDelete={(id) => {
                   deleteInsight(id);
-                  setSelectedInsight(null);
+                  setUserSelectedInsight(null);
                 }}
               />
             </div>
