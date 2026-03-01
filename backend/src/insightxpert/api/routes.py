@@ -313,9 +313,6 @@ async def chat_sse(
             stats_context_injection=features.stats_context_injection,
             clarification_enabled=features.clarification_enabled,
             rag_retrieval=features.rag_retrieval,
-            investigation_tasks=chat_req.investigation_tasks,
-            prior_evidence=chat_req.prior_evidence,
-            investigation_reasoning=chat_req.investigation_reasoning,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -394,9 +391,6 @@ async def _run_orchestrator_to_completion(
         stats_context_injection=features.stats_context_injection,
         clarification_enabled=features.clarification_enabled,
         rag_retrieval=features.rag_retrieval,
-        investigation_tasks=body.investigation_tasks,
-        prior_evidence=body.prior_evidence,
-        investigation_reasoning=body.investigation_reasoning,
     ):
         all_chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:

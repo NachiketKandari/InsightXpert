@@ -10,9 +10,6 @@ export type AgentMode = "basic" | "agentic" | "deep";
 
 export interface SSEOptions {
   skipClarification?: boolean;
-  investigationTasks?: Array<Record<string, unknown>>;
-  priorEvidence?: string;
-  investigationReasoning?: string;
 }
 
 export function createSSEStream(
@@ -60,11 +57,6 @@ export function createSSEStream(
           conversation_id: conversationId,
           agent_mode: agentMode,
           ...(options.skipClarification ? { skip_clarification: true } : {}),
-          ...(options.investigationTasks ? {
-            investigation_tasks: options.investigationTasks,
-            prior_evidence: options.priorEvidence,
-            investigation_reasoning: options.investigationReasoning,
-          } : {}),
         }),
         signal: controller.signal,
       });

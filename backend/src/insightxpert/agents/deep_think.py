@@ -279,9 +279,6 @@ async def deep_think_loop(
     stats_groups: list[str] | None = None,
     clarification_enabled: bool = False,
     rag_retrieval: bool = True,
-    investigation_tasks: list[dict] | None = None,
-    prior_evidence: str | None = None,
-    investigation_reasoning: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the Deep Think 5W1H pipeline.
 
@@ -291,30 +288,6 @@ async def deep_think_loop(
 
     effective_ddl = ddl or ""
     effective_docs = documentation or ""
-
-    # --- Investigation follow-up early return ---
-    if investigation_tasks:
-        from insightxpert.agents.orchestrator import _run_investigation_followup
-
-        async for chunk in _run_investigation_followup(
-            question=question,
-            investigation_tasks=investigation_tasks,
-            prior_evidence=prior_evidence or "",
-            llm=llm,
-            db=db,
-            rag=rag,
-            config=config,
-            conversation_id=cid,
-            ddl=effective_ddl,
-            documentation=effective_docs,
-            ddl_override=ddl,
-            docs_override=documentation,
-            stats_context=stats_context,
-            stats_groups=stats_groups,
-            investigation_reasoning=investigation_reasoning or "",
-        ):
-            yield chunk
-        return
 
     # ── Phase 1: Dimension Extraction ─────────────────────────────────
     yield ChatChunk(

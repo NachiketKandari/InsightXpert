@@ -5,7 +5,7 @@ import { useChatStore } from "@/stores/chat-store";
 import { createSSEStream, type AgentMode } from "@/lib/sse-client";
 import { parseChunk } from "@/lib/chunk-parser";
 import { useInsightStore } from "@/stores/insight-store";
-import type { AgentStep, InvestigationSuggestion } from "@/types/chat";
+import type { AgentStep } from "@/types/chat";
 
 function generateStepId() {
   return Math.random().toString(36).slice(2, 8);
@@ -244,19 +244,6 @@ export function useSSEChat() {
             addAgentStep(step);
           } else if (chunk.type === "enrichment_trace") {
             // Data-only chunk, stored via appendChunk but no UI step
-          } else if (chunk.type === "investigation_suggestion") {
-            markLastRunningDone();
-            const stepId = generateStepId();
-            const step: AgentStep = {
-              id: stepId,
-              label: "Follow-up investigation available",
-              status: "done",
-              timestamp: chunk.timestamp,
-            };
-            addAgentStep(step);
-            useChatStore.getState().setPendingInvestigation(
-              chunk.data as unknown as InvestigationSuggestion,
-            );
           } else if (chunk.type === "error") {
             markLastRunningDone();
             const stepId = generateStepId();
@@ -310,153 +297,10 @@ export function useSSEChat() {
     ]
   );
 
-  const sendInvestigation = useCallback(
-    (investigation: InvestigationSuggestion, agentMode: AgentMode = "agentic") => {
-      if (isActiveStreaming) return;
-
-      const convId = activeConversationId;
-      if (!convId) return;
-
-      const sendTime = Date.now();
-
-      // Clear the pending investigation
-      useChatStore.getState().setPendingInvestigation(null);
-
-      addUserMessage("Investigate further");
-      startAssistantMessage();
-      clearAgentSteps();
-
-      let lastRunningStepId: string | null = null;
-      let sawInsightChunk = false;
-
-      const markLastRunningDone = () => {
-        if (lastRunningStepId) {
-          updateAgentStep(lastRunningStepId, { status: "done" });
-          lastRunningStepId = null;
-        }
-      };
-
-      const controller = createSSEStream("Investigate further", convId, {
-        onChunk: (raw) => {
-          const chunk = parseChunk(raw);
-          if (!chunk) return;
-
-          appendChunk(chunk);
-
-          if (chunk.type === "status") {
-            markLastRunningDone();
-            const agentPhase = chunk.data?.agent as string | undefined;
-            if (agentPhase) {
-              useChatStore.getState().setCurrentAgentPhase(agentPhase);
-            }
-            const stepId = generateStepId();
-            const step: AgentStep = {
-              id: stepId,
-              label: chunk.content || "Processing...",
-              status: "running",
-              timestamp: chunk.timestamp,
-            };
-            addAgentStep(step);
-            lastRunningStepId = stepId;
-          } else if (chunk.type === "orchestrator_plan") {
-            markLastRunningDone();
-            const planData = chunk.data as Record<string, unknown> | undefined;
-            const tasks = (planData?.tasks as Array<Record<string, unknown>>) || [];
-            const stepId = generateStepId();
-            const step: AgentStep = {
-              id: stepId,
-              label: `Investigating ${tasks.length} follow-up question${tasks.length !== 1 ? "s" : ""}`,
-              status: "done",
-              detail: (planData?.reasoning as string) || undefined,
-              timestamp: chunk.timestamp,
-            };
-            addAgentStep(step);
-            useChatStore.getState().setCurrentAgentPhase("orchestrator");
-          } else if (chunk.type === "agent_trace") {
-            markLastRunningDone();
-            const traceData = chunk.data as Record<string, unknown> | undefined;
-            const taskId = (traceData?.task_id as string) || "?";
-            const agent = (traceData?.agent as string) || "agent";
-            const success = traceData?.success as boolean;
-            const durationMs = traceData?.duration_ms as number | undefined;
-            const stepId = generateStepId();
-            const step: AgentStep = {
-              id: stepId,
-              label: `[${taskId}] ${agent}${durationMs ? ` (${(durationMs / 1000).toFixed(1)}s)` : ""}`,
-              status: success ? "done" : "error",
-              detail: (traceData?.task as string) || undefined,
-              timestamp: chunk.timestamp,
-            };
-            addAgentStep(step);
-          } else if (chunk.type === "insight") {
-            markLastRunningDone();
-            sawInsightChunk = true;
-            const stepId = generateStepId();
-            const step: AgentStep = {
-              id: stepId,
-              label: "Re-synthesized insight generated",
-              status: "done",
-              detail: chunk.content || undefined,
-              timestamp: chunk.timestamp,
-            };
-            addAgentStep(step);
-            useChatStore.getState().setCurrentAgentPhase("insight");
-          } else if (chunk.type === "error") {
-            markLastRunningDone();
-            const stepId = generateStepId();
-            const step: AgentStep = {
-              id: stepId,
-              label: chunk.content || "Error occurred",
-              status: "error",
-              timestamp: chunk.timestamp,
-            };
-            addAgentStep(step);
-          }
-        },
-        onDone: () => {
-          markLastRunningDone();
-          updateLastAssistantTime(Date.now() - sendTime, convId);
-          finishStreaming(convId);
-          if (sawInsightChunk) {
-            useInsightStore.getState().fetchCount();
-          }
-        },
-        onError: (error) => {
-          markLastRunningDone();
-          appendChunk({
-            type: "error",
-            content: error.message || "Connection failed",
-            conversation_id: convId,
-            timestamp: Date.now() / 1000,
-          });
-          finishStreaming(convId);
-        },
-      }, agentMode, {
-        investigationTasks: investigation.tasks as unknown as Array<Record<string, unknown>>,
-        priorEvidence: investigation.prior_evidence,
-        investigationReasoning: investigation.reasoning,
-      });
-
-      abortRef.current = controller;
-    },
-    [
-      isActiveStreaming,
-      activeConversationId,
-      addUserMessage,
-      startAssistantMessage,
-      appendChunk,
-      finishStreaming,
-      addAgentStep,
-      updateAgentStep,
-      clearAgentSteps,
-      updateLastAssistantTime,
-    ]
-  );
-
   const stopStreaming = useCallback(() => {
     abortRef.current?.abort();
     finishStreaming();
   }, [finishStreaming]);
 
-  return { sendMessage, sendInvestigation, stopStreaming, isStreaming: isActiveStreaming };
+  return { sendMessage, stopStreaming, isStreaming: isActiveStreaming };
 }

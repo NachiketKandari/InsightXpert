@@ -17,7 +17,6 @@ import { AnswerChunk } from "./answer-chunk";
 import { InsightChunk } from "./insight-chunk";
 import { ErrorChunk } from "./error-chunk";
 import { ClarificationChunk } from "./clarification-chunk";
-import { InvestigationSuggestionChunk } from "./investigation-suggestion-chunk";
 import { StatsContextChunk } from "./stats-context-chunk";
 
 /** Inline progress step: spinner → checkmark after a brief delay during streaming. */
@@ -181,14 +180,6 @@ function ChunkRendererInner({ chunk, isComplete, isStreaming, enrichmentTraces, 
             groups={chunk.data?.groups as string[]}
           />
         </>
-      );
-      break;
-    case "investigation_suggestion":
-      content = (
-        <InvestigationSuggestionChunk
-          content={chunk.content ?? ""}
-          data={chunk.data}
-        />
       );
       break;
     default:
