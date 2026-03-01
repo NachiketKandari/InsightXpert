@@ -255,7 +255,10 @@ class TestHypothesisTool(Tool):
     def description(self) -> str:
         return (
             "Run a statistical hypothesis test on the analyst results. "
-            "Supported tests: chi_squared, t_test, mann_whitney, anova, z_proportion."
+            "Supported tests: chi_squared, t_test, mann_whitney, anova, z_proportion. "
+            "For chi_squared on pre-aggregated data (where each row is a combination "
+            "with a count column), pass count_column to weight the contingency table "
+            "by actual counts instead of row occurrences."
         )
 
     def get_args_schema(self) -> dict:
@@ -291,6 +294,14 @@ class TestHypothesisTool(Tool):
                     "type": "string",
                     "description": "Second categorical column (chi_squared)",
                 },
+                "count_column": {
+                    "type": "string",
+                    "description": (
+                        "Column containing counts/frequencies (chi_squared only). "
+                        "Use when data is pre-aggregated — each row is a unique "
+                        "combination with a count. Omit for row-level data."
+                    ),
+                },
                 "count_success": {"type": "integer", "description": "Successes (z_proportion)"},
                 "count_total": {"type": "integer", "description": "Total trials (z_proportion)"},
                 "hypothesized_proportion": {"type": "number", "description": "H0 proportion (z_proportion, default 0.5)"},
@@ -322,7 +333,16 @@ class TestHypothesisTool(Tool):
         c1, c2 = args.get("category_col_1", ""), args.get("category_col_2", "")
         if not c1 or not c2:
             return json.dumps({"error": "chi_squared requires category_col_1 and category_col_2"})
-        ct = pd.crosstab(df[c1], df[c2])
+        count_col = args.get("count_column")
+        if count_col:
+            if count_col not in df.columns:
+                return json.dumps({"error": f"count_column '{count_col}' not found. Available: {list(df.columns)}"})
+            ct = df.pivot_table(
+                index=c1, columns=c2, values=count_col,
+                aggfunc="sum", fill_value=0,
+            )
+        else:
+            ct = pd.crosstab(df[c1], df[c2])
         chi2, p, dof, _ = stats.chi2_contingency(ct)
         n = ct.values.sum()
         cramers_v = math.sqrt(chi2 / (n * (min(ct.shape) - 1))) if n > 0 and min(ct.shape) > 1 else 0.0
