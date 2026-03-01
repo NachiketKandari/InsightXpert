@@ -1,5 +1,21 @@
 # InsightXpert — Architecture & Technical Vision
 
+> **Note (Mar 2, 2026):** This document was the original technical blueprint written on Feb 17, 2026. Most of the "planned" features described here have since been fully implemented. For current, comprehensive documentation, see the `docs/` directory:
+>
+> - **[docs/architecture.md](docs/architecture.md)** — System architecture
+> - **[docs/agent-pipeline.md](docs/agent-pipeline.md)** — Agent pipeline deep dive
+> - **[docs/AGENTS_AND_MODES.md](docs/AGENTS_AND_MODES.md)** — Agent modes & orchestration
+> - **[docs/agent-tools.md](docs/agent-tools.md)** — All 21 tools reference
+> - **[docs/api-reference.md](docs/api-reference.md)** — Full API reference (50+ endpoints)
+> - **[docs/automations.md](docs/automations.md)** — Automations system
+> - **[docs/frontend.md](docs/frontend.md)** — Frontend architecture
+> - **[docs/configuration.md](docs/configuration.md)** — Configuration reference
+> - **[docs/contributing.md](docs/contributing.md)** — Contributing guide
+> - **[docs/dataset.md](docs/dataset.md)** — Dataset documentation
+> - **[WALKTHROUGH.md](WALKTHROUGH.md)** — Complete project walkthrough
+>
+> This file is preserved as a historical record of the original design vision and build plan.
+
 ## What This Document Is
 
 This is the unified technical blueprint for InsightXpert — merging the Techfest PRD requirements, the from-scratch SQL agent engine, the multi-agent vision, and the observability/dashboard layer into a single coherent architecture. It defines what to build, why, and in what order to hit the Feb 28 submission and Mar 8 presentation.
@@ -20,7 +36,7 @@ Non-technical leadership at Indian fintech companies need to ask questions like:
 
 ---
 
-## 2. Current State (as of Feb 17)
+## 2. Current State (as of Feb 17, updated Mar 2)
 
 The from-scratch engine has replaced Vanna and is fully ported. The single-agent analyst pipeline is working end-to-end. The frontend chat UI with SSE streaming is fully implemented. Authentication, persistent conversations, runtime LLM switching, and a SQL executor are all operational. Three design patterns (LLM Factory, Tool ABC + Registry, VectorStore Protocol) formalize the extension points. Error handling wraps all LLM calls with proper error surfacing. Conversation persistence correctly bridges frontend-generated IDs with backend storage via `get_or_create_conversation`. Message action buttons (copy, thumbs up/down, retry) and a feedback endpoint are implemented. Security hardened: SQL executor enforces read-only at the SQLite engine level (`PRAGMA query_only`), tool errors return sanitized messages (no tracebacks), LLM provider switch validates before mutating settings and rolls back on failure, feedback rating constrained to `Literal["up", "down"]`. System prompt extracted into Jinja2 template. `LLMProvider` protocol includes a `model` property. VectorStore implementations verified against the protocol at import time. Conversation list query optimized (N+1 eliminated). Admin system implemented with multi-tenant feature toggles, org branding, and user-org mappings. Statistical analysis tools implemented (descriptive stats, hypothesis testing, correlation, distribution fitting). Statistician system prompt template created. Frontend admin panel with feature toggle, branding, and user mapping editors. Fourth Zustand store (client-config) manages org-level feature flags and branding. Conversation search implemented. Theme toggle (dark/light) with localStorage sync. Cloud Run deployment with min-instances=1 to eliminate cold starts.
 
@@ -68,15 +84,26 @@ The from-scratch engine has replaced Vanna and is fully ported. The single-agent
 - **Search results** (`components/sidebar/search-results.tsx`) — Highlighted matched text in conversation titles and messages
 - **Cloud Run scaling** — Min-instances 1, max-instances 3 to eliminate cold starts; CPU boost enabled
 
-### Not Yet Implemented (stubs or planned)
-- **Orchestrator** (`agents/orchestrator.py`) — 6-line stub, no multi-agent routing
-- **Statistician agent** — File does not exist yet
-- **Creative Narrator agent** — File does not exist yet
-- **Anomaly Detector** — File does not exist yet
-- **Observability** (`observability/tracer.py`, `observability/store.py`) — Empty stubs, no tracing or obs.db
-- **Obs API routes** (`api/obs_routes.py`) — File does not exist yet
-- **Dashboard pages** — Not started (live trace, query history, agent performance)
-- **Ambiguity detection** — Not implemented; analyst handles all queries directly
+### Not Yet Implemented (stubs or planned) — as of Feb 17
+> **Update (Mar 2):** Most items below have since been implemented. See `docs/` for current state.
+
+- ~~**Orchestrator** (`agents/orchestrator.py`) — 6-line stub~~ → **DONE**: Full orchestrator planner + DAG executor (`orchestrator_planner.py`, `dag_executor.py`)
+- ~~**Statistician agent** — File does not exist yet~~ → **DONE**: Quant analyst agent (`quant_analyst.py`) with 6 statistical tools
+- ~~**Creative Narrator agent** — File does not exist yet~~ → **DONE**: Response synthesizer (`response_generator.py`) + insight quality gate
+- ~~**Anomaly Detector** — File does not exist yet~~ → Replaced by enrichment evaluator pipeline and automated insights
+- **Observability** (`observability/tracer.py`, `observability/store.py`) — Still stubs, not implemented
+- ~~**Ambiguity detection**~~ → **DONE**: Clarifier agent (`clarifier.py`) with `ClarifyTool`
+- **Additionally implemented since Feb 17:**
+  - Deep think mode (dimension extraction, investigation pipeline)
+  - Automations system (scheduler, evaluator, triggers, notifications)
+  - Insights system (auto-generated, bookmarking, quality gate)
+  - Multi-dataset support (upload, schema inference, stats computation)
+  - Vertex AI LLM provider
+  - 14 advanced analytics tools
+  - 13 additional Jinja2 prompt templates
+  - User registration
+  - 3 additional Zustand stores (insight, automation, notification)
+  - Workflow builder with React Flow visual DAG editor
 
 ---
 
@@ -106,14 +133,14 @@ Vanna was replaced with a from-scratch engine (~600 lines across analyst, tools,
 |                     Next.js Frontend [DONE]                       |
 |                                                                   |
 |  +---------------+  +---------------+  +------------------------+ |
-|  |   Chat UI     |  |   Dashboard   |  |   SQL Executor         | |
-|  |   (SSE)       |  |   [PLANNED]   |  |   [DONE]               | |
-|  |   [DONE]      |  |   (polling)   |  |   (Sheet panel)        | |
+|  |   Chat UI     |  |  Automations  |  |   SQL Executor         | |
+|  |   (SSE)       |  |  + Insights   |  |   [DONE]               | |
+|  |   [DONE]      |  |  [DONE]       |  |   (Sheet panel)        | |
 |  +------+--------+  +-------+-------+  +----------+-------------+ |
 |         |                    |                     |               |
 |  +------+--------+  +-------+-------+  +----------+-------------+ |
-|  |   Auth Flow   |  |  Model Select |  |   Training Admin       | |
-|  |   [DONE]      |  |  [DONE]       |  |   [PLANNED]            | |
+|  |   Auth Flow   |  |  Model Select |  |   Admin Panel          | |
+|  |   [DONE]      |  |  [DONE]       |  |   [DONE]               | |
 |  +------+--------+  +-------+-------+  +----------+-------------+ |
 +------------------------------------------------------------------+
           |                    |                     |
@@ -124,27 +151,27 @@ Vanna was replaced with a from-scratch engine (~600 lines across analyst, tools,
 |  POST /api/chat (SSE) [DONE]    GET /api/config     [DONE]       |
 |  POST /api/chat/poll  [DONE]    POST /api/config/switch [DONE]   |
 |  POST /api/train      [DONE]    POST /api/sql/execute [DONE]     |
-|  GET  /api/schema     [DONE]    GET /api/obs/*      [PLANNED]    |
+|  GET  /api/schema     [DONE]    /api/automations/*  [DONE]       |
 |  GET  /api/health     [DONE]                                     |
 |  POST /api/auth/login [DONE]    GET /api/conversations [DONE]    |
 |  POST /api/auth/logout[DONE]    CRUD /api/conversations/ [DONE]  |
 |  GET  /api/auth/me    [DONE]                                     |
 |                                                                   |
 |  +-------------------------------------------------------------+ |
-|  |                    Orchestrator [STUB]                        | |
+|  |                    Orchestrator [DONE]                        | |
 |  |                                                              | |
 |  |  +-----------+  +---------------+  +----------------------+  | |
-|  |  | Analyst   |->| Statistician  |->| Creative Narrator    |  | |
-|  |  | [DONE]    |  | [PLANNED]     |  | [PLANNED]            |  | |
+|  |  | Analyst   |->| Quant Analyst |->| Response Synthesizer |  | |
+|  |  | [DONE]    |  | [DONE]        |  | [DONE]               |  | |
 |  |  +-----------+  +---------------+  +----------------------+  | |
 |  |                                                              | |
 |  |  +--------------------------------------------------------+  | |
-|  |  | Anomaly Detector (background) [PLANNED]                |  | |
+|  |  | Deep Think (investigation pipeline) [DONE]              |  | |
 |  |  +--------------------------------------------------------+  | |
 |  +-------------------------------------------------------------+ |
 |                                                                   |
 |  +-----------+  +-----------+  +-----------+  +----------------+ |
-|  | LLM       |  | RAG       |  | SQLite    |  | Observability  | |
+|  | LLM (3)   |  | RAG       |  | SQLite    |  | Observability  | |
 |  | [DONE]    |  | [DONE]    |  | [DONE]    |  | [STUB]         | |
 |  +-----------+  +-----------+  +-----------+  +----------------+ |
 |                                                                   |
@@ -296,11 +323,13 @@ class ToolCall:
 
 **Runtime switching** — Provider can be changed at runtime via `POST /api/config/switch`. For Ollama, the endpoint validates the model exists via `client.show(model)` before mutating any settings — returns HTTP 503 with a clear error if Ollama is unreachable or the model isn't pulled. Settings are saved before mutation and rolled back if `create_llm()` fails. On success, `app.state.llm` is replaced. No restart needed. Unknown providers return HTTP 400. Available models are served from `GET /api/config` (Gemini models are hardcoded, Ollama models are dynamically queried from the local server).
 
-### 5.4 Planned Multi-Agent Pipeline
+### 5.4 Multi-Agent Pipeline (Implemented)
 
-**File:** `agents/orchestrator.py` (6-line stub)
+**Files:** `agents/orchestrator_planner.py`, `agents/dag_executor.py`, `agents/response_generator.py`
 
-The orchestrator will route questions through a pipeline of specialized agents:
+> **Update (Mar 2):** This pipeline is fully implemented. The orchestrator plans a DAG of tasks, the DAG executor runs them in parallel, and the response synthesizer combines results. See `docs/agent-pipeline.md` for the current architecture.
+
+The orchestrator routes questions through a pipeline of specialized agents:
 
 ```
 User Question
@@ -343,10 +372,10 @@ User Question
 
 | Agent | Purpose | LLM? | Tools |
 |-------|---------|------|-------|
-| **Analyst** [DONE] | NL->SQL, execute queries, return raw results | Yes (Gemini) | `run_sql`, `get_schema`, `search_similar` |
-| **Statistician** [PLANNED] | Analyze result sets: distributions, outliers, trends, benchmark comparisons | No (pure Python) | `compute_stats` (in-process) |
-| **Creative Narrator** [PLANNED] | Generate leadership-friendly response with layered structure | Yes (Gemini) | None (pure LLM generation) |
-| **Anomaly Detector** [PLANNED] | Background scan: sample tables, flag unusual patterns, store in RAG | Yes (Gemini) | `run_sql`, `add_finding` |
+| **Analyst** [DONE] | NL->SQL, execute queries, return raw results | Yes (Gemini) | `run_sql`, `get_schema`, `search_similar` + 14 advanced tools |
+| **Quant Analyst** [DONE] | Statistical analysis with Python tools | Yes (Gemini) | `run_sql`, `descriptive_stats`, `hypothesis_test`, `correlation`, `fit_distribution`, `run_python` |
+| **Response Synthesizer** [DONE] | Combine multi-task results into coherent response | Yes (Gemini) | None (pure LLM generation) |
+| **Deep Think** [DONE] | 5W1H dimension extraction → investigation → synthesis | Yes (Gemini) | Full analyst tool set |
 
 ---
 
@@ -445,7 +474,9 @@ Three-column responsive layout:
 - **Right sidebar:** Real-time agent process steps timeline. Shows each step's status (pending/running/done/error)
 - **Chat panel:** Message list with auto-scroll, chunk-by-chunk rendering, message input with suggested questions on welcome
 
-### 7.3 State Management (4 Zustand Stores)
+### 7.3 State Management (7 Zustand Stores)
+
+> **Update (Mar 2):** Now 7 stores. The 4 below are the originals. 3 additional stores were added: `insight-store.ts`, `automation-store.ts`, `notification-store.ts`. See `WALKTHROUGH.md` section 5.3 for the full list.
 
 **`stores/auth-store.ts`**
 ```
@@ -539,7 +570,10 @@ Breadcrumb-style selector in the header: `[Provider v] / [Model v]`
 |-------|-----------|---------------|
 | `/` | `AppShell` > `ChatPanel` | Yes (AuthGuard) |
 | `/login` | Login form | No |
-| `/admin` | Admin panel (feature toggles, branding, user mappings) | Yes (AdminGuard) |
+| `/register` | Registration form | No |
+| `/admin` | Admin dashboard | Yes (AdminGuard) |
+| `/admin/automations` | Automation management | Yes (AdminGuard) |
+| `/admin/notifications` | Notification management | Yes (AdminGuard) |
 
 `AuthGuard` calls `checkAuth()` on mount, shows loading spinner while verifying, redirects to `/login` if session is invalid.
 
@@ -701,15 +735,20 @@ Assistant Answer
 | DELETE | `/api/admin/config/{org_id}` | Admin | — | `{status: ok}` | Delete org config |
 | GET | `/api/conversations/search` | Yes | `?q=term` | `ConversationSummary[]` | Full-text search conversations |
 
-**ChatChunk types:** `status`, `sql`, `tool_call`, `tool_result`, `answer`, `error`
+**ChatChunk types:** `status`, `sql`, `tool_call`, `tool_result`, `answer`, `error`, `clarification`, `stats_context`, `insight`, `enrichment_trace`, `orchestrator_plan`, `agent_trace`, `metrics`
 
-### Planned
+### Additional Endpoints (implemented since Feb 17)
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/obs/traces` | List recent traces |
-| GET | `/api/obs/traces/{id}` | Single trace with spans |
-| GET | `/api/obs/stats` | Aggregate agent/LLM metrics |
+> See `docs/api-reference.md` for the full 50+ endpoint reference.
+
+| Category | Endpoints |
+|----------|-----------|
+| **Automations** | CRUD, toggle, run, run history, generate SQL (8 endpoints) |
+| **Insights** | List, all, count, bookmark, delete (5 endpoints) |
+| **Notifications** | List, all, count, mark read, mark all read (5 endpoints) |
+| **Datasets** | List, upload, get, delete, schema, sample (6 endpoints) |
+| **Trigger Templates** | List, create, delete (3 endpoints) |
+| **Auth** | Register endpoint added |
 
 ---
 
@@ -804,7 +843,7 @@ Maps directly to the PRD evaluation criteria (20% weight) and the QuestionBank e
 
 ---
 
-## 13. Observability & Dashboard (PLANNED)
+## 13. Observability & Dashboard (NOT IMPLEMENTED)
 
 ### 13.1 Storage: SQLite (separate file)
 
@@ -951,19 +990,37 @@ InsightXpert/
 |   |   |   +-- seed.py                   # [DONE] Bootstrap admin user
 |   |   |
 |   |   +-- agents/
-|   |   |   +-- analyst.py                # [DONE] Full agent loop (RAG + LLM + ToolRegistry + error recovery)
-|   |   |   +-- tool_base.py             # [DONE] Tool ABC, ToolContext (typed via TYPE_CHECKING), ToolRegistry
-|   |   |   +-- tools.py                  # [DONE] RunSqlTool, GetSchemaTool, SearchSimilarTool + default_registry()
-|   |   |   +-- stat_tools.py             # [DONE] Statistical tools (descriptive, hypothesis, correlation, distribution)
-|   |   |   +-- orchestrator.py           # [STUB] (6 lines, no routing logic)
-|   |   |   +-- statistician.py           # [PLANNED] Statistician agent integration
-|   |   |   +-- narrator.py               # [PLANNED] LLM-powered narrator
-|   |   |   +-- anomaly_detector.py       # [PLANNED] Background scan
+|   |   |   +-- analyst.py                # [DONE] SQL analyst agent loop
+|   |   |   +-- orchestrator_planner.py   # [DONE] DAG task planner
+|   |   |   +-- dag_executor.py           # [DONE] Parallel task executor
+|   |   |   +-- quant_analyst.py          # [DONE] Statistical analysis agent
+|   |   |   +-- deep_think.py             # [DONE] Dimension extraction + investigation
+|   |   |   +-- response_generator.py     # [DONE] Multi-task response synthesizer
+|   |   |   +-- clarifier.py              # [DONE] Ambiguity detection + clarification
+|   |   |   +-- common.py                 # [DONE] Shared types (ChatChunk, AgentContext)
+|   |   |   +-- tool_base.py             # [DONE] Tool ABC, ToolContext, ToolRegistry
+|   |   |   +-- tools.py                  # [DONE] Core tools (4): RunSql, GetSchema, SearchSimilar, Clarify
+|   |   |   +-- stat_tools.py             # [DONE] Statistical tools (6)
+|   |   |   +-- advanced_tools.py         # [DONE] Advanced analytics tools (14)
+|   |   |   +-- stats_resolver.py         # [DONE] Stats context resolution
 |   |   |
-|   |   +-- prompts/
-|   |   |   +-- __init__.py               # [DONE] Jinja2 template loader (render function, autoescape=False)
-|   |   |   +-- analyst_system.j2         # [DONE] Analyst system prompt template (DDL, docs, rules, RAG context)
-|   |   |   +-- statistician_system.j2    # [DONE] Statistician prompt (hypothesis testing, effect sizes, CIs)
+|   |   +-- prompts/                      # 15 Jinja2 templates
+|   |   |   +-- __init__.py               # [DONE] Jinja2 template loader
+|   |   |   +-- analyst_system.j2         # [DONE] SQL analyst prompt
+|   |   |   +-- statistician_system.j2    # [DONE] Statistician prompt
+|   |   |   +-- quant_analyst_system.j2   # [DONE] Quant analyst prompt
+|   |   |   +-- orchestrator_planner.j2   # [DONE] DAG planner prompt
+|   |   |   +-- enrichment_evaluator.j2   # [DONE] Enrichment evaluation
+|   |   |   +-- investigation_evaluator.j2 # [DONE] Investigation evaluation
+|   |   |   +-- dimension_extractor.j2    # [DONE] 5W1H dimension extraction
+|   |   |   +-- response_synthesizer.j2   # [DONE] Response synthesis
+|   |   |   +-- insight_quality_gate.j2   # [DONE] Insight quality check
+|   |   |   +-- investigation_synthesizer.j2 # [DONE] Investigation synthesis
+|   |   |   +-- clarifier_system.j2       # [DONE] Clarification prompt
+|   |   |   +-- nl_trigger.j2             # [DONE] NL trigger evaluation
+|   |   |   +-- automation_namer.j2       # [DONE] Auto-name automations
+|   |   |   +-- sql_generator.j2          # [DONE] NL → SQL for workflows
+|   |   |   +-- title_generator.j2        # [DONE] Conversation title generation
 |   |   |
 |   |   +-- llm/
 |   |   |   +-- __init__.py               # [DONE] Exports LLMProvider, LLMResponse, LLMChunk, ToolCall, create_llm
@@ -971,10 +1028,14 @@ InsightXpert/
 |   |   |   +-- factory.py                # [DONE] Registry-based factory: create_llm(provider, settings)
 |   |   |   +-- gemini.py                 # [DONE] Google Gemini (chat + stream + tools)
 |   |   |   +-- ollama.py                 # [DONE] Ollama local models (chat + stream + tools, 120s timeout)
+|   |   |   +-- vertex.py                 # [DONE] Google Vertex AI provider
 |   |   |
 |   |   +-- db/
 |   |   |   +-- connector.py              # [DONE] SQLAlchemy wrapper (connect, execute, row limits, read_only mode)
 |   |   |   +-- schema.py                 # [DONE] DDL introspection
+|   |   |   +-- data_loader.py            # [DONE] CSV → SQLite loader
+|   |   |   +-- stats_computer.py         # [DONE] Pre-computed dataset statistics
+|   |   |   +-- migrations.py             # [DONE] Schema migrations
 |   |   |
 |   |   +-- rag/
 |   |   |   +-- __init__.py               # [DONE] Exports VectorStoreBackend, ChromaVectorStore, VectorStore, InMemoryVectorStore
@@ -994,6 +1055,19 @@ InsightXpert/
 |   |   |   +-- tracer.py                 # [STUB] Empty
 |   |   |   +-- store.py                  # [STUB] Empty
 |   |   |
+|   |   +-- automations/
+|   |   |   +-- routes.py                 # [DONE] Automation CRUD + run endpoints
+|   |   |   +-- scheduler.py              # [DONE] APScheduler cron-based execution
+|   |   |   +-- evaluator.py              # [DONE] SQL workflow executor + trigger evaluator
+|   |   |   +-- nl_trigger.py             # [DONE] Natural-language trigger evaluation
+|   |   |
+|   |   +-- datasets/
+|   |   |   +-- routes.py                 # [DONE] Dataset CRUD endpoints
+|   |   |   +-- service.py                # [DONE] Dataset management service
+|   |   |
+|   |   +-- insights/
+|   |   |   +-- routes.py                 # [DONE] Insight CRUD + bookmark endpoints
+|   |   |
 |   |   +-- training/
 |   |       +-- trainer.py                # [DONE] RAG bootstrap (DDL + docs + 12 QA pairs)
 |   |       +-- schema.py                 # [DONE] DDL constant (17-column transactions table)
@@ -1007,98 +1081,87 @@ InsightXpert/
 |       +-- test_rag.py                   # [DONE] All 4 collections, search, dedup, distance
 |
 +-- frontend/
-    +-- package.json                      # [DONE] Next.js 16.1.6, React 19.2.3
+    +-- package.json                      # [DONE] Next.js 16, React 19
     +-- tsconfig.json                     # [DONE] TypeScript config
     +-- next.config.ts                    # [DONE] Next.js config with API rewrites
     +-- components.json                   # [DONE] Shadcn config (New York style)
+    +-- playwright.config.ts              # [DONE] E2E testing
     |
     +-- src/
         +-- app/
-        |   +-- layout.tsx                # [DONE] Root layout (fonts, TooltipProvider)
+        |   +-- layout.tsx                # [DONE] Root layout (fonts, health gate, toast)
         |   +-- page.tsx                  # [DONE] Home page (AuthGuard + AppShell + ChatPanel)
         |   +-- globals.css               # [DONE] Tailwind 4 + OKLch theme + glass utility
-        |   +-- login/
-        |   |   +-- page.tsx              # [DONE] Login form
+        |   +-- login/page.tsx            # [DONE] Login form
+        |   +-- register/page.tsx         # [DONE] Registration form
         |   +-- admin/
-        |   |   +-- layout.tsx            # [DONE] Admin layout with admin guard
-        |   |   +-- page.tsx              # [DONE] Admin panel (feature toggles, branding, user mappings)
+        |       +-- layout.tsx            # [DONE] Admin layout with guards
+        |       +-- page.tsx              # [DONE] Admin dashboard
+        |       +-- automations/          # [DONE] Automation management
+        |       +-- notifications/        # [DONE] Notification management
         |
         +-- components/
-        |   +-- auth/
-        |   |   +-- auth-guard.tsx        # [DONE] Protected route wrapper
-        |   |
-        |   +-- chat/
-        |   |   +-- chat-panel.tsx        # [DONE] Main chat interface orchestrator
-        |   |   +-- message-actions.tsx   # [DONE] Copy, thumbs up/down, retry buttons (hover toolbar)
-        |   |   +-- message-bubble.tsx    # [DONE] User/assistant message rendering + action buttons
-        |   |   +-- message-input.tsx     # [DONE] Textarea with send/stop buttons
-        |   |   +-- message-list.tsx      # [DONE] Scrollable message list + auto-scroll + feedback
-        |   |   +-- welcome-screen.tsx    # [DONE] Landing with 6 suggested questions
-        |   |
-        |   +-- chunks/
-        |   |   +-- chunk-renderer.tsx    # [DONE] Route chunk to correct renderer
-        |   |   +-- status-chunk.tsx      # [DONE] Loading indicator
-        |   |   +-- tool-call-chunk.tsx   # [DONE] Tool call display
-        |   |   +-- sql-chunk.tsx         # [DONE] SQL syntax highlighting + copy
-        |   |   +-- tool-result-chunk.tsx # [DONE] Data table + chart display
-        |   |   +-- answer-chunk.tsx      # [DONE] Markdown answer rendering
-        |   |   +-- error-chunk.tsx       # [DONE] Error display
-        |   |   +-- chart-block.tsx       # [DONE] Auto-detected bar/pie/line charts
-        |   |   +-- data-table.tsx        # [DONE] Result table component
-        |   |
-        |   +-- layout/
-        |   |   +-- app-shell.tsx         # [DONE] 3-column layout with Framer Motion
-        |   |   +-- header.tsx            # [DONE] Logo + model selector + SQL + UserMenu
-        |   |   +-- user-menu.tsx         # [DONE] Avatar dropdown with email + sign out
-        |   |   +-- left-sidebar.tsx      # [DONE] Conversation history
-        |   |   +-- right-sidebar.tsx     # [DONE] Agent process steps
-        |   |   +-- model-selector.tsx    # [DONE] Provider/model dropdown
-        |   |
-        |   +-- sidebar/
-        |   |   +-- conversation-item.tsx # [DONE] Single conversation (rename/delete)
-        |   |   +-- conversation-list.tsx # [DONE] Conversation list
-        |   |   +-- search-results.tsx    # [DONE] Search result highlighting
-        |   |   +-- process-steps.tsx     # [DONE] Agent step timeline
-        |   |   +-- step-item.tsx         # [DONE] Single step indicator
-        |   |
-        |   +-- sql/
-        |   |   +-- sql-executor.tsx      # [DONE] SQL editor + execution panel
-        |   |
-        |   +-- admin/
-        |   |   +-- feature-toggles.tsx   # [DONE] 6 feature toggle switches
-        |   |   +-- branding-editor.tsx   # [DONE] Display name, logo URL, theme CSS vars
-        |   |   +-- user-org-mappings.tsx # [DONE] Email-to-org mapping table
-        |   |   +-- admin-domain-editor.tsx # [DONE] Admin email domain list
-        |   |
-        |   +-- ui/                       # [DONE] 14+ shadcn/Radix components
-        |       +-- avatar, badge, button, card, chart, collapsible,
-        |       +-- dropdown-menu, input, scroll-area, separator,
-        |       +-- sheet, skeleton, textarea, tooltip
+        |   +-- auth/auth-guard.tsx       # [DONE] Protected route wrapper
+        |   +-- health/health-check-gate.tsx # [DONE] Backend health verification
+        |   +-- chat/ (7 components)      # [DONE] ChatPanel, MessageList, MessageBubble,
+        |   |                             #        MessageInput, MessageActions, WelcomeScreen, InputToolbar
+        |   +-- chunks/ (15 components)   # [DONE] ChunkRenderer, AnswerChunk, SqlChunk,
+        |   |                             #        ToolCallChunk, ToolResultChunk, StatusChunk, ErrorChunk,
+        |   |                             #        ClarificationChunk, InsightChunk, StatsContextChunk,
+        |   |                             #        ThinkingTrace, TraceModal, ChartBlock, DataTable, CitationLink
+        |   +-- layout/ (6 components)    # [DONE] AppShell, Header, LeftSidebar, RightSidebar,
+        |   |                             #        UserMenu, DatasetSelector
+        |   +-- sidebar/ (5 components)   # [DONE] ConversationList, ConversationItem,
+        |   |                             #        SearchResults, ProcessSteps, StepItem
+        |   +-- sql/ (2 components)       # [DONE] SqlExecutor, ChartConfigurator
+        |   +-- insights/ (5 components)  # [DONE] InsightBell, InsightPopover, InsightCard, InsightAllModal
+        |   +-- automations/ (14 components) # [DONE] WorkflowBuilder, WorkflowCanvas, AutomationList,
+        |   |                             #        AutomationCard, SqlBlockNode, TriggerConditionBuilder, etc.
+        |   +-- notifications/ (7 components) # [DONE] NotificationBell, NotificationPopover, etc.
+        |   +-- dataset/dataset-viewer.tsx # [DONE] Schema browser + sample data
+        |   +-- sample-questions/         # [DONE] SampleQuestionsModal
+        |   +-- admin/ (5 components)     # [DONE] FeatureToggles, BrandingEditor, UserOrgMappings,
+        |   |                             #        AdminDomainEditor, ConversationViewer
+        |   +-- ui/ (30+ components)      # [DONE] shadcn/Radix component library
         |
-        +-- hooks/
+        +-- hooks/ (7 hooks)
         |   +-- use-sse-chat.ts           # [DONE] SSE streaming + agent step tracking
-        |   +-- use-client-config.ts      # [DONE] Org config + feature flags access
+        |   +-- use-client-config.ts      # [DONE] Org config + feature flags
+        |   +-- use-health-check.ts       # [DONE] Backend health polling
         |   +-- use-theme.ts              # [DONE] Dark/light mode toggle
+        |   +-- use-syntax-theme.ts       # [DONE] Code highlighting theme
         |   +-- use-auto-scroll.ts        # [DONE] Auto-scroll to bottom
         |   +-- use-media-query.ts        # [DONE] Responsive breakpoint detection
         |
-        +-- lib/
+        +-- lib/ (11 utilities)
         |   +-- api.ts                    # [DONE] Fetch wrapper with credentials
-        |   +-- sse-client.ts             # [DONE] SSE fetch + line buffering
+        |   +-- sse-client.ts             # [DONE] SSE fetch + microtask batching
         |   +-- chunk-parser.ts           # [DONE] Parse ChatChunk + ToolResult
-        |   +-- chart-detector.ts         # [DONE] Auto-detect chart type from data
-        |   +-- constants.ts              # [DONE] API URL, suggested questions, chunk types
+        |   +-- chart-detector.ts         # [DONE] Auto-detect chart type
+        |   +-- sql-utils.ts              # [DONE] Table extraction for workflow edges
+        |   +-- automation-utils.ts       # [DONE] Automation helpers
+        |   +-- export-report.ts          # [DONE] PDF/CSV export
+        |   +-- sample-questions.ts       # [DONE] Sample question data
+        |   +-- model-utils.ts            # [DONE] Model name formatting
+        |   +-- constants.ts              # [DONE] API URL, suggested questions
         |   +-- utils.ts                  # [DONE] cn() class merge utility
         |
-        +-- stores/
-        |   +-- auth-store.ts             # [DONE] Zustand auth state (login/logout/check)
-        |   +-- chat-store.ts             # [DONE] Zustand chat state (messages, steps, sidebar)
-        |   +-- settings-store.ts         # [DONE] Zustand settings (provider/model selection)
-        |   +-- client-config-store.ts    # [DONE] Zustand org config (features, branding)
+        +-- stores/ (7 stores)
+        |   +-- auth-store.ts             # [DONE] Auth (login, register, logout)
+        |   +-- chat-store.ts             # [DONE] Chat (conversations, streaming, steps)
+        |   +-- settings-store.ts         # [DONE] Settings (provider, model, agent mode)
+        |   +-- client-config-store.ts    # [DONE] Org config (features, branding)
+        |   +-- insight-store.ts          # [DONE] Insights (fetch, bookmark, delete)
+        |   +-- automation-store.ts       # [DONE] Automations (CRUD, workflow builder)
+        |   +-- notification-store.ts     # [DONE] Notifications (fetch, read, count)
         |
-        +-- types/
-            +-- chat.ts                   # [DONE] ChatChunk, Message, Conversation, AgentStep
-            +-- admin.ts                  # [DONE] FeatureToggles, OrgConfig, OrgBranding
+        +-- types/ (5 type files)
+            +-- chat.ts                   # [DONE] ChatChunk, Message, Conversation, AgentStep,
+            |                             #        OrchestratorPlan, AgentTrace, EnrichmentTrace
+            +-- admin.ts                  # [DONE] FeatureToggles, OrgConfig, Branding
+            +-- api.ts                    # [DONE] QueryResult, QueryError
+            +-- automation.ts             # [DONE] Automation, AutomationRun, TriggerCondition, Workflow
+            +-- insight.ts               # [DONE] Insight
 ```
 
 ### Dependencies
@@ -1139,57 +1202,74 @@ Dev: pytest >=8.0, pytest-asyncio >=0.24, httpx >=0.27
 
 ## 16. Implementation Status Summary
 
+> **Update (Mar 2):** All previously planned items except observability have been implemented. See `docs/` for current comprehensive documentation.
+
 | Component | Status | File(s) |
 |-----------|--------|---------|
+| **Agent Pipeline** | | |
 | Analyst Agent (with error recovery) | [DONE] | `agents/analyst.py` |
+| Orchestrator Planner (DAG) | [DONE] | `agents/orchestrator_planner.py` |
+| DAG Executor (parallel tasks) | [DONE] | `agents/dag_executor.py` |
+| Quant Analyst Agent | [DONE] | `agents/quant_analyst.py` |
+| Deep Think Pipeline | [DONE] | `agents/deep_think.py` |
+| Response Synthesizer | [DONE] | `agents/response_generator.py` |
+| Clarifier Agent | [DONE] | `agents/clarifier.py` |
 | Tool ABC + ToolRegistry | [DONE] | `agents/tool_base.py`, `agents/tools.py` |
+| Statistical Tools (6) | [DONE] | `agents/stat_tools.py` |
+| Advanced Tools (14) | [DONE] | `agents/advanced_tools.py` |
+| **LLM** | | |
 | Gemini LLM Provider | [DONE] | `llm/gemini.py` |
 | Ollama LLM Provider | [DONE] | `llm/ollama.py` |
-| LLM Protocol (incl. `model` property) | [DONE] | `llm/base.py` |
-| LLM Factory | [DONE] | `llm/factory.py` |
-| Runtime LLM Switching | [DONE] | `api/routes.py` (config endpoints via `create_llm`) |
+| Vertex AI LLM Provider | [DONE] | `llm/vertex.py` |
+| LLM Protocol + Factory | [DONE] | `llm/base.py`, `llm/factory.py` |
+| Runtime LLM Switching | [DONE] | `api/routes.py` |
+| **Prompts** | | |
+| 15 Jinja2 Templates | [DONE] | `prompts/*.j2` |
+| **Data** | | |
 | Database Layer | [DONE] | `db/connector.py`, `db/schema.py` |
-| SQL Executor (dual read-only: regex + PRAGMA) | [DONE] | `api/routes.py`, `db/connector.py` |
-| Jinja2 Prompt Templates | [DONE] | `prompts/__init__.py`, `prompts/analyst_system.j2` |
-| RAG Store (ChromaDB) | [DONE] | `rag/store.py` (ChromaVectorStore) |
-| RAG Protocol | [DONE] | `rag/base.py` (VectorStoreBackend) |
-| RAG In-Memory (testing) | [DONE] | `rag/memory.py` (InMemoryVectorStore) |
-| Training Bootstrap | [DONE] | `training/trainer.py` |
-| In-Memory Conversation Store | [DONE] | `memory/conversation_store.py` |
-| Persistent Conversation Store | [DONE] | `auth/conversation_store.py` (incl. `get_or_create_conversation`) |
-| Authentication (JWT + bcrypt) | [DONE] | `auth/` (routes, security, dependencies, models, seed) |
-| Feedback Persistence | [DONE] | `auth/models.py` (`FeedbackRecord`), `api/routes.py` (`POST /api/feedback`) |
-| API Endpoints | [DONE] | `api/routes.py` (16 endpoints) |
-| API Models | [DONE] | `api/models.py` |
-| Config | [DONE] | `config.py` |
+| SQL Executor (dual read-only) | [DONE] | `api/routes.py`, `db/connector.py` |
+| Stats Computer | [DONE] | `db/stats_computer.py` |
+| Data Loader | [DONE] | `db/data_loader.py` |
+| Migrations | [DONE] | `db/migrations.py` |
 | Data Generator | [DONE] | `generate_data.py` |
-| Tests | [DONE] | `tests/` (3 files) |
-| Frontend Auth (login, guard) | [DONE] | `auth-guard.tsx`, `auth-store.ts`, `login/page.tsx` |
-| Frontend Chat UI | [DONE] | `components/chat/` (6 files, incl. `MessageActions`) |
-| Frontend Chunks + Charts | [DONE] | `components/chunks/` (9 files) |
-| Frontend Layout | [DONE] | `components/layout/` (6 files, incl. `UserMenu`) |
-| Frontend Sidebars | [DONE] | `components/sidebar/` (4 files) |
-| Frontend Model Selector | [DONE] | `components/layout/model-selector.tsx`, `settings-store.ts` |
-| Frontend SQL Executor | [DONE] | `components/sql/sql-executor.tsx` |
-| SSE Client | [DONE] | `hooks/use-sse-chat.ts` |
-| State Management | [DONE] | `stores/` (4 stores: auth, chat, settings, client-config) |
-| Admin System (backend) | [DONE] | `admin/routes.py`, `admin/config_store.py`, `admin/models.py` |
-| Admin Panel (frontend) | [DONE] | `app/admin/`, `components/admin/` (4 components) |
-| Client Config Store | [DONE] | `stores/client-config-store.ts` |
-| Statistical Tools | [DONE] | `agents/stat_tools.py` (4 tools) |
-| Statistician Prompt | [DONE] | `prompts/statistician_system.j2` |
-| Conversation Search | [DONE] | `components/sidebar/search-results.tsx`, API endpoint |
-| Theme Toggle | [DONE] | `hooks/use-theme.ts` |
-| Orchestrator | [STUB] | `agents/orchestrator.py` (6 lines) |
-| Statistician Agent | [PLANNED] | — |
-| Narrator Agent | [PLANNED] | — |
-| Anomaly Detector | [PLANNED] | — |
-| Observability | [STUB] | `observability/tracer.py`, `observability/store.py` |
-| Dashboard Pages | [PLANNED] | — |
+| **RAG & Memory** | | |
+| RAG Store (ChromaDB, 4 collections) | [DONE] | `rag/store.py` |
+| RAG Protocol + In-Memory | [DONE] | `rag/base.py`, `rag/memory.py` |
+| Training Bootstrap | [DONE] | `training/trainer.py` |
+| Dual Conversation Store | [DONE] | `memory/conversation_store.py`, `auth/conversation_store.py` |
+| **Auth & Admin** | | |
+| Authentication (JWT + bcrypt) | [DONE] | `auth/` |
+| Admin System (9 toggles, branding) | [DONE] | `admin/` |
+| Org Permissions | [DONE] | `auth/permissions.py` |
+| **Features** | | |
+| Automations (scheduler, triggers, notifications) | [DONE] | `automations/` |
+| Insights (auto-generated, quality gate) | [DONE] | `insights/` |
+| Datasets (upload, schema, stats) | [DONE] | `datasets/` |
+| API Endpoints (50+) | [DONE] | `api/routes.py` + feature routers |
+| Config | [DONE] | `config.py` |
+| Tests | [DONE] | `tests/` |
+| **Frontend** | | |
+| Auth (login, register, guard) | [DONE] | `auth/`, `auth-store.ts` |
+| Chat UI (7 components) | [DONE] | `components/chat/` |
+| Chunk Renderers (15 components) | [DONE] | `components/chunks/` |
+| Layout (6 components) | [DONE] | `components/layout/` |
+| Sidebars (5 components) | [DONE] | `components/sidebar/` |
+| SQL Executor + Chart Configurator | [DONE] | `components/sql/` |
+| Insights UI (5 components) | [DONE] | `components/insights/` |
+| Automations UI (14 components) | [DONE] | `components/automations/` |
+| Notifications UI (7 components) | [DONE] | `components/notifications/` |
+| Dataset Viewer + Selector | [DONE] | `components/dataset/`, `components/layout/` |
+| SSE Client + 7 Hooks | [DONE] | `hooks/` |
+| State Management (7 Zustand stores) | [DONE] | `stores/` |
+| Admin Panel (3 pages, 5 components) | [DONE] | `app/admin/`, `components/admin/` |
+| **Not Implemented** | | |
+| Observability Dashboard | [STUB] | `observability/tracer.py`, `observability/store.py` |
 
 ---
 
-## 17. Build Plan (Feb 13 -> Feb 28)
+## 17. Build Plan (Feb 13 -> Feb 28) — Historical
+
+> **Note:** This build plan was the original sprint schedule. The project significantly exceeded these milestones, implementing features originally planned for post-hackathon (automations, insights, multi-dataset support, workflow builder, deep think mode). See `docs/progress-report.md` for the actual timeline.
 
 ### Division of Work
 
