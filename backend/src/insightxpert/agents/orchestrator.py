@@ -170,9 +170,12 @@ async def orchestrator_loop(
 
     # If analyst failed or returned a clarification, stop here
     if analyst_had_error or not analyst_answer:
+        logger.info("Skipping enrichment: error=%s, answer_empty=%s", analyst_had_error, not analyst_answer)
         return
 
     # ── Phase 2: Evaluate whether enrichment is needed ───────────────
+    logger.info("Phase 2: evaluating enrichment (analyst_sql=%s, rows=%d, answer_len=%d)",
+                bool(analyst_sql), len(analyst_rows), len(analyst_answer))
     yield ChatChunk(
         type="status",
         content="Evaluating if deeper analysis is needed...",

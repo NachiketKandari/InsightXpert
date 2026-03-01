@@ -12,6 +12,7 @@ Provides two functions:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import time
@@ -193,6 +194,7 @@ def _fallback_plan(question: str) -> OrchestratorPlan:
 # ---------------------------------------------------------------------------
 
 _MAX_ENRICHMENT_TASKS = 4
+_EVALUATOR_TIMEOUT_SECONDS = 60
 
 
 async def evaluate_for_enrichment(
@@ -240,7 +242,11 @@ async def evaluate_for_enrichment(
 
     t0 = time.time()
     try:
-        response = await llm.chat(messages, tools=None)
+        logger.info("Enrichment evaluator starting (rows=%d, answer_len=%d)", len(analyst_rows), len(analyst_answer))
+        response = await asyncio.wait_for(
+            llm.chat(messages, tools=None),
+            timeout=_EVALUATOR_TIMEOUT_SECONDS,
+        )
         raw = (response.content or "").strip()
         eval_ms = int((time.time() - t0) * 1000)
 
@@ -267,6 +273,13 @@ async def evaluate_for_enrichment(
         )
         return plan
 
+    except asyncio.TimeoutError:
+        eval_ms = int((time.time() - t0) * 1000)
+        logger.warning(
+            "Enrichment evaluator timed out after %dms (limit=%ds), no enrichment",
+            eval_ms, _EVALUATOR_TIMEOUT_SECONDS,
+        )
+        return None
     except Exception as exc:
         eval_ms = int((time.time() - t0) * 1000)
         logger.warning(
