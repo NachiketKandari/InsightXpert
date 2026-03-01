@@ -57,11 +57,13 @@ interface ChartBlockProps {
   xColumn?: string;
   /** Explicit y-axis column from the LLM. Falls back to auto-detect if not provided. */
   yColumn?: string;
+  /** Explicit group column for grouped-bar charts. Falls back to auto-detect if not provided. */
+  groupColumn?: string;
   /** Skip lazy loading (render immediately) for currently-streaming messages. */
   eager?: boolean;
 }
 
-function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }: ChartBlockProps) {
+function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn, groupColumn }: ChartBlockProps) {
   const isMobile = useIsMobile();
   const [open, setOpen] = useState(true);
 
@@ -78,9 +80,9 @@ function ChartBlockInner({ columns, rows, suggestedChartType, xColumn, yColumn }
     return {
       categoryKey: (xColumn && columns.includes(xColumn)) ? xColumn : auto.categoryKey,
       valueKey: (yColumn && columns.includes(yColumn)) ? yColumn : auto.valueKey,
-      groupKey: auto.groupKey,
+      groupKey: (groupColumn && columns.includes(groupColumn)) ? groupColumn : auto.groupKey,
     };
-  }, [columns, rows, xColumn, yColumn]);
+  }, [columns, rows, xColumn, yColumn, groupColumn]);
 
   const data = useMemo(
     () => rows.map((row) => ({ ...row, [valueKey]: Number(row[valueKey]) })),

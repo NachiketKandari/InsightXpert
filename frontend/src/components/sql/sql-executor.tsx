@@ -1,13 +1,15 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { Play, AlertTriangle, Clock, Rows3, X, Loader2 } from "lucide-react";
+import { Play, AlertTriangle, Clock, Rows3, X, Loader2, Table2, BarChart3 } from "lucide-react";
 import { Light as SyntaxHighlighter } from "react-syntax-highlighter";
 import sqlLang from "react-syntax-highlighter/dist/esm/languages/hljs/sql";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DataTable } from "@/components/chunks/data-table";
+import { ChartConfigurator } from "@/components/sql/chart-configurator";
 import { apiFetch } from "@/lib/api";
 import { useSyntaxTheme } from "@/hooks/use-syntax-theme";
 import type { QueryResult, QueryError } from "@/types/api";
@@ -136,24 +138,45 @@ export function SqlExecutor({ onClose }: { onClose: () => void }) {
               </span>
             </div>
 
-            {/* Table */}
             {result.columns.length > 0 ? (
-              <ScrollArea className="flex-1 min-h-0">
-                <DataTable
-                  columns={result.columns}
-                  rows={result.rows}
-                  showExpandToggle={false}
-                  headerRowClassName="bg-muted/50 sticky top-0 z-10"
-                  headerCellClassName="border-b border-border"
-                  rowClassName={(i) =>
-                    i % 2 === 0
-                      ? "bg-transparent hover:bg-muted/30"
-                      : "bg-muted/20 hover:bg-muted/40"
-                  }
-                  cellClassName="border-b border-border/30"
-                  tableClassName="rounded-none border-none"
-                />
-              </ScrollArea>
+              <Tabs defaultValue="results" className="flex flex-col flex-1 min-h-0">
+                <TabsList className="mx-4 mt-2 w-fit">
+                  <TabsTrigger value="results" className="gap-1.5 text-xs">
+                    <Table2 className="size-3" />
+                    Results
+                  </TabsTrigger>
+                  <TabsTrigger value="visualize" className="gap-1.5 text-xs">
+                    <BarChart3 className="size-3" />
+                    Visualize
+                  </TabsTrigger>
+                </TabsList>
+
+                <TabsContent value="results" className="flex-1 min-h-0 mt-0">
+                  <ScrollArea className="h-full">
+                    <DataTable
+                      columns={result.columns}
+                      rows={result.rows}
+                      showExpandToggle={false}
+                      headerRowClassName="bg-muted/50 sticky top-0 z-10"
+                      headerCellClassName="border-b border-border"
+                      rowClassName={(i) =>
+                        i % 2 === 0
+                          ? "bg-transparent hover:bg-muted/30"
+                          : "bg-muted/20 hover:bg-muted/40"
+                      }
+                      cellClassName="border-b border-border/30"
+                      tableClassName="rounded-none border-none"
+                    />
+                  </ScrollArea>
+                </TabsContent>
+
+                <TabsContent value="visualize" className="flex-1 min-h-0 mt-0 overflow-auto">
+                  <ChartConfigurator
+                    columns={result.columns}
+                    rows={result.rows}
+                  />
+                </TabsContent>
+              </Tabs>
             ) : (
               <div className="px-4 py-6 text-center text-sm text-muted-foreground">
                 Query executed successfully. No rows returned.
