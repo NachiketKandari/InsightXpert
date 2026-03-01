@@ -135,6 +135,48 @@ class EnrichmentTraceRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class OrchestratorPlanRecord(Base):
+    __tablename__ = "orchestrator_plans"
+    __table_args__ = (Index("ix_orch_plans_message", "message_id"),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    message_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False,
+    )
+    reasoning: Mapped[str] = mapped_column(Text, nullable=False)
+    plan_json: Mapped[str] = mapped_column(Text, nullable=False)
+    task_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    planning_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
+class AgentExecutionRecord(Base):
+    __tablename__ = "agent_executions"
+    __table_args__ = (
+        Index("ix_agent_exec_plan", "plan_id"),
+        Index("ix_agent_exec_message", "message_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    plan_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("orchestrator_plans.id", ondelete="CASCADE"), nullable=False,
+    )
+    message_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False,
+    )
+    task_id: Mapped[str] = mapped_column(String(10), nullable=False)
+    agent_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    task_description: Mapped[str] = mapped_column(Text, nullable=False)
+    depends_on_json: Mapped[str] = mapped_column(Text, default="[]")
+    final_sql: Mapped[str | None] = mapped_column(Text, nullable=True)
+    final_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    trace_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class PromptTemplate(Base):
     __tablename__ = "prompt_templates"
 

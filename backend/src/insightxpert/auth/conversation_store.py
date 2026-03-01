@@ -9,7 +9,13 @@ from sqlalchemy import and_, desc, func, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.expression import true as sa_true
 
-from insightxpert.auth.models import ConversationRecord, EnrichmentTraceRecord, MessageRecord
+from insightxpert.auth.models import (
+    AgentExecutionRecord,
+    ConversationRecord,
+    EnrichmentTraceRecord,
+    MessageRecord,
+    OrchestratorPlanRecord,
+)
 
 logger = logging.getLogger("insightxpert.auth")
 
@@ -502,3 +508,55 @@ class PersistentConversationStore:
                 }
                 for r in records
             ]
+
+    def save_orchestrator_plan(
+        self,
+        message_id: str,
+        plan_data: dict,
+        planning_time_ms: int | None = None,
+    ) -> str:
+        """Persist an orchestrator plan record. Returns the plan record ID."""
+        import json as _json
+        with Session(self.engine) as session:
+            record = OrchestratorPlanRecord(
+                message_id=message_id,
+                reasoning=plan_data.get("reasoning", ""),
+                plan_json=_json.dumps(plan_data.get("tasks", [])),
+                task_count=len(plan_data.get("tasks", [])),
+                planning_time_ms=planning_time_ms,
+            )
+            session.add(record)
+            session.commit()
+            return record.id
+
+    def save_agent_executions(
+        self,
+        plan_id: str,
+        message_id: str,
+        executions: list[dict],
+    ) -> list[str]:
+        """Persist agent execution records for a plan. Returns list of record IDs."""
+        import json as _json
+        records = []
+        with Session(self.engine) as session:
+            for ex in executions:
+                record = AgentExecutionRecord(
+                    plan_id=plan_id,
+                    message_id=message_id,
+                    task_id=ex.get("task_id", ""),
+                    agent_type=ex.get("agent", ""),
+                    task_description=ex.get("task", ""),
+                    depends_on_json=_json.dumps(ex.get("depends_on", [])),
+                    final_sql=ex.get("final_sql"),
+                    final_answer=ex.get("final_answer"),
+                    success=ex.get("success", False),
+                    error_message=ex.get("error"),
+                    trace_json=_json.dumps(ex.get("steps")) if ex.get("steps") else None,
+                    duration_ms=ex.get("duration_ms"),
+                )
+                session.add(record)
+                records.append(record)
+            session.flush()
+            ids = [r.id for r in records]
+            session.commit()
+        return ids

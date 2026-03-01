@@ -12,6 +12,7 @@ _logger = logging.getLogger("insightxpert.config")
 class LLMProvider(str, Enum):
     OLLAMA = "ollama"
     GEMINI = "gemini"
+    VERTEX_AI = "vertex_ai"
 
 
 class Settings(BaseSettings):
@@ -23,6 +24,11 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     ollama_model: str = "llama3.1"
     ollama_base_url: str = "http://localhost:11434"
+
+    # Vertex AI (for Model Garden models like GLM-5)
+    gcp_project_id: str = ""
+    vertex_ai_region: str = "global"
+    vertex_ai_model: str = "zai-org/glm-5-maas"
 
     # Local SQLite (primary runtime DB — sub-ms queries)
     database_url: str = "sqlite:///./insightxpert.db"
@@ -38,7 +44,8 @@ class Settings(BaseSettings):
 
     # Agent
     max_agent_iterations: int = Field(default=10, gt=0)
-    max_statistician_iterations: int = Field(default=5, gt=0)
+    max_quant_analyst_iterations: int = Field(default=5, gt=0)
+    max_orchestrator_tasks: int = Field(default=5, gt=0)
     python_exec_timeout_seconds: int = Field(default=10, gt=0)
     sql_row_limit: int = Field(default=1000, gt=0)
     sql_timeout_seconds: int = Field(default=30, gt=0)

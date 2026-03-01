@@ -209,7 +209,7 @@ def _persist_response(
             logger.error("Failed to persist assistant message: %s", e, exc_info=True)
             message_id = None
 
-        # Persist enrichment traces if present
+        # Persist enrichment traces if present (legacy conversations)
         if message_id and chunks_blob:
             try:
                 chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
@@ -221,6 +221,23 @@ def _persist_response(
             except Exception as e:
                 logger.error("Failed to persist enrichment traces: %s", e, exc_info=True)
 
+        # Persist orchestrator plan and agent executions
+        if message_id and chunks_blob:
+            try:
+                chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
+                plan_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "orchestrator_plan"]
+                if plan_chunks:
+                    plan_data = plan_chunks[0].get("data", {})
+                    plan_id = persistent_store.save_orchestrator_plan(message_id, plan_data)
+
+                    agent_trace_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "agent_trace"]
+                    if agent_trace_chunks and plan_id:
+                        executions = [c.get("data", {}) for c in agent_trace_chunks if c.get("data")]
+                        if executions:
+                            persistent_store.save_agent_executions(plan_id, message_id, executions)
+            except Exception as e:
+                logger.error("Failed to persist orchestrator plan/executions: %s", e, exc_info=True)
+
 
 @router.post("/chat")
 async def chat_sse(
@@ -228,7 +245,7 @@ async def chat_sse(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    logger.info("POST /chat (SSE) message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
+    logger.info("POST /chat (SSE) message=%r conv=%s user=%s mode=%s", chat_req.message[:80], chat_req.conversation_id, user.email, chat_req.agent_mode)
     llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
     features = _resolve_user_features(request, user)
 
@@ -445,6 +462,10 @@ GEMINI_MODELS = [
     "gemini-2.0-flash-lite",
 ]
 
+VERTEX_AI_MODELS = [
+    "zai-org/glm-5-maas",
+]
+
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     request: Request,
@@ -460,6 +481,10 @@ async def get_config(
     providers = [
         ProviderModels(provider="gemini", models=GEMINI_MODELS),
     ]
+
+    # Advertise Vertex AI if GCP project is configured
+    if settings.gcp_project_id:
+        providers.append(ProviderModels(provider="vertex_ai", models=VERTEX_AI_MODELS))
 
     # Only advertise Ollama if it's actually reachable
     try:
@@ -514,6 +539,7 @@ async def switch_model(
     prev_provider = settings.llm_provider
     prev_gemini_model = settings.gemini_model
     prev_ollama_model = settings.ollama_model
+    prev_vertex_model = settings.vertex_ai_model
 
     if req.provider == "gemini":
         settings.llm_provider = LLMProviderEnum.GEMINI
@@ -521,6 +547,9 @@ async def switch_model(
     elif req.provider == "ollama":
         settings.llm_provider = LLMProviderEnum.OLLAMA
         settings.ollama_model = req.model
+    elif req.provider == "vertex_ai":
+        settings.llm_provider = LLMProviderEnum.VERTEX_AI
+        settings.vertex_ai_model = req.model
 
     try:
         new_llm = create_llm(req.provider, settings)
@@ -529,6 +558,7 @@ async def switch_model(
         settings.llm_provider = prev_provider
         settings.gemini_model = prev_gemini_model
         settings.ollama_model = prev_ollama_model
+        settings.vertex_ai_model = prev_vertex_model
         raise HTTPException(status_code=400, detail=str(e))
 
     request.app.state.llm = new_llm
@@ -648,6 +678,14 @@ def _truncate_chunks(chunks: list[dict]) -> list[dict]:
                         rd = step["result_data"]
                         if isinstance(rd, str) and len(rd) > 2000:
                             step["result_data"] = rd[:2000] + "…(truncated)"
+        elif chunk.get("type") == "agent_trace" and isinstance(chunk.get("data"), dict):
+            steps = chunk["data"].get("steps")
+            if steps and isinstance(steps, list):
+                for step in steps:
+                    if step.get("result_preview"):
+                        rp = step["result_preview"]
+                        if isinstance(rp, str) and len(rp) > 2000:
+                            step["result_preview"] = rp[:2000] + "…(truncated)"
         out.append(chunk)
     return out
 

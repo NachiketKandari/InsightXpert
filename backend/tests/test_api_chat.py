@@ -30,7 +30,7 @@ async def test_chat_poll_returns_json_chunks(test_app, async_client):
         LLMResponse(content="There are 2 users.", tool_calls=[]),
     ])
 
-    resp = await async_client.post("/api/chat/poll", json={"message": "How many users?"})
+    resp = await async_client.post("/api/chat/poll", json={"message": "How many users?", "agent_mode": "basic"})
     assert resp.status_code == 200
 
     body = resp.json()
@@ -62,7 +62,7 @@ async def test_chat_creates_conversation_in_persistent_store(test_app, async_cli
         LLMResponse(content="Done.", tool_calls=[]),
     ])
 
-    resp = await async_client.post("/api/chat/poll", json={"message": "Test query"})
+    resp = await async_client.post("/api/chat/poll", json={"message": "Test query", "agent_mode": "basic"})
     assert resp.status_code == 200
 
     # Verify conversation was created for the test user
@@ -92,13 +92,13 @@ async def test_chat_requires_authentication(test_app, test_user):
 
 
 # ---------------------------------------------------------------------------
-# test_chat_with_agent_mode_analyst
+# test_chat_with_agent_mode_basic
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_chat_with_agent_mode_analyst(test_app, async_client):
-    """When agent_mode=analyst, no statistician chunks should appear."""
+async def test_chat_with_agent_mode_basic(test_app, async_client):
+    """When agent_mode=basic, no orchestrator chunks should appear."""
     test_app.state.llm = MockLLM([
         LLMResponse(
             content=None,
@@ -109,7 +109,7 @@ async def test_chat_with_agent_mode_analyst(test_app, async_client):
 
     resp = await async_client.post(
         "/api/chat/poll",
-        json={"message": "Show users", "agent_mode": "analyst"},
+        json={"message": "Show users", "agent_mode": "basic"},
     )
     assert resp.status_code == 200
 
@@ -118,3 +118,33 @@ async def test_chat_with_agent_mode_analyst(test_app, async_client):
         data = chunk.get("data")
         if data:
             assert data.get("agent") != "statistician"
+
+
+# ---------------------------------------------------------------------------
+# test_chat_legacy_analyst_mode_maps_to_basic
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_chat_legacy_analyst_mode_maps_to_basic(test_app, async_client):
+    """Legacy agent_mode='analyst' should be mapped to 'basic' and work."""
+    test_app.state.llm = MockLLM([
+        LLMResponse(
+            content=None,
+            tool_calls=[ToolCall(id="tc1", name="run_sql", arguments={"sql": "SELECT COUNT(*) FROM users"})],
+        ),
+        LLMResponse(content="2 users.", tool_calls=[]),
+    ])
+
+    resp = await async_client.post(
+        "/api/chat/poll",
+        json={"message": "Count users", "agent_mode": "analyst"},
+    )
+    assert resp.status_code == 200
+
+    chunks = resp.json()["chunks"]
+    types = [c["type"] for c in chunks]
+    assert "answer" in types
+    # No orchestrator chunks
+    assert "orchestrator_plan" not in types
+    assert "insight" not in types

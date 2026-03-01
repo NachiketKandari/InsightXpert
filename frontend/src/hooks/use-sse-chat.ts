@@ -33,7 +33,7 @@ export function useSSEChat() {
   const isActiveStreaming = isStreaming && streamingConversationId === activeConversationId;
 
   const sendMessage = useCallback(
-    (message: string, agentMode: AgentMode = "auto") => {
+    (message: string, agentMode: AgentMode = "agentic") => {
       if (isActiveStreaming) return;
 
       let convId = activeConversationId;
@@ -209,6 +209,36 @@ export function useSSEChat() {
             addAgentStep(step);
             // Store the clarification state so the input can show context
             useChatStore.getState().setPendingClarification(chunk.content || null);
+          } else if (chunk.type === "orchestrator_plan") {
+            markLastRunningDone();
+            const planData = chunk.data as Record<string, unknown> | undefined;
+            const tasks = (planData?.tasks as Array<Record<string, unknown>>) || [];
+            const stepId = generateStepId();
+            const step: AgentStep = {
+              id: stepId,
+              label: `Planned ${tasks.length} task${tasks.length !== 1 ? "s" : ""}`,
+              status: "done",
+              detail: (planData?.reasoning as string) || undefined,
+              timestamp: chunk.timestamp,
+            };
+            addAgentStep(step);
+            useChatStore.getState().setCurrentAgentPhase("orchestrator");
+          } else if (chunk.type === "agent_trace") {
+            markLastRunningDone();
+            const traceData = chunk.data as Record<string, unknown> | undefined;
+            const taskId = (traceData?.task_id as string) || "?";
+            const agent = (traceData?.agent as string) || "agent";
+            const success = traceData?.success as boolean;
+            const durationMs = traceData?.duration_ms as number | undefined;
+            const stepId = generateStepId();
+            const step: AgentStep = {
+              id: stepId,
+              label: `[${taskId}] ${agent}${durationMs ? ` (${(durationMs / 1000).toFixed(1)}s)` : ""}`,
+              status: success ? "done" : "error",
+              detail: (traceData?.task as string) || undefined,
+              timestamp: chunk.timestamp,
+            };
+            addAgentStep(step);
           } else if (chunk.type === "enrichment_trace") {
             // Data-only chunk, stored via appendChunk but no UI step
           } else if (chunk.type === "error") {

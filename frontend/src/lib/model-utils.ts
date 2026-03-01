@@ -1,6 +1,7 @@
 export const PROVIDER_LABELS: Record<string, string> = {
   gemini: "Gemini",
   ollama: "Ollama",
+  vertex_ai: "Vertex AI",
 };
 
 /** Strip provider prefix and title-case: "gemini-2.5-flash" -> "2.5 Flash" */
