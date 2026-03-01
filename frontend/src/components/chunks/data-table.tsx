@@ -46,7 +46,7 @@ export function DataTable({
       >
         <table className="w-full text-sm">
           <thead>
-            <tr className={cn("bg-muted/50 sticky top-0 z-10", headerRowClassName)}>
+            <tr className={cn("bg-muted sticky top-0 z-10", headerRowClassName)}>
               {showRowNumbers && (
                 <th
                   className={cn(

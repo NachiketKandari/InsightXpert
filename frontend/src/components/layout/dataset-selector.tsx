@@ -120,6 +120,7 @@ export function DatasetSelector() {
         tableName={viewingDataset?.table_name ?? "transactions"}
         datasetName={viewingDataset?.name}
         description={viewingDataset?.description}
+        datasetId={viewingDataset?.id}
       />
     </>
   );

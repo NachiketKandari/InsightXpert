@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import io
 import json
 import logging
 import re
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 
 from insightxpert.agents.orchestrator import orchestrator_loop
@@ -642,6 +645,55 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
         rows=rows,
         row_count=len(rows),
         execution_time_ms=round(ms, 2),
+    )
+
+
+@router.get("/sql/export-csv")
+async def export_csv(request: Request, table: str = "transactions"):
+    """Export an entire table as a CSV file download."""
+    _, db, _, _, _, _ = _get_deps(request)
+
+    # Validate table name against known tables to prevent SQL injection
+    known_tables = db.get_tables()
+    if table not in known_tables:
+        raise HTTPException(status_code=400, detail=f"Unknown table: {table}")
+
+    def generate():
+        from sqlalchemy import text as sa_text
+
+        with db.engine.connect() as conn:
+            if db.dialect == "sqlite":
+                conn.execute(sa_text("PRAGMA query_only = ON"))
+            try:
+                result = conn.execute(sa_text(f"SELECT * FROM {table}"))
+                columns = list(result.keys())
+
+                # Write header
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(columns)
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
+
+                # Stream rows in batches
+                while True:
+                    rows = result.fetchmany(5000)
+                    if not rows:
+                        break
+                    for row in rows:
+                        output.seek(0)
+                        output.truncate(0)
+                        writer.writerow(row)
+                        yield output.getvalue()
+            finally:
+                if db.dialect == "sqlite":
+                    conn.execute(sa_text("PRAGMA query_only = OFF"))
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="insightxpert-{table}.csv"'},
     )
 
 

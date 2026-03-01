@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     max_quant_analyst_iterations: int = Field(default=5, gt=0)
     max_orchestrator_tasks: int = Field(default=5, gt=0)
     python_exec_timeout_seconds: int = Field(default=10, gt=0)
-    sql_row_limit: int = Field(default=1000, gt=0)
+    sql_row_limit: int = Field(default=10000, gt=0)
     sql_timeout_seconds: int = Field(default=30, gt=0)
 
     # CORS

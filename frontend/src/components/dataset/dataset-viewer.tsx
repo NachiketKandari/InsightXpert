@@ -9,9 +9,7 @@ import {
   Rows3,
   AlertTriangle,
   Database,
-  Code2,
-  Copy,
-  Check,
+  BookOpen,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,10 +26,20 @@ import {
 } from "@/components/ui/tooltip";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { apiFetch, apiCall } from "@/lib/api";
-import { downloadCsv } from "@/lib/utils";
+import { API_BASE_URL } from "@/lib/constants";
 import type { QueryResult } from "@/types/api";
 
 const PAGE_SIZE = 100;
+
+interface ColumnMeta {
+  id: string;
+  column_name: string;
+  column_type: string;
+  description: string | null;
+  domain_values: string | null;
+  domain_rules: string | null;
+  ordinal_position: number;
+}
 
 interface DatasetViewerProps {
   open: boolean;
@@ -39,9 +47,10 @@ interface DatasetViewerProps {
   tableName?: string;
   datasetName?: string;
   description?: string | null;
+  datasetId?: string;
 }
 
-export function DatasetViewer({ open, onOpenChange, tableName = "transactions", datasetName = "Dataset Viewer", description }: DatasetViewerProps) {
+export function DatasetViewer({ open, onOpenChange, tableName = "transactions", datasetName = "Dataset Viewer", description, datasetId }: DatasetViewerProps) {
   const [activeTab, setActiveTab] = useState<string>("data");
   const [data, setData] = useState<QueryResult | null>(null);
   const [totalRows, setTotalRows] = useState<number | null>(null);
@@ -50,11 +59,10 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
   const [offset, setOffset] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Schema/DDL state
-  const [ddl, setDdl] = useState<string | null>(null);
-  const [ddlLoading, setDdlLoading] = useState(false);
-  const [ddlError, setDdlError] = useState<string | null>(null);
-  const [ddlCopied, setDdlCopied] = useState(false);
+  // Column metadata state
+  const [columns, setColumns] = useState<ColumnMeta[] | null>(null);
+  const [columnsLoading, setColumnsLoading] = useState(false);
+  const [columnsError, setColumnsError] = useState<string | null>(null);
 
   const fetchPage = useCallback(async (pageOffset: number) => {
     setLoading(true);
@@ -96,28 +104,21 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
     }
   }, [tableName]);
 
-  const fetchDdl = useCallback(async () => {
-    setDdlLoading(true);
-    setDdlError(null);
+  const fetchColumns = useCallback(async () => {
+    if (!datasetId) return;
+    setColumnsLoading(true);
+    setColumnsError(null);
     try {
-      const result = await apiCall<{ ddl: string; tables: string[] }>("/api/schema");
+      const result = await apiCall<ColumnMeta[]>(`/api/datasets/public/${datasetId}/columns`);
       if (result) {
-        setDdl(result.ddl);
+        setColumns(result);
       }
     } catch (err) {
-      setDdlError((err as Error).message || "Failed to load schema");
+      setColumnsError((err as Error).message || "Failed to load columns");
     } finally {
-      setDdlLoading(false);
+      setColumnsLoading(false);
     }
-  }, []);
-
-  const handleCopyDdl = useCallback(() => {
-    if (!ddl) return;
-    navigator.clipboard.writeText(ddl).then(() => {
-      setDdlCopied(true);
-      setTimeout(() => setDdlCopied(false), 2000);
-    });
-  }, [ddl]);
+  }, [datasetId]);
 
   useEffect(() => {
     if (open) {
@@ -126,19 +127,19 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
       setData(null);
       setTotalRows(null);
       setError(null);
-      setDdl(null);
-      setDdlError(null);
+      setColumns(null);
+      setColumnsError(null);
       fetchPage(0);
       fetchTotalCount();
     }
   }, [open, tableName, fetchPage, fetchTotalCount]);
 
-  // Lazy-load DDL when switching to schema tab
+  // Lazy-load columns when switching to columns tab
   useEffect(() => {
-    if (open && activeTab === "schema" && ddl === null && !ddlLoading) {
-      fetchDdl();
+    if (open && activeTab === "columns" && columns === null && !columnsLoading) {
+      fetchColumns();
     }
-  }, [open, activeTab, ddl, ddlLoading, fetchDdl]);
+  }, [open, activeTab, columns, columnsLoading, fetchColumns]);
 
   const goNext = () => {
     const next = offset + PAGE_SIZE;
@@ -156,6 +157,15 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
   const totalPages = totalRows != null ? Math.ceil(totalRows / PAGE_SIZE) : null;
   const hasNext = totalRows != null ? offset + PAGE_SIZE < totalRows : (data?.row_count === PAGE_SIZE);
   const hasPrev = offset > 0;
+
+  const parseDomainValues = (raw: string | null): string[] => {
+    if (!raw) return [];
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return [raw];
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -201,9 +211,9 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
                 <Rows3 className="size-3.5" />
                 Data
               </TabsTrigger>
-              <TabsTrigger value="schema" className="gap-1.5 text-xs px-3">
-                <Code2 className="size-3.5" />
-                Schema
+              <TabsTrigger value="columns" className="gap-1.5 text-xs px-3">
+                <BookOpen className="size-3.5" />
+                Columns
               </TabsTrigger>
             </TabsList>
           </div>
@@ -274,13 +284,12 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() =>
-                          downloadCsv(
-                            data!.columns,
-                            data!.rows,
-                            `insightxpert-dataset-${tableName}.csv`,
-                          )
-                        }
+                        onClick={() => {
+                          window.open(
+                            `${API_BASE_URL}/api/sql/export-csv?table=${tableName}`,
+                            "_blank",
+                          );
+                        }}
                         className="gap-1 h-7 px-2.5 text-xs"
                         aria-label="Download CSV"
                       >
@@ -314,48 +323,74 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
             )}
           </TabsContent>
 
-          {/* Schema/DDL tab */}
-          <TabsContent value="schema" className="flex-1 min-h-0 flex flex-col">
+          {/* Columns metadata tab */}
+          <TabsContent value="columns" className="flex-1 min-h-0 flex flex-col">
             <div className="flex-1 min-h-0 overflow-auto">
-              {ddlLoading && (
+              {columnsLoading && (
                 <div className="flex items-center justify-center h-full gap-2.5 text-muted-foreground">
                   <Loader2 className="size-5 animate-spin text-primary dark:text-cyan-accent" />
-                  <span className="text-sm">Loading schema...</span>
+                  <span className="text-sm">Loading columns...</span>
                 </div>
               )}
 
-              {ddlError && (
+              {columnsError && (
                 <div className="mx-5 mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 flex items-start gap-2">
                   <AlertTriangle className="size-4 text-destructive shrink-0 mt-0.5" />
-                  <p className="text-sm text-destructive">{ddlError}</p>
+                  <p className="text-sm text-destructive">{columnsError}</p>
                 </div>
               )}
 
-              {ddl && (
-                <div className="relative group">
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="absolute top-3 right-3 size-7 opacity-0 group-hover:opacity-100 transition-opacity z-10"
-                        onClick={handleCopyDdl}
-                        aria-label="Copy DDL"
-                      >
-                        {ddlCopied ? (
-                          <Check className="size-3.5 text-green-500" />
-                        ) : (
-                          <Copy className="size-3.5" />
+              {columns && columns.length > 0 && (
+                <div className="divide-y divide-border/40">
+                  {columns.map((col) => {
+                    const domainValues = parseDomainValues(col.domain_values);
+                    return (
+                      <div key={col.id} className="px-5 py-3 hover:bg-accent/30 transition-colors">
+                        <div className="flex items-baseline gap-2.5">
+                          <code className="text-[13px] font-semibold text-foreground">
+                            {col.column_name}
+                          </code>
+                          <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0">
+                            {col.column_type}
+                          </Badge>
+                        </div>
+                        {col.description && (
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {col.description}
+                          </p>
                         )}
-                      </Button>
-                    </TooltipTrigger>
-                    <TooltipContent side="left">
-                      {ddlCopied ? "Copied!" : "Copy DDL"}
-                    </TooltipContent>
-                  </Tooltip>
-                  <pre className="p-5 text-[13px] leading-relaxed font-mono text-foreground/90 whitespace-pre-wrap break-words">
-                    <code>{ddl}</code>
-                  </pre>
+                        {domainValues.length > 0 && (
+                          <div className="mt-1.5 flex flex-wrap gap-1">
+                            {domainValues.map((v) => (
+                              <span
+                                key={v}
+                                className="inline-block px-1.5 py-0.5 text-[10px] rounded bg-primary/8 dark:bg-cyan-accent/10 text-primary/80 dark:text-cyan-accent/80 font-medium"
+                              >
+                                {v}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                        {col.domain_rules && (
+                          <p className="mt-1 text-[11px] text-muted-foreground/70 italic">
+                            {col.domain_rules}
+                          </p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {columns && columns.length === 0 && (
+                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                  No column metadata available.
+                </div>
+              )}
+
+              {!datasetId && !columnsLoading && (
+                <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
+                  No dataset selected.
                 </div>
               )}
             </div>

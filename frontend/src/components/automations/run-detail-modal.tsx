@@ -22,7 +22,7 @@ export function RunDetailModal({ run, open, onOpenChange }: RunDetailModalProps)
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl w-[90vw] max-h-[85vh] overflow-y-auto p-6">
         <DialogHeader>
           <DialogTitle>Run Details</DialogTitle>
           <DialogDescription>
@@ -30,9 +30,9 @@ export function RunDetailModal({ run, open, onOpenChange }: RunDetailModalProps)
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-4 py-2">
+        <div className="space-y-5 py-3">
           {/* Status & Timing */}
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-4">
             <Badge variant={STATUS_VARIANT[run.status] ?? "secondary"}>
               {run.status}
             </Badge>
@@ -63,7 +63,7 @@ export function RunDetailModal({ run, open, onOpenChange }: RunDetailModalProps)
                 {run.triggers_fired.map((tr, i) => (
                   <div
                     key={i}
-                    className="flex items-center gap-2 text-sm rounded-md border border-border p-2"
+                    className="flex items-center gap-2 text-sm rounded-md border border-border p-3"
                   >
                     <Badge variant={tr.fired ? "default" : "secondary"} className="text-xs">
                       {tr.fired ? "Fired" : "Not fired"}
@@ -94,7 +94,7 @@ export function RunDetailModal({ run, open, onOpenChange }: RunDetailModalProps)
                   <thead>
                     <tr className="border-b border-border bg-muted/50">
                       {run.result_json.columns.map((col) => (
-                        <th key={col} className="px-3 py-2 text-left font-medium text-xs">
+                        <th key={col} className="px-4 py-2.5 text-left font-medium text-xs">
                           {col}
                         </th>
                       ))}
@@ -104,7 +104,7 @@ export function RunDetailModal({ run, open, onOpenChange }: RunDetailModalProps)
                     {run.result_json.rows.slice(0, 50).map((row, i) => (
                       <tr key={i} className="border-b border-border/50 last:border-0">
                         {run.result_json!.columns.map((col) => (
-                          <td key={col} className="px-3 py-1.5 text-xs">
+                          <td key={col} className="px-4 py-2 text-xs">
                             {String(row[col] ?? "")}
                           </td>
                         ))}
