@@ -169,14 +169,14 @@ const isMarkdownStep = (type: string) =>
 // ---------------------------------------------------------------------------
 // Reusable pieces
 // ---------------------------------------------------------------------------
-/** Try to parse result_data into columns + rows for DataTable. */
-function parseResultTable(
-  resultData: string | null | undefined,
+/** Try to parse a JSON string into columns + rows for DataTable. */
+function parseJsonToTable(
+  raw: string | null | undefined,
 ): { columns: string[]; rows: Record<string, unknown>[] } | null {
-  if (!resultData) return null;
+  if (!raw) return null;
   try {
-    const parsed = JSON.parse(resultData);
-    // Format: { columns: [...], rows: [...] }
+    const parsed = JSON.parse(raw);
+    // Format: { columns: [...], rows: [...] }  or  { rows: [...], row_count: N }
     if (Array.isArray(parsed.rows) && parsed.rows.length > 0) {
       const columns: string[] =
         Array.isArray(parsed.columns) && parsed.columns.length > 0
@@ -188,10 +188,37 @@ function parseResultTable(
     if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "object") {
       return { columns: Object.keys(parsed[0]), rows: parsed };
     }
+    // Format: nested array field (e.g. { ranked_segments: [...] })
+    if (typeof parsed === "object" && parsed !== null) {
+      const keys = Object.keys(parsed);
+      const arrayField = keys.find(
+        (k) =>
+          Array.isArray(parsed[k]) &&
+          parsed[k].length > 0 &&
+          typeof parsed[k][0] === "object" &&
+          parsed[k][0] !== null,
+      );
+      if (arrayField) {
+        const rows = parsed[arrayField] as Record<string, unknown>[];
+        return { columns: Object.keys(rows[0]), rows };
+      }
+      // Flat key-value object (e.g. descriptive stats)
+      if (keys.length >= 3 && keys.every((k) => !Array.isArray(parsed[k]) && typeof parsed[k] !== "object")) {
+        const rows = keys.map((k) => ({ Metric: k, Value: parsed[k] }));
+        return { columns: ["Metric", "Value"], rows };
+      }
+    }
   } catch {
     /* not JSON */
   }
   return null;
+}
+
+/** Try to parse result_data into columns + rows for DataTable. Falls back to result_preview. */
+function parseResultTable(
+  step: TraceStep,
+): { columns: string[]; rows: Record<string, unknown>[] } | null {
+  return parseJsonToTable(step.result_data) ?? parseJsonToTable(step.result_preview);
 }
 
 function SqlBlock({ sql }: { sql: string }) {
@@ -222,7 +249,7 @@ function SqlBlock({ sql }: { sql: string }) {
 }
 
 function ResultDataBlock({ step }: { step: TraceStep }) {
-  const tableData = useMemo(() => parseResultTable(step.result_data), [step.result_data]);
+  const tableData = useMemo(() => parseResultTable(step), [step]);
 
   if (tableData) {
     return (
@@ -240,12 +267,10 @@ function ResultDataBlock({ step }: { step: TraceStep }) {
     );
   }
 
-  // Fallback: try to extract row count from the raw preview, otherwise show
-  // a compact summary instead of dumping raw JSON.
+  // Fallback: show a compact summary instead of dumping raw JSON.
   if (step.result_preview) {
     let summary = step.result_preview;
     try {
-      // Attempt partial parse to at least show a row count
       const match = step.result_preview.match(/"row_count"\s*:\s*(\d+)/);
       if (match) {
         summary = `Query returned ${match[1]} rows`;

@@ -5,7 +5,6 @@ import csv
 import io
 import json
 import logging
-import re
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -46,12 +45,14 @@ from insightxpert.admin.models import FeatureToggles
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
+from insightxpert.db.connector import FORBIDDEN_SQL_RE
 from insightxpert.db.schema import get_schema_ddl
 from insightxpert.exceptions import (
     DatabaseConnectionError,
     DatabaseError,
     QuerySyntaxError,
     QueryTimeoutError,
+    ServiceUnavailableError,
 )
 from insightxpert.llm.factory import create_llm
 from insightxpert.memory.conversation_store import ConversationStore
@@ -167,7 +168,7 @@ async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
             await asyncio.to_thread(persistent_store.get_or_create_conversation, cid, user.id, title, user.org_id)
         except Exception as e:
             logger.error("Failed to ensure persistent conversation: %s", e, exc_info=True)
-            raise DatabaseError(f"Failed to create conversation: {e}")
+            raise DatabaseError("Failed to create conversation")
     else:
         convo = await asyncio.to_thread(persistent_store.create_conversation, user.id, title, user.org_id)
         persistent_cid = convo["id"]
@@ -602,23 +603,18 @@ async def switch_model(
     try:
         new_llm = create_llm(req.provider, settings)
     except ValueError as e:
+        logger.warning("Model switch failed: %s", e)
         # Roll back settings on failure
         settings.llm_provider = prev_provider
         settings.gemini_model = prev_gemini_model
         settings.ollama_model = prev_ollama_model
         settings.vertex_ai_model = prev_vertex_model
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail="Invalid model configuration")
 
     request.app.state.llm = new_llm
     logger.info("Switched LLM: provider=%s model=%s", req.provider, req.model)
 
     return SwitchModelResponse(provider=req.provider, model=req.model)
-
-
-_FORBIDDEN_SQL = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE|ATTACH|DETACH|PRAGMA\s+\w+\s*=)\b",
-    re.IGNORECASE,
-)
 
 
 @router.post("/sql/execute", response_model=SqlExecuteResponse)
@@ -627,7 +623,7 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
     if not sql_text:
         raise HTTPException(status_code=400, detail="SQL query cannot be empty")
 
-    if _FORBIDDEN_SQL.search(sql_text):
+    if FORBIDDEN_SQL_RE.search(sql_text):
         raise HTTPException(
             status_code=403,
             detail="Only read-only queries (SELECT, WITH, EXPLAIN) are allowed. "
@@ -641,16 +637,19 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
         rows = db.execute(sql_text, row_limit=settings.sql_row_limit, timeout=settings.sql_timeout_seconds, read_only=True)
         ms = (time.time() - start) * 1000
     except ProgrammingError as e:
-        raise QuerySyntaxError(f"SQL syntax error: {e}")
+        logger.warning("SQL syntax error: %s", e)
+        raise QuerySyntaxError()
     except OperationalError as e:
         msg = str(e).lower()
+        logger.warning("SQL operational error: %s", e)
         if "timeout" in msg or "timed out" in msg:
-            raise QueryTimeoutError(f"Query timed out: {e}")
+            raise QueryTimeoutError()
         if "connect" in msg or "connection" in msg:
-            raise DatabaseConnectionError(f"Database connection error: {e}")
-        raise DatabaseError(f"Database operational error: {e}")
+            raise DatabaseConnectionError()
+        raise DatabaseError()
     except Exception as e:
-        raise DatabaseError(f"Database error: {e}")
+        logger.error("Unexpected DB error: %s", e, exc_info=True)
+        raise DatabaseError()
 
     columns = list(rows[0].keys()) if rows else []
     return SqlExecuteResponse(
@@ -774,7 +773,17 @@ def _truncate_chunks(chunks: list[dict]) -> list[dict]:
                     if step.get("type") == "tool_result" and step.get("result_data"):
                         rd = step["result_data"]
                         if isinstance(rd, str) and len(rd) > 2000:
-                            step["result_data"] = rd[:2000] + "…(truncated)"
+                            # Truncate rows inside the JSON to keep it valid
+                            try:
+                                rd_obj = json.loads(rd)
+                                if isinstance(rd_obj.get("rows"), list) and len(rd_obj["rows"]) > 10:
+                                    rd_obj["rows"] = rd_obj["rows"][:10]
+                                    rd_obj["truncated"] = True
+                                    step["result_data"] = json.dumps(rd_obj)
+                                else:
+                                    step["result_data"] = rd[:2000] + "…(truncated)"
+                            except (json.JSONDecodeError, TypeError):
+                                step["result_data"] = rd[:2000] + "…(truncated)"
         elif chunk.get("type") == "agent_trace" and isinstance(chunk.get("data"), dict):
             steps = chunk["data"].get("steps")
             if steps and isinstance(steps, list):
@@ -933,7 +942,8 @@ async def ollama_list_models(
     try:
         response = await client.list()
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Cannot reach Ollama: {e}")
+        logger.warning("Cannot reach Ollama: %s", e)
+        raise ServiceUnavailableError("Cannot reach Ollama")
 
     models = []
     for m in response.models:
@@ -964,7 +974,8 @@ async def ollama_delete_model(
         status = result.get("status", "success") if isinstance(result, dict) else getattr(result, "status", "success")
         return {"status": status, "model": model_name}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to delete model '{model_name}': {e}")
+        logger.warning("Failed to delete Ollama model '%s': %s", model_name, e)
+        raise HTTPException(status_code=400, detail=f"Failed to delete model '{model_name}'")
 
 
 # --- Dataset Stats -------------------------------------------------------

@@ -4,7 +4,7 @@ import asyncio
 import json
 import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Path, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -13,6 +13,14 @@ from insightxpert.admin.config_store import (
     read_config,
     set_org_config,
     write_config,
+)
+from insightxpert.admin.dependencies import (
+    AdminContext,
+    assert_conversation_in_scope,
+    assert_org_in_scope,
+    assert_user_in_scope,
+    get_admin_context,
+    require_super_admin,
 )
 from insightxpert.admin.models import (
     ClientConfig,
@@ -23,7 +31,7 @@ from insightxpert.admin.models import (
     ResolvedClientConfig,
 )
 from insightxpert.auth.conversation_store import PersistentConversationStore
-from insightxpert.auth.dependencies import get_current_user, require_admin
+from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import Organization, PromptTemplate, User
 from insightxpert.auth.permissions import is_admin_user
 from insightxpert.auth.models import User as UserModel
@@ -40,94 +48,12 @@ class PromptUpdateBody(BaseModel):
     is_active: bool = True
 
 
-class _AdminContext:
-    """Bundles admin-verified config + user so endpoints don't re-resolve the user."""
-    __slots__ = ("config", "user", "scoped_user_ids", "scoped_org_id")
-
-    def __init__(
-        self,
-        config: ClientConfig,
-        user: User,
-        scoped_user_ids: set[str] | None,
-        scoped_org_id: str | None,
-    ) -> None:
-        self.config = config
-        self.user = user
-        # None → super admin (sees everything); set → org-scoped admin
-        self.scoped_user_ids = scoped_user_ids
-        # The org_id this admin is scoped to (None for super admins)
-        self.scoped_org_id = scoped_org_id
-
-
-def _resolve_admin_scope(user: User, engine) -> tuple[set[str] | None, str | None]:
-    """Determine the set of user IDs an org-scoped admin may access.
-
-    Uses ``users.org_id`` FK directly — no need to scan email-based mappings.
-    Returns (None, None) for super admins (unrestricted) or (user_ids, org_id)
-    for org-scoped admins.
-    """
-    with Session(engine) as session:
-        db_user = session.get(UserModel, user.id)
-        if db_user is None or db_user.org_id is None:
-            return None, None  # super admin — unrestricted
-        admin_org_id = db_user.org_id
-        rows = session.query(UserModel.id).filter(UserModel.org_id == admin_org_id).all()
-        return {r.id for r in rows}, admin_org_id
-
-
-def _assert_user_in_scope(ctx: _AdminContext, user_id: str) -> None:
-    """Raise 403 if *user_id* is outside the org admin's scope."""
-    if ctx.scoped_user_ids is not None and user_id not in ctx.scoped_user_ids:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User not in your organization",
-        )
-
-
-def _assert_conversation_in_scope(ctx: _AdminContext, convo: dict) -> None:
-    """Raise 403 if the conversation's org doesn't match the admin's org."""
-    if ctx.scoped_org_id is not None and convo.get("org_id") != ctx.scoped_org_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Conversation not in your organization",
-        )
-
-
-def _require_super_admin(ctx: _AdminContext) -> None:
-    """Raise 403 if the admin is org-scoped (not a super admin)."""
-    if ctx.scoped_org_id is not None:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="This operation requires super-admin access",
-        )
-
-
-def _assert_org_in_scope(ctx: _AdminContext, org_id: str) -> None:
-    """Raise 403 if *org_id* is outside the org admin's scope."""
-    if ctx.scoped_org_id is not None and org_id != ctx.scoped_org_id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Organization not in your scope",
-        )
-
-
-def _get_admin_context(
-    request: Request,
-    user: User = Depends(get_current_user),
-) -> _AdminContext:
-    engine = request.app.state.auth_engine
-    config = read_config(engine)
-    require_admin(user, config.admin_domains)
-    scoped_ids, scoped_org_id = _resolve_admin_scope(user, engine)
-    return _AdminContext(config, user, scoped_ids, scoped_org_id)
-
-
 # --- Admin endpoints (admin only) -------------------------------------------
 
 
 @router.get("/api/admin/config")
 async def get_full_config(
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     if ctx.scoped_org_id is None:
         return ctx.config
@@ -145,9 +71,9 @@ async def get_full_config(
 async def update_global_config(
     body: GlobalSettingsUpdate,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     config = ctx.config
     if body.admin_domains is not None:
         config.admin_domains = body.admin_domains
@@ -163,7 +89,7 @@ async def update_global_config(
 
 @router.get("/api/admin/organizations")
 async def list_organizations(
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     orgs = ctx.config.organizations.values()
     if ctx.scoped_org_id is not None:
@@ -184,9 +110,9 @@ class CreateOrgRequest(BaseModel):
 async def create_org(
     body: CreateOrgRequest,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     import uuid as _uuid
 
     engine = request.app.state.auth_engine
@@ -204,9 +130,9 @@ async def create_org(
 @router.get("/api/admin/config/{org_id}")
 async def get_org(
     org_id: str,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
-    _assert_org_in_scope(ctx, org_id)
+    assert_org_in_scope(ctx, org_id)
     org = ctx.config.organizations.get(org_id)
     if org is None:
         raise HTTPException(status_code=404, detail="Organization not found")
@@ -218,9 +144,9 @@ async def upsert_org(
     org_id: str,
     body: OrgConfig,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
-    _assert_org_in_scope(ctx, org_id)
+    assert_org_in_scope(ctx, org_id)
     body.org_id = org_id
     engine = request.app.state.auth_engine
     updated = await asyncio.to_thread(set_org_config, engine, org_id, body)
@@ -231,9 +157,9 @@ async def upsert_org(
 async def delete_org(
     org_id: str,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     if org_id not in ctx.config.organizations:
         raise HTTPException(status_code=404, detail="Organization not found")
 
@@ -248,10 +174,10 @@ async def delete_org(
 @router.delete("/api/admin/rag/qa-pairs")
 async def flush_qa_pairs(
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Delete all QA pairs from ChromaDB, keeping DDL, docs, and findings."""
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     rag = request.app.state.rag
     count = rag.flush_qa_pairs()
     logger.info("Admin %s flushed %d QA pairs", ctx.user.email, count)
@@ -265,10 +191,10 @@ async def flush_qa_pairs(
 async def list_user_conversations(
     user_id: str,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """List all conversations for a specific user (admin view, org-scoped)."""
-    _assert_user_in_scope(ctx, user_id)
+    assert_user_in_scope(ctx, user_id)
     store: PersistentConversationStore = request.app.state.persistent_conv_store
     convos = await asyncio.to_thread(store.get_conversations, user_id)
     # Org-scoped admins only see conversations belonging to their org
@@ -281,14 +207,14 @@ async def list_user_conversations(
 async def get_admin_conversation(
     conversation_id: str,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Get full conversation detail with messages (admin view, org-scoped)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
     convo = await asyncio.to_thread(store.get_conversation_admin, conversation_id)
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    _assert_conversation_in_scope(ctx, convo)
+    assert_conversation_in_scope(ctx, convo)
 
     messages = [
         {
@@ -319,7 +245,7 @@ async def get_admin_conversation(
 async def delete_admin_conversation(
     conversation_id: str,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Delete a single conversation (admin, org-scoped)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
@@ -327,7 +253,7 @@ async def delete_admin_conversation(
         convo = await asyncio.to_thread(store.get_conversation_admin, conversation_id)
         if convo is None:
             raise HTTPException(status_code=404, detail="Conversation not found")
-        _assert_conversation_in_scope(ctx, convo)
+        assert_conversation_in_scope(ctx, convo)
     deleted = await asyncio.to_thread(store.delete_conversation_admin, conversation_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -338,7 +264,7 @@ async def delete_admin_conversation(
 @router.get("/api/admin/users")
 async def list_users_with_stats(
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """List all users with conversation and message counts."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
@@ -353,10 +279,10 @@ async def list_users_with_stats(
 async def delete_user_conversations(
     user_id: str,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Delete all conversations for a specific user (org-scoped)."""
-    _assert_user_in_scope(ctx, user_id)
+    assert_user_in_scope(ctx, user_id)
     store: PersistentConversationStore = request.app.state.persistent_conv_store
     if ctx.scoped_org_id is not None:
         count = await asyncio.to_thread(
@@ -371,7 +297,7 @@ async def delete_user_conversations(
 @router.delete("/api/admin/conversations")
 async def delete_all_conversations(
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Delete ALL conversations (super admin) or org conversations (org admin)."""
     store: PersistentConversationStore = request.app.state.persistent_conv_store
@@ -407,10 +333,10 @@ def _prompt_to_dict(p: PromptTemplate) -> dict:
 @router.get("/api/admin/prompts")
 async def list_prompts(
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """List all prompt templates."""
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     def _query():
         engine = request.app.state.auth_engine
         with Session(engine) as session:
@@ -427,10 +353,10 @@ async def get_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Get a specific prompt template by name."""
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     def _query():
         engine = request.app.state.auth_engine
         with Session(engine) as session:
@@ -447,10 +373,10 @@ async def upsert_prompt(
     *,
     body: PromptUpdateBody,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Create or update a prompt template."""
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     def _query():
         engine = request.app.state.auth_engine
         with Session(engine) as session:
@@ -483,10 +409,10 @@ async def delete_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Delete a prompt template (reverts to file fallback)."""
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     def _query():
         engine = request.app.state.auth_engine
         with Session(engine) as session:
@@ -505,10 +431,10 @@ async def reset_prompt(
     name: str = _PROMPT_NAME,
     *,
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     """Reset a prompt template to its file-based default."""
-    _require_super_admin(ctx)
+    require_super_admin(ctx)
     template_file = f"{name}.j2"
     try:
         file_content = get_file_content(template_file)
@@ -543,28 +469,21 @@ async def reset_prompt(
 # --- Public endpoint (any authenticated user) --------------------------------
 
 
-@router.get("/api/client-config")
-async def resolve_client_config(
-    request: Request,
-    user: User = Depends(get_current_user),
-):
-    engine = request.app.state.auth_engine
-    config = await asyncio.to_thread(read_config, engine)
-    admin = is_admin_user(user, config.admin_domains)
-
-    if admin:
+def _resolve_config_sync(
+    engine, user_id: str, is_admin: bool, config: ClientConfig,
+) -> ResolvedClientConfig:
+    """Synchronous helper — resolves client config from the DB."""
+    if is_admin:
         with Session(engine) as session:
-            db_user = session.get(UserModel, user.id)
+            db_user = session.get(UserModel, user_id)
             admin_org_id = db_user.org_id if db_user else None
 
-            # Resolve branding for display even for admins
             branding = config.defaults.branding
             if admin_org_id:
                 org = session.get(Organization, admin_org_id)
                 if org:
                     branding = OrgBranding.model_validate(json.loads(org.branding_json))
 
-            # Return config with all features enabled + resolved branding
             all_features = FeatureToggles(
                 sql_executor=True,
                 model_switching=True,
@@ -584,9 +503,8 @@ async def resolve_client_config(
             )
         return ResolvedClientConfig(config=admin_config, is_admin=True, org_id=admin_org_id)
 
-    # Non-admin: look up org directly from users.org_id FK
     with Session(engine) as session:
-        db_user = session.get(UserModel, user.id)
+        db_user = session.get(UserModel, user_id)
         if db_user and db_user.org_id:
             org = session.get(Organization, db_user.org_id)
             if org:
@@ -598,7 +516,6 @@ async def resolve_client_config(
                 )
                 return ResolvedClientConfig(config=org_config, is_admin=False, org_id=org.id)
 
-    # Default config for users without an org mapping
     default_org = OrgConfig(
         org_id="default",
         org_name="Default",
@@ -606,3 +523,14 @@ async def resolve_client_config(
         branding=config.defaults.branding,
     )
     return ResolvedClientConfig(config=default_org, is_admin=False, org_id=None)
+
+
+@router.get("/api/client-config")
+async def resolve_client_config(
+    request: Request,
+    user: User = Depends(get_current_user),
+):
+    engine = request.app.state.auth_engine
+    config = await asyncio.to_thread(read_config, engine)
+    admin = is_admin_user(user, config.admin_domains)
+    return await asyncio.to_thread(_resolve_config_sync, engine, user.id, admin, config)

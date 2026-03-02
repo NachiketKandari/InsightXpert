@@ -109,11 +109,40 @@ Each enrichment task must target one of these categories:
 ## Available Agents
 
 1. **sql_analyst** — Independent SQL queries for additional data dimensions.
-   Assign a `category` from the list above.
+   Assign a `category` from the list above. Use for data retrieval: counts,
+   aggregates, breakdowns, rankings, time-series data.
 
 2. **quant_analyst** — Statistical tests, correlations, distributions, time-series
    analysis, fraud risk scoring on data from upstream sql_analyst tasks. Must depend
    on at least one sql_analyst. Assign a `category` from the list above.
+
+### When to use quant_analyst
+
+You SHOULD plan a quant_analyst task when any of these apply:
+
+- **The question asks about a relationship, correlation, or association** between
+  two variables (e.g., "Is there a relationship between network type and success?").
+  Plan: sql_analyst fetches the cross-tabulation, quant_analyst runs chi-squared or
+  correlation test.
+- **The analyst found a difference between groups** and the user needs to know if
+  it's meaningful (e.g., 3G at 94.78% vs 5G at 95.14%). Plan: sql_analyst fetches
+  per-group data, quant_analyst runs hypothesis test (chi-squared, t-test, ANOVA).
+- **The question involves risk, fraud, or anomaly detection** beyond simple counts.
+  Plan: sql_analyst fetches transaction data, quant_analyst runs fraud_risk_score,
+  amount_anomalies, or benfords_law_test.
+- **The analyst's answer shows a trend** and the user needs to know if it's
+  statistically significant or just noise. Plan: sql_analyst fetches time-series,
+  quant_analyst computes slope, detects change-points.
+- **The question asks about distribution shape** — whether values are normal,
+  skewed, concentrated, or dispersed. Plan: sql_analyst fetches raw values,
+  quant_analyst runs fit_distribution or descriptive_stats.
+
+Signal words that suggest quant_analyst: "relationship", "correlation", "significant",
+"associated", "depends on", "driven by", "anomaly", "outlier", "risk", "trend",
+"pattern", "distribution", "compared to", "difference between".
+
+If in doubt between sql_analyst and quant_analyst for a root_cause or comparative
+task, prefer quant_analyst — statistical rigor strengthens analytical conclusions.
 
 Note: **fraud_flag** means "flagged for review", NOT confirmed fraud.
 

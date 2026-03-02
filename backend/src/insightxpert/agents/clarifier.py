@@ -11,6 +11,7 @@ import json
 import logging
 from dataclasses import dataclass
 
+from insightxpert.agents.common import strip_json_fences
 from insightxpert.llm.base import LLMProvider
 
 logger = logging.getLogger("insightxpert.clarifier")
@@ -70,12 +71,7 @@ async def clarification_check(
         response = await llm.chat(messages, tools=None)
         raw = (response.content or "").strip()
 
-        # Strip markdown code fences if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[-1]
-            raw = raw.strip()
-            if raw.endswith("```"):
-                raw = raw[:-3].strip()
+        raw = strip_json_fences(raw)
 
         result = json.loads(raw)
         action = result.get("action", "execute")

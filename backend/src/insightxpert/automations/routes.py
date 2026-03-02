@@ -3,12 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import re
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from insightxpert.admin.config_store import read_config
-from insightxpert.auth.dependencies import get_current_user, require_admin
+from insightxpert.admin.dependencies import assert_resource_in_scope, require_admin_user
+from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
 from insightxpert.auth.permissions import is_admin_user
 from insightxpert.automations.models import (
@@ -21,17 +20,12 @@ from insightxpert.automations.models import (
     SCHEDULE_PRESETS,
 )
 from insightxpert.automations.service import AutomationService
+from insightxpert.db.connector import FORBIDDEN_SQL_RE
 
 logger = logging.getLogger("insightxpert.automations")
 
 router = APIRouter(prefix="/api/automations", tags=["automations"])
 notifications_router = APIRouter(prefix="/api/notifications", tags=["notifications"])
-
-# Forbidden SQL keywords for automation queries
-_FORBIDDEN_SQL = re.compile(
-    r"\b(DROP|DELETE|INSERT|UPDATE|ALTER|CREATE|TRUNCATE|REPLACE)\b",
-    re.IGNORECASE,
-)
 
 
 def _get_automation_service(request: Request) -> AutomationService:
@@ -46,19 +40,6 @@ def _get_scheduler(request: Request):
     if scheduler is None:
         raise HTTPException(status_code=503, detail="Automation scheduler not available")
     return scheduler
-
-
-def _get_admin_domains(request: Request) -> list[str]:
-    """Read admin_domains from the persisted config."""
-    engine = request.app.state.auth_engine
-    config = read_config(engine)
-    return config.admin_domains
-
-
-def _assert_resource_in_scope(resource: dict, user: User, label: str = "Resource") -> None:
-    """Raise 403 if an org-scoped admin tries to access a resource outside their org."""
-    if user.org_id is not None and resource.get("org_id") != user.org_id:
-        raise HTTPException(status_code=403, detail=f"{label} not in your organization")
 
 
 def _resolve_cron(body) -> str:
@@ -82,7 +63,7 @@ def _resolve_cron(body) -> str:
 
 def _validate_single_sql(sql: str) -> None:
     """Validate a single SQL statement is safe and syntactically correct."""
-    if _FORBIDDEN_SQL.search(sql):
+    if FORBIDDEN_SQL_RE.search(sql):
         raise HTTPException(status_code=400, detail="SQL contains forbidden statements (only SELECT queries allowed)")
 
     stripped = sql.strip().rstrip(";")
@@ -116,10 +97,9 @@ def _validate_sql_queries(queries: list[str]) -> None:
 async def generate_sql(
     body: GenerateSQLRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
     """Generate a SQL query from a natural-language prompt using the analyst agent."""
-    require_admin(user, _get_admin_domains(request))
 
     from insightxpert.agents.analyst import analyst_loop
 
@@ -158,10 +138,9 @@ async def generate_sql(
 async def compile_trigger(
     body: CompileTriggerRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
     """Compile a natural-language trigger description into a structured condition."""
-    require_admin(user, _get_admin_domains(request))
 
     from insightxpert.automations.nl_trigger import compile_nl_trigger
 
@@ -174,7 +153,8 @@ async def compile_trigger(
         )
         return result
     except ValueError as e:
-        raise HTTPException(status_code=422, detail=str(e))
+        logger.warning("Invalid automation configuration: %s", e)
+        raise HTTPException(status_code=422, detail="Invalid automation configuration")
 
 
 # ---------------------------------------------------------------------------
@@ -186,9 +166,8 @@ async def compile_trigger(
 async def create_automation(
     body: CreateAutomationRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
@@ -232,9 +211,8 @@ async def create_automation(
 @router.get("")
 async def list_automations(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     if user.org_id is not None:
         # Org-scoped admin: see all automations in their org
@@ -247,14 +225,13 @@ async def list_automations(
 async def get_automation(
     automation_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     auto = await asyncio.to_thread(svc.get_automation, automation_id)
     if not auto:
         raise HTTPException(status_code=404, detail="Automation not found")
-    _assert_resource_in_scope(auto, user, "Automation")
+    assert_resource_in_scope(auto, user, "Automation")
 
     # Include recent runs
     runs = await asyncio.to_thread(svc.get_runs, automation_id, 10)
@@ -267,9 +244,8 @@ async def update_automation(
     automation_id: str,
     body: UpdateAutomationRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
@@ -277,7 +253,7 @@ async def update_automation(
     existing = await asyncio.to_thread(svc.get_automation, automation_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Automation not found")
-    _assert_resource_in_scope(existing, user, "Automation")
+    assert_resource_in_scope(existing, user, "Automation")
 
     fields = {}
     if body.name is not None:
@@ -317,16 +293,15 @@ async def update_automation(
 async def delete_automation(
     automation_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
     existing = await asyncio.to_thread(svc.get_automation, automation_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Automation not found")
-    _assert_resource_in_scope(existing, user, "Automation")
+    assert_resource_in_scope(existing, user, "Automation")
 
     await asyncio.to_thread(svc.delete_automation, automation_id)
     scheduler.remove_job(automation_id)
@@ -337,16 +312,15 @@ async def delete_automation(
 async def toggle_automation(
     automation_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
     existing = await asyncio.to_thread(svc.get_automation, automation_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Automation not found")
-    _assert_resource_in_scope(existing, user, "Automation")
+    assert_resource_in_scope(existing, user, "Automation")
 
     result = await asyncio.to_thread(svc.toggle_automation, automation_id)
     assert result is not None  # existence verified above
@@ -365,16 +339,15 @@ async def toggle_automation(
 async def manual_run(
     automation_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     scheduler = _get_scheduler(request)
 
     auto = await asyncio.to_thread(svc.get_automation, automation_id)
     if not auto:
         raise HTTPException(status_code=404, detail="Automation not found")
-    _assert_resource_in_scope(auto, user, "Automation")
+    assert_resource_in_scope(auto, user, "Automation")
 
     await scheduler.run_now(automation_id)
 
@@ -393,16 +366,15 @@ async def manual_run(
 async def list_runs(
     automation_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
     limit: int = Query(default=20, ge=1, le=100),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     # Verify the automation is in scope before returning its runs
     auto = await asyncio.to_thread(svc.get_automation, automation_id)
     if not auto:
         raise HTTPException(status_code=404, detail="Automation not found")
-    _assert_resource_in_scope(auto, user, "Automation")
+    assert_resource_in_scope(auto, user, "Automation")
     return await asyncio.to_thread(svc.get_runs, automation_id, limit)
 
 
@@ -411,14 +383,13 @@ async def get_run(
     automation_id: str,
     run_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     auto = await asyncio.to_thread(svc.get_automation, automation_id)
     if not auto:
         raise HTTPException(status_code=404, detail="Automation not found")
-    _assert_resource_in_scope(auto, user, "Automation")
+    assert_resource_in_scope(auto, user, "Automation")
     run = await asyncio.to_thread(svc.get_run, run_id)
     if not run or run["automation_id"] != automation_id:
         raise HTTPException(status_code=404, detail="Run not found")
@@ -432,6 +403,7 @@ async def get_run(
 
 async def _is_admin_user(user: User, request: Request) -> bool:
     """Check admin status using shared permission logic."""
+    from insightxpert.admin.dependencies import _get_admin_domains
     try:
         admin_domains = await asyncio.to_thread(_get_admin_domains, request)
         return is_admin_user(user, admin_domains)
@@ -519,9 +491,8 @@ templates_router = APIRouter(prefix="/api/trigger-templates", tags=["trigger-tem
 @templates_router.get("")
 async def list_templates(
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     if user.org_id is not None:
         return await asyncio.to_thread(svc.list_templates, org_id=user.org_id, org_scoped=True)
@@ -532,9 +503,8 @@ async def list_templates(
 async def create_template(
     body: CreateTriggerTemplateRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     conditions = [c.model_dump() for c in body.conditions]
     return await asyncio.to_thread(
@@ -548,14 +518,13 @@ async def update_template(
     template_id: str,
     body: UpdateTriggerTemplateRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     existing = await asyncio.to_thread(svc.get_template, template_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Template not found")
-    _assert_resource_in_scope(existing, user, "Template")
+    assert_resource_in_scope(existing, user, "Template")
     fields: dict = {}
     if body.name is not None:
         fields["name"] = body.name
@@ -573,14 +542,13 @@ async def update_template(
 async def delete_template(
     template_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
-    require_admin(user, _get_admin_domains(request))
     svc = _get_automation_service(request)
     existing = await asyncio.to_thread(svc.get_template, template_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Template not found")
-    _assert_resource_in_scope(existing, user, "Template")
+    assert_resource_in_scope(existing, user, "Template")
     deleted = await asyncio.to_thread(svc.delete_template, template_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Template not found")

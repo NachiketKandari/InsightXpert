@@ -37,6 +37,8 @@ from insightxpert.agents.common import (
     AnalystCollector,
     build_dag_callbacks,
     build_evidence_blocks,
+    make_plan_chunk,
+    strip_json_fences,
     yield_enrichment_traces,
 )
 from insightxpert.agents.dag_executor import (
@@ -56,7 +58,7 @@ from insightxpert.rag.store import VectorStore
 
 logger = logging.getLogger("insightxpert.deep_think")
 
-_DIMENSION_TIMEOUT = 15
+_DIMENSION_TIMEOUT = 30
 _SYNTHESIS_TIMEOUT = 60
 
 _DIMENSION_LABELS = {
@@ -104,12 +106,7 @@ async def _extract_dimensions(
         raw = (response.content or "").strip()
         ms = int((time.time() - t0) * 1000)
 
-        # Strip markdown fencing if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
+        raw = strip_json_fences(raw)
 
         parsed = json.loads(raw)
         logger.info(
@@ -141,65 +138,32 @@ def _build_dimensions_context(dimensions: dict) -> str:
     return "\n".join(lines)
 
 
-_VALID_AGENTS = {"sql_analyst", "quant_analyst"}
-
-
 def _build_enrichment_plan(dimensions: dict) -> OrchestratorPlan | None:
-    """Convert suggested_enrichments from dimension extraction into an OrchestratorPlan."""
+    """Convert suggested_enrichments from dimension extraction into an OrchestratorPlan.
+
+    Delegates validation to ``_validate_plan`` from orchestrator_planner,
+    adding default categories for deep-think enrichments.
+    """
+    from insightxpert.agents.orchestrator_planner import _validate_plan
+
     enrichments = dimensions.get("suggested_enrichments", [])
     if not enrichments:
         return None
 
-    tasks: list[SubTask] = []
-    seen_ids: set[str] = set()
-
+    # Apply default category for deep_think enrichments
     for item in enrichments[:3]:
-        task_id = str(item.get("id", "")).upper()
-        task_desc = str(item.get("task", ""))
-        category = str(item.get("category", "")).lower()
-        agent = str(item.get("agent", "sql_analyst"))
-        depends_on = item.get("depends_on", [])
+        if not item.get("category") or item.get("category", "").lower() not in CATEGORY_LABELS:
+            item["category"] = "comparative_context"
 
-        if not task_id or not task_desc:
-            continue
+    parsed = {
+        "reasoning": f"5W1H dimensional analysis: {dimensions.get('why_intent', '')}",
+        "tasks": enrichments[:3],
+    }
 
-        if agent not in _VALID_AGENTS:
-            agent = "sql_analyst"
-
-        if category not in CATEGORY_LABELS:
-            category = "comparative_context"
-
-        if isinstance(depends_on, str):
-            depends_on = [depends_on]
-        depends_on = [str(d).upper() for d in depends_on if d]
-
-        seen_ids.add(task_id)
-        tasks.append(SubTask(
-            id=task_id,
-            agent=agent,
-            task=task_desc,
-            depends_on=depends_on,
-            category=category,
-        ))
-
-    if not tasks:
+    try:
+        return _validate_plan(parsed, max_tasks=3)
+    except ValueError:
         return None
-
-    # Strip references to task IDs not in this plan
-    for t in tasks:
-        t.depends_on = [d for d in t.depends_on if d in seen_ids]
-
-    # Quant analyst with no valid upstream dependencies can't operate — demote
-    for t in tasks:
-        if t.agent == "quant_analyst" and not t.depends_on:
-            logger.warning("quant_analyst task %s has no dependencies; demoting to sql_analyst", t.id)
-            t.agent = "sql_analyst"
-
-    why_intent = dimensions.get("why_intent", "")
-    return OrchestratorPlan(
-        reasoning=f"5W1H dimensional analysis: {why_intent}",
-        tasks=tasks,
-    )
 
 
 # ── Phase 4: Synthesis ───────────────────────────────────────────────────
@@ -314,7 +278,10 @@ async def deep_think_loop(
     effective_ddl = ddl or ""
     effective_docs = documentation or ""
 
-    # ── Phase 1: Dimension Extraction ─────────────────────────────────
+    # ── Phase 1 + 2: Dimension Extraction (background) + Analyst (streaming) ──
+    # Dimension extraction and the analyst are independent — run them in
+    # parallel so the user sees analyst chunks immediately while dimensions
+    # are extracted in the background.
     yield ChatChunk(
         type="status",
         content="Analyzing question dimensions (WHO/WHAT/WHEN/WHERE/HOW)...",
@@ -323,13 +290,40 @@ async def deep_think_loop(
         timestamp=time.time(),
     )
 
-    dimensions = await _extract_dimensions(
+    # Fire dimension extraction as a background task
+    dim_task = asyncio.create_task(
+        _extract_dimensions(
+            question=question,
+            llm=llm,
+            ddl=effective_ddl,
+            documentation=effective_docs,
+            history=history,
+        )
+    )
+
+    # Stream analyst chunks to the user while dimensions extract in parallel
+    collector = AnalystCollector()
+
+    async for chunk in analyst_loop(
         question=question,
         llm=llm,
-        ddl=effective_ddl,
-        documentation=effective_docs,
+        db=db,
+        rag=rag,
+        config=config,
+        conversation_id=conversation_id,
         history=history,
-    )
+        ddl_override=ddl,
+        documentation_override=documentation,
+        stats_context=stats_context,
+        stats_groups=stats_groups,
+        clarification_enabled=clarification_enabled,
+        rag_retrieval=rag_retrieval,
+    ):
+        yield chunk
+        collector.process_chunk(chunk)
+
+    # Analyst done — now await dimension extraction result
+    dimensions = await dim_task
 
     enrichment_plan: OrchestratorPlan | None = None
     if dimensions:
@@ -362,27 +356,6 @@ async def deep_think_loop(
             timestamp=time.time(),
         )
 
-    # ── Phase 2: Analyst (unchanged) ──────────────────────────────────
-    collector = AnalystCollector()
-
-    async for chunk in analyst_loop(
-        question=question,
-        llm=llm,
-        db=db,
-        rag=rag,
-        config=config,
-        conversation_id=conversation_id,
-        history=history,
-        ddl_override=ddl,
-        documentation_override=documentation,
-        stats_context=stats_context,
-        stats_groups=stats_groups,
-        clarification_enabled=clarification_enabled,
-        rag_retrieval=rag_retrieval,
-    ):
-        yield chunk
-        collector.process_chunk(chunk)
-
     # If analyst failed or no enrichment plan, stop here
     if collector.had_error or not collector.answer:
         logger.info("Deep think: analyst error=%s, answer_empty=%s — stopping",
@@ -403,24 +376,10 @@ async def deep_think_loop(
     # ── Phase 3: Targeted Enrichment ──────────────────────────────────
     original = collector.to_original_result()
 
-    yield ChatChunk(
-        type="orchestrator_plan",
-        data={
-            "reasoning": enrichment_plan.reasoning,
-            "tasks": [
-                {
-                    "id": t.id,
-                    "agent": t.agent,
-                    "task": t.task,
-                    "depends_on": t.depends_on,
-                    "category": t.category,
-                }
-                for t in enrichment_plan.tasks
-            ],
-        },
-        content=f"Deep analysis: enriching {len(enrichment_plan.tasks)} dimension{'s' if len(enrichment_plan.tasks) != 1 else ''}",
-        conversation_id=cid,
-        timestamp=time.time(),
+    yield make_plan_chunk(
+        enrichment_plan,
+        f"Deep analysis: enriching {len(enrichment_plan.tasks)} dimension{'s' if len(enrichment_plan.tasks) != 1 else ''}",
+        cid,
     )
 
     yield ChatChunk(
@@ -560,24 +519,10 @@ async def deep_think_loop(
                 len(investigation.tasks),
             )
 
-            yield ChatChunk(
-                type="orchestrator_plan",
-                data={
-                    "reasoning": investigation.reasoning,
-                    "tasks": [
-                        {
-                            "id": t.id,
-                            "agent": t.agent,
-                            "task": t.task,
-                            "depends_on": t.depends_on,
-                            "category": t.category,
-                        }
-                        for t in investigation.tasks
-                    ],
-                },
-                content=f"Investigating {len(investigation.tasks)} follow-up question{'s' if len(investigation.tasks) != 1 else ''}",
-                conversation_id=cid,
-                timestamp=time.time(),
+            yield make_plan_chunk(
+                investigation,
+                f"Investigating {len(investigation.tasks)} follow-up question{'s' if len(investigation.tasks) != 1 else ''}",
+                cid,
             )
 
             yield ChatChunk(

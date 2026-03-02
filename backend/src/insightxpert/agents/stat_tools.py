@@ -19,8 +19,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
-from insightxpert.agents.tools import RunSqlTool
+from insightxpert.agents.tool_base import Tool, ToolContext
 
 # Whitelist of module roots that run_python code is allowed to import.
 _ALLOWED_IMPORT_ROOTS = frozenset({
@@ -591,18 +590,3 @@ class FitDistributionTool(Tool):
             "fits": fits,
         })
 
-
-# ---------------------------------------------------------------------------
-# Factory
-# ---------------------------------------------------------------------------
-
-def statistician_registry(timeout: int = 10) -> ToolRegistry:
-    """Create a ToolRegistry with all statistician tools."""
-    registry = ToolRegistry()
-    registry.register(RunPythonTool(timeout=timeout))
-    registry.register(ComputeDescriptiveStatsTool())
-    registry.register(TestHypothesisTool())
-    registry.register(ComputeCorrelationTool())
-    registry.register(FitDistributionTool())
-    registry.register(RunSqlTool())
-    return registry

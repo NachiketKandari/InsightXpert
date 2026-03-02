@@ -20,10 +20,11 @@ export function parseToolResult(chunk: ChatChunk): ToolResultData | null {
   if (chunk.type !== "tool_result" || !chunk.data) return null;
 
   const result = chunk.data.result;
-  if (typeof result !== "string") return null;
+  // Handle both string (normal) and pre-parsed object (edge case) formats
+  if (!result) return null;
 
   try {
-    const parsed = JSON.parse(result);
+    const parsed = typeof result === "string" ? JSON.parse(result) : result;
 
     if (Array.isArray(parsed) && parsed.length > 0) {
       const columns = Object.keys(parsed[0]);

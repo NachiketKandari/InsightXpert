@@ -49,10 +49,31 @@ Two agent types are available:
    data retrieval tasks (counts, aggregates, breakdowns, trends).
 
 2. **quant_analyst** — Applies statistical tools (hypothesis tests, correlations,
-   distribution fitting, descriptive stats) to data already retrieved by an
-   upstream sql_analyst task. Use when you want to validate a pattern statistically
-   (e.g. "is this difference significant?") or quantify a relationship.
+   distribution fitting, descriptive stats, fraud risk scoring, anomaly detection)
+   to data already retrieved by an upstream sql_analyst task.
    **A quant_analyst task MUST depend on at least one sql_analyst task in the plan.**
+
+### When to use quant_analyst
+
+Include a quant_analyst task in your enrichment plan when:
+
+- The WHY dimension requires **testing whether observed differences are real** —
+  e.g., "Is the failure rate difference between 3G and 5G significant?" Plan:
+  sql_analyst fetches per-group data → quant_analyst runs chi-squared or t-test.
+- The question is about a **relationship or correlation** between two variables —
+  e.g., "Does network type affect success?" Plan: sql_analyst fetches cross-tab →
+  quant_analyst runs chi-squared or correlation test.
+- The HOW or WHAT dimension involves **fraud, risk, or anomalies** — Plan:
+  sql_analyst fetches transaction data → quant_analyst runs fraud_risk_score,
+  amount_anomalies, or benfords_law_test.
+- The WHEN dimension needs **trend validation** — Plan: sql_analyst fetches
+  time-series → quant_analyst computes slope, change-points, or peak detection.
+
+Signal words: "relationship", "correlation", "significant", "associated",
+"driven by", "anomaly", "outlier", "risk", "trend", "pattern", "distribution".
+
+For most analytical questions with a WHY intent, at least one quant_analyst task
+adds statistical rigor that pure SQL aggregation cannot provide.
 
 ## Response Format
 

@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
 logger = logging.getLogger("insightxpert.db")
+
+FORBIDDEN_SQL_RE = re.compile(
+    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE|ATTACH|DETACH|PRAGMA\s+\w+\s*=)\b",
+    re.IGNORECASE,
+)
 
 
 def _enable_sqlite_pragmas(dbapi_conn, connection_record):

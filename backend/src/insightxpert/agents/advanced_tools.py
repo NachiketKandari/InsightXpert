@@ -17,18 +17,10 @@ import numpy as np
 import pandas as pd
 from scipy import signal, stats
 
-from insightxpert.agents.stat_tools import RunPythonTool
-from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
-from insightxpert.agents.tools import RunSqlTool
+from insightxpert.agents.stat_tools import _get_analyst_df
+from insightxpert.agents.tool_base import Tool, ToolContext
 
 logger = logging.getLogger("insightxpert.advanced_tools")
-
-
-def _df(context: ToolContext) -> pd.DataFrame:
-    """Convert analyst_results to DataFrame; returns empty DF if none."""
-    if not context.analyst_results:
-        return pd.DataFrame()
-    return pd.DataFrame(context.analyst_results)
 
 
 def _require_columns(df: pd.DataFrame, *cols: str) -> str | None:
@@ -92,7 +84,7 @@ class DataFrameTool(Tool, ABC):
         return cols
 
     async def execute(self, context: ToolContext, args: dict) -> str:
-        df = _df(context)
+        df = _get_analyst_df(context)
         if df is None or df.empty:
             return json.dumps({"error": "No data available"})
         cols = self._collect_required(args)
@@ -1281,32 +1273,3 @@ class TestBenfordLawTool(DataFrameTool):
                 + ("Potential data integrity issue." if significant else "Distribution appears naturally generated.")
             ),
         })
-
-
-def advanced_registry(python_exec_timeout: int = 10) -> ToolRegistry:
-    """Create a ToolRegistry with all advanced analytics tools."""
-    registry = ToolRegistry()
-
-    # Time-series
-    registry.register(ComputeTimeSeriesSlopeTool())
-    registry.register(ComputeAreaUnderCurveTool())
-    registry.register(ComputePercentageChangeTool())
-    registry.register(DetectPeaksTool())
-    registry.register(DetectChangePointsTool())
-
-    # Fraud & risk
-    registry.register(ScoreFraudRiskTool())
-    registry.register(DetectAmountAnomaliesTool())
-    registry.register(TestTemporalFraudClusteringTool())
-    registry.register(ComputeBankPairRiskTool())
-
-    # General
-    registry.register(ComputePercentileRankTool())
-    registry.register(ComputeConcentrationIndexTool())
-    registry.register(TestBenfordLawTool())
-
-    # Shared with statistician
-    registry.register(RunSqlTool())
-    registry.register(RunPythonTool(timeout=python_exec_timeout))
-
-    return registry
