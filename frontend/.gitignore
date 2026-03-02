@@ -36,8 +36,10 @@ yarn-error.log*
 # vercel
 .vercel
 
-# public docs (copied at build/dev time, not committed)
-/public/docs/
+# public docs kept locally only (not shown in app)
+/public/docs/ANALYST_PROMPT_IMPROVEMENTS.md
+/public/docs/ENGINEERING_ASSESSMENT.md
+/public/docs/questions/
 
 # typescript
 *.tsbuildinfo

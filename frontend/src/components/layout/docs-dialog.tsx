@@ -54,7 +54,6 @@ const DOC_GROUPS: DocGroup[] = [
       { label: "Contributing", path: "/docs/guides/contributing.md" },
       { label: "Dataset", path: "/docs/guides/dataset.md" },
       { label: "Frontend", path: "/docs/guides/frontend.md" },
-      { label: "Top 10 Analyses", path: "/docs/guides/top-10-analyses.md" },
     ],
   },
 ];
