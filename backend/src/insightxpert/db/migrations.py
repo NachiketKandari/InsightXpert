@@ -17,6 +17,8 @@ MIGRATION_COLUMNS = [
     ("automations", "org_id", "VARCHAR(100)"),
     ("trigger_templates", "org_id", "VARCHAR(100)"),
     ("datasets", "organization_id", "VARCHAR(100)"),
+    ("datasets", "created_by", "VARCHAR(36) REFERENCES users(id) ON DELETE SET NULL"),
+    ("datasets", "r2_key", "VARCHAR(500)"),
     ("insights", "user_note", "TEXT"),
     ("insights", "source", "VARCHAR(20) DEFAULT 'auto'"),
 ]
@@ -37,6 +39,7 @@ SCHEMA_INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_dataset_stats_stat_group ON dataset_stats (stat_group)",
     "CREATE INDEX IF NOT EXISTS ix_dataset_stats_group_dim ON dataset_stats (stat_group, dimension)",
     "CREATE INDEX IF NOT EXISTS ix_datasets_organization_id ON datasets (organization_id)",
+    "CREATE INDEX IF NOT EXISTS ix_datasets_created_by ON datasets (created_by)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_dataset_columns_ds_col ON dataset_columns (dataset_id, column_name)",
     "CREATE UNIQUE INDEX IF NOT EXISTS uq_example_queries_ds_question ON example_queries (dataset_id, question)",
     "CREATE INDEX IF NOT EXISTS ix_automations_org_id ON automations (org_id)",

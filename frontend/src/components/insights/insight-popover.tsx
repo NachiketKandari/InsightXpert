@@ -16,19 +16,19 @@ export function InsightPopover({ onShowAll, onSelectInsight }: InsightPopoverPro
   const recent = insights.slice(0, 5);
 
   return (
-    <div className="w-80 max-h-96 overflow-y-auto rounded-lg border border-border bg-background shadow-lg">
+    <div className="w-80 max-h-96 flex flex-col rounded-lg border border-border bg-background shadow-lg">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <span className="text-sm font-medium">Insights</span>
       </div>
 
       {/* List */}
       {recent.length === 0 ? (
-        <div className="py-6 text-center text-sm text-muted-foreground">
+        <div className="flex-1 py-6 text-center text-sm text-muted-foreground">
           No insights yet
         </div>
       ) : (
-        <div className="divide-y divide-border/50">
+        <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-border/50">
           {recent.map((i) => (
             <div
               key={i.id}
@@ -60,7 +60,7 @@ export function InsightPopover({ onShowAll, onSelectInsight }: InsightPopoverPro
       )}
 
       {/* Footer */}
-      <div className="border-t border-border px-3 py-1.5 text-center">
+      <div className="border-t border-border px-3 py-1.5 text-center shrink-0">
         <Button
           variant="ghost"
           size="sm"

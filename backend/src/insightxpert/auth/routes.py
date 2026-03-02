@@ -154,5 +154,13 @@ async def logout(request: Request, response: Response):
 
 
 @router.get("/me", response_model=UserResponse)
-async def me(user: User = Depends(get_current_user)):
-    return UserResponse(id=user.id, email=user.email, is_admin=user.is_admin)
+async def me(request: Request, user: User = Depends(get_current_user)):
+    # Return the validated token from the incoming request rather than
+    # re-creating one on every auth check — avoids unnecessary HMAC work
+    # and prevents the Zustand token from silently rotating mid-flight.
+    token = request.cookies.get("__session") or ""
+    if not token:
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    return UserResponse(id=user.id, email=user.email, is_admin=user.is_admin, token=token)

@@ -4,6 +4,7 @@ import { useRef, useState, useCallback, useEffect, type KeyboardEvent } from "re
 import { Textarea } from "@/components/ui/textarea";
 import { InputToolbar } from "./input-toolbar";
 import { useChatStore } from "@/stores/chat-store";
+import { useVoiceInput } from "@/hooks/use-voice-input";
 
 interface MessageInputProps {
   onSend: (message: string) => void;
@@ -14,6 +15,7 @@ interface MessageInputProps {
 export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const { voiceState, voiceError, toggleVoice, clearVoiceText } = useVoiceInput(setValue);
 
   // Subscribe to pendingInput changes outside the render cycle to avoid
   // cascading setState-in-effect warnings.
@@ -38,8 +40,9 @@ export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps)
     if (!trimmed || isStreaming) return;
     onSend(trimmed);
     setValue("");
+    clearVoiceText();
     textareaRef.current?.focus();
-  }, [value, isStreaming, onSend]);
+  }, [value, isStreaming, onSend, clearVoiceText]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -70,6 +73,9 @@ export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps)
           onStop={onStop}
           isStreaming={isStreaming}
           canSend={!!value.trim()}
+          voiceState={voiceState}
+          voiceError={voiceError}
+          toggleVoice={toggleVoice}
         />
       </div>
       <p className="mx-auto mt-2 max-w-2xl text-center text-[11px] text-muted-foreground/75">

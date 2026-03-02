@@ -24,9 +24,9 @@ export function NotificationPopover({ onShowAll }: NotificationPopoverProps) {
   };
 
   return (
-    <div className="w-80 max-h-96 overflow-y-auto rounded-lg border border-border bg-background shadow-lg">
+    <div className="w-80 max-h-96 flex flex-col rounded-lg border border-border bg-background shadow-lg">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-border">
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
         <span className="text-sm font-medium">Notifications</span>
         {unread.length > 0 && (
           <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={markAllAsRead}>
@@ -38,11 +38,11 @@ export function NotificationPopover({ onShowAll }: NotificationPopoverProps) {
 
       {/* List */}
       {recent.length === 0 ? (
-        <div className="py-6 text-center text-sm text-muted-foreground">
+        <div className="flex-1 py-6 text-center text-sm text-muted-foreground">
           No new notifications
         </div>
       ) : (
-        <div className="divide-y divide-border/50">
+        <div className="flex-1 overflow-y-auto min-h-0 divide-y divide-border/50">
           {recent.map((n) => (
             <div
               key={n.id}
@@ -72,7 +72,7 @@ export function NotificationPopover({ onShowAll }: NotificationPopoverProps) {
       )}
 
       {/* Footer */}
-      <div className="border-t border-border px-3 py-1.5 text-center">
+      <div className="border-t border-border px-3 py-1.5 text-center shrink-0">
         <Button
           variant="ghost"
           size="sm"
