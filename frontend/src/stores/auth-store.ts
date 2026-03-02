@@ -9,6 +9,7 @@ interface AuthUser {
 
 interface AuthState {
   user: AuthUser | null;
+  token: string | null;
   isLoading: boolean;
   error: string | null;
   clearError: () => void;
@@ -20,6 +21,7 @@ interface AuthState {
 
 export const useAuthStore = create<AuthState>((set) => ({
   user: null,
+  token: null,
   isLoading: true,
   error: null,
 
@@ -41,7 +43,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
       const data = await res.json();
-      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, isLoading: false });
+      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, token: data.token ?? null, isLoading: false });
     } catch {
       set({ error: "Network error. Please try again.", isLoading: false });
     }
@@ -63,7 +65,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         return;
       }
       const data = await res.json();
-      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, isLoading: false });
+      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, token: data.token ?? null, isLoading: false });
     } catch {
       set({ error: "Network error. Please try again.", isLoading: false });
     }
@@ -75,7 +77,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch {
       // proceed with local logout even if request fails
     }
-    set({ user: null });
+    set({ user: null, token: null });
   },
 
   checkAuth: async () => {

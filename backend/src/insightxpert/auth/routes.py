@@ -106,7 +106,7 @@ async def register(
     )
 
     logger.info("New user registered: %s", user.email)
-    return UserResponse(id=user.id, email=user.email, is_admin=user.is_admin)
+    return UserResponse(id=user.id, email=user.email, is_admin=user.is_admin, token=token)
 
 
 @router.post("/login", response_model=UserResponse)
@@ -143,7 +143,7 @@ async def login(
     )
 
     logger.info("User logged in: %s", user.email)
-    return UserResponse(id=user.id, email=user.email, is_admin=user.is_admin)
+    return UserResponse(id=user.id, email=user.email, is_admin=user.is_admin, token=token)
 
 
 @router.post("/logout")

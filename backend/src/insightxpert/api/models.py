@@ -107,6 +107,7 @@ class UserResponse(BaseModel):
     id: str
     email: str
     is_admin: bool = False
+    token: str | None = None
 
 
 class MessageResponse(BaseModel):
