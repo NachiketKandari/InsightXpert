@@ -72,7 +72,11 @@
       "Bash(gcloud logging:*)",
       "Bash(export:*)",
       "Bash(/Users/nachiket/google-cloud-sdk/bin/gcloud logging:*)",
-      "Bash(source:*)"
+      "Bash(source:*)",
+      "Bash(do echo:*)",
+      "WebFetch(domain:developers.deepgram.com)",
+      "Bash(brew:*)",
+      "Bash(/Users/nachiket/google-cloud-sdk/bin/gcloud run:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

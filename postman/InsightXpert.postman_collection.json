@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "InsightXpert API",
-    "description": "# InsightXpert API\n\nComplete API collection for **InsightXpert** — an AI-powered data analyst built for the Techfest IIT Bombay Leadership Analytics Challenge. It queries 250K synthetic Indian digital payment transactions via natural language using a multi-agent orchestrator (Gemini + SQLite).\n\n---\n\n## Getting Started\n\n### 1. Start the server\n```bash\ncd backend && uv run python -m insightxpert.main\n```\nDefault: `http://localhost:8000`\n\n### 2. Authenticate\nCall **Auth > Login** with `admin@insightxpert.com` / `admin123`. Postman automatically stores the `__session` httpOnly cookie and sends it with all subsequent requests.\n\n### 3. Ask a question\nUse **Chat > Chat (Polling / Non-Streaming)** for Postman-friendly JSON output, or **Chat > Chat (SSE Streaming)** with curl.\n\n---\n\n## Collection Variables\n\n| Variable | Purpose | How to set |\n|---|---|---|\n| `base_url` | Server address | Pre-set to `http://localhost:8000` |\n| `conversation_id` | Target conversation | Copy from List Conversations response |\n| `dataset_id` | Target dataset | Copy from List Datasets response |\n| `automation_id` | Target automation | Copy from List Automations response |\n\n---\n\n## Authentication\n\nMost endpoints require a valid `__session` cookie. Call **Auth > Login** first.\n- **Admin endpoints** (`/api/admin/*`, `/api/automations/*`, etc.) require `is_admin=true`.\n- **Public endpoints** (Health Check, SQL Execute) require no authentication.\n\n---\n\n## Key Workflows\n\n### Chat Flow\n`Login` → `Chat (SSE or Poll)` → response includes `conversation_id` → use it for follow-up messages → `List Conversations` to see history → `Submit Feedback` on assistant messages\n\n### Insight Flow\n`Chat` → user saves an insight from an assistant message → `List Insights` → `Bookmark Insight` → `Delete Insight`\n\n### Automation Flow\n`Generate SQL from Prompt` → `Compile NL Trigger` → `Create Automation` → `Trigger Manual Run` → `List Automation Runs` → monitor via `Notifications`\n\n### Admin Flow\n`Login (admin)` → `List All Users` → `Get User Conversations` → manage prompts, RAG, datasets, org configs\n\n### Dataset Management\n`List Datasets` → `Get Dataset` → `Add Column Metadata` / `Add Example Query` → `Retrain from Dataset`\n\n---\n\n## SSE vs Poll vs Answer\n\n| Endpoint | Format | Best for |\n|---|---|---|\n| `POST /api/chat` | Server-Sent Events stream | Frontend / curl — real-time streaming |\n| `POST /api/chat/poll` | JSON with `chunks[]` array | Postman testing — all chunks in one response |\n| `POST /api/chat/answer` | JSON with `answer` string | Programmatic integrations — just the final answer |\n\n---\n\n## Frontend Architecture\n\nThe Next.js frontend consumes these APIs through Zustand stores:\n- `auth-store.ts` → Auth endpoints\n- `chat-store.ts` → Conversations CRUD\n- `sse-client.ts` → Chat SSE streaming\n- `insight-store.ts` → Insights CRUD\n- `settings-store.ts` → Config/model switching\n- `automation-store.ts` → Automations + trigger templates\n- `notification-store.ts` → Notifications\n- `client-config-store.ts` → Feature flags & org config",
+    "description": "# InsightXpert API\n\nComplete API collection for **InsightXpert** — an AI-powered data analyst built for the Techfest IIT Bombay Leadership Analytics Challenge. It queries 250K synthetic Indian digital payment transactions via natural language using a multi-agent orchestrator (Gemini + SQLite).\n\n---\n\n## Getting Started\n\n### 1. Start the server\n```bash\ncd backend && uv run python -m insightxpert.main\n```\nDefault: `http://localhost:8000`\n\n### 2. Authenticate\nCall **Auth > Login** with `admin@insightxpert.com` / `admin123`. Postman automatically stores the `__session` httpOnly cookie and sends it with all subsequent requests.\n\n### 3. Ask a question\nUse **Chat > Chat (Polling / Non-Streaming)** for Postman-friendly JSON output, or **Chat > Chat (SSE Streaming)** with curl.\n\n---\n\n## Collection Variables\n\n| Variable | Purpose | How to set |\n|---|---|---|\n| `base_url` | Server address | Pre-set to `http://localhost:8000` |\n| `conversation_id` | Target conversation | Copy from List Conversations response |\n| `dataset_id` | Target dataset | Copy from List Datasets response |\n| `automation_id` | Target automation | Copy from List Automations response |\n\n---\n\n## Authentication\n\nMost endpoints require a valid `__session` cookie. Call **Auth > Login** first.\n- **Admin endpoints** (`/api/admin/*`, `/api/automations/*`, etc.) require `is_admin=true`.\n- **Public endpoints** (Health Check, SQL Execute) require no authentication.\n\n---\n\n## Key Workflows\n\n### Chat Flow\n`Login` → `Chat (SSE or Poll)` → response includes `conversation_id` → use it for follow-up messages → `List Conversations` to see history → `Submit Feedback` on assistant messages\n\n### Insight Flow\n`Chat` → user saves an insight from an assistant message → `List Insights` → `Bookmark Insight` → `Delete Insight`\n\n### Automation Flow\n`Generate SQL from Prompt` → `Compile NL Trigger` → `Create Automation` → `Trigger Manual Run` → `List Automation Runs` → monitor via `Notifications`\n\n### Admin Flow\n`Login (admin)` → `List All Users` → `Get User Conversations` → manage prompts, RAG, datasets, org configs\n\n### Dataset Management\n`List Datasets` → `Get Dataset` → `Add Column Metadata` / `Add Example Query` → `Retrain from Dataset`\n\n---\n\n## SSE vs Poll vs Answer\n\n| Endpoint | Format | Best for |\n|---|---|---|\n| `POST /api/chat` | Server-Sent Events stream | Frontend / curl — real-time streaming |\n| `POST /api/chat/poll` | JSON with `chunks[]` array | Postman testing — all chunks in one response |\n| `POST /api/chat/answer` | JSON with `answer` string | Programmatic integrations — just the final answer |\n\n---\n\n## Frontend Architecture\n\nThe Next.js frontend consumes these APIs through Zustand stores:\n- `auth-store.ts` → Auth endpoints\n- `chat-store.ts` → Conversations CRUD\n- `sse-client.ts` → Chat SSE streaming\n- `insight-store.ts` → Insights CRUD\n- `settings-store.ts` → Config/model switching\n- `automation-store.ts` → Automations + trigger templates\n- `notification-store.ts` → Notifications\n- `client-config-store.ts` → Feature flags & org config\n- Voice input → WebSocket transcription via Deepgram",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -905,6 +905,50 @@
               "status": "Bad Request",
               "code": 400,
               "body": "{\n  \"detail\": \"near \\\"SELEC\\\": syntax error\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Export Table as CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/sql/export-csv?table=transactions",
+              "host": ["{{base_url}}"],
+              "path": ["api", "sql", "export-csv"],
+              "query": [
+                {
+                  "key": "table",
+                  "value": "transactions",
+                  "description": "Table name to export. Defaults to 'transactions'."
+                }
+              ]
+            },
+            "description": "Stream an entire database table as a CSV file download. The response is a streaming CSV with `Content-Disposition: attachment` header.\n\nThe `table` query parameter must match a known table name — arbitrary table names are rejected to prevent SQL injection.\n\nNo authentication required."
+          },
+          "response": [
+            {
+              "name": "200 OK — CSV Stream",
+              "status": "OK",
+              "code": 200,
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "text/csv; charset=utf-8"
+                },
+                {
+                  "key": "Content-Disposition",
+                  "value": "attachment; filename=transactions.csv"
+                }
+              ],
+              "body": "transaction_id,amount_inr,transaction_type,...\n\"TXN001\",1847.23,\"P2P Transfer\",...\n\"TXN002\",500.00,\"Bill Payment\",..."
+            },
+            {
+              "name": "400 Bad Request — Unknown table",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"detail\": \"Unknown table: nonexistent_table\"\n}"
             }
           ]
         }
@@ -1855,6 +1899,100 @@
           ]
         },
         {
+          "name": "Upload Dataset (CSV)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "CSV file to upload (max 50 MB)"
+                },
+                {
+                  "key": "name",
+                  "value": "My Dataset",
+                  "type": "text",
+                  "description": "Display name for the dataset"
+                },
+                {
+                  "key": "description",
+                  "value": "A description of the dataset contents",
+                  "type": "text",
+                  "description": "Optional description"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/datasets/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "upload"]
+            },
+            "description": "Upload a CSV file to create a new dataset. Any authenticated user can upload. The dataset is created inactive and owned by the uploading user.\n\nOnly `.csv` files are accepted. Maximum file size is 50 MB.\n\nThe response includes a dataset profile with column stats (inferred types, distinct counts, null percentages, etc.) that the frontend uses to render the confirmation dialog.\n\n**Workflow:** Upload CSV → Review profile → Confirm dataset (with column descriptions) → Activate → Retrain RAG."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"dataset-uuid-here\",\n  \"name\": \"My Dataset\",\n  \"description\": \"A description of the dataset contents\",\n  \"table_name\": \"ds_my_dataset_abc123\",\n  \"is_active\": false,\n  \"row_count\": 10000,\n  \"column_count\": 12,\n  \"profile\": {\n    \"row_count\": 10000,\n    \"column_count\": 12,\n    \"columns\": [\n      {\n        \"name\": \"amount\",\n        \"original_name\": \"Amount\",\n        \"inferred_type\": \"REAL\",\n        \"distinct_count\": 8456,\n        \"null_count\": 0,\n        \"null_percent\": 0.0,\n        \"is_unique\": false,\n        \"cardinality\": \"high\",\n        \"min\": 1.0,\n        \"max\": 99999.0,\n        \"mean\": 2345.67\n      }\n    ]\n  }\n}"
+            },
+            {
+              "name": "400 Bad Request — Not CSV",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"detail\": \"Only CSV files are supported. Please upload a .csv file.\"\n}"
+            },
+            {
+              "name": "413 Payload Too Large",
+              "status": "Payload Too Large",
+              "code": 413,
+              "body": "{\n  \"detail\": \"File too large. Maximum size is 50 MB.\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "Confirm Dataset",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"column_descriptions\": {\n    \"amount\": \"Transaction amount in INR\",\n    \"status\": \"Transaction status: SUCCESS or FAILED\"\n  },\n  \"profile\": {\n    \"row_count\": 10000,\n    \"column_count\": 12,\n    \"columns\": [\n      {\n        \"name\": \"amount\",\n        \"original_name\": \"Amount\",\n        \"inferred_type\": \"REAL\",\n        \"distinct_count\": 8456,\n        \"null_count\": 0,\n        \"null_percent\": 0.0,\n        \"is_unique\": false,\n        \"cardinality\": \"high\",\n        \"min\": 1.0,\n        \"max\": 99999.0,\n        \"mean\": 2345.67\n      }\n    ]\n  }\n}"
+            },
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}/confirm",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}", "confirm"]
+            },
+            "description": "Confirm a dataset after upload by providing column descriptions and the profiler output. Compiles rich documentation from the profile and user-provided descriptions.\n\nOnly the dataset owner or an admin can confirm.\n\n**Workflow:** This is step 2 after uploading a CSV. The frontend shows the profile (column types, stats) and lets the user add descriptions before confirming."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\",\n  \"id\": \"dataset-uuid-here\"\n}"
+            },
+            {
+              "name": "403 Forbidden",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"detail\": \"Only the dataset owner or an admin can confirm this dataset\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Dataset not found\"\n}"
+            }
+          ]
+        },
+        {
           "name": "Get Dataset",
           "request": {
             "method": "GET",
@@ -2043,6 +2181,39 @@
               "status": "OK",
               "code": 200,
               "body": "{\n  \"status\": \"ok\",\n  \"items_trained\": 12\n}"
+            }
+          ]
+        },
+        {
+          "name": "Delete Dataset",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets/{{dataset_id}}",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "{{dataset_id}}"]
+            },
+            "description": "Delete a dataset and its underlying data table. Owners can delete their own datasets; admins can delete any dataset.\n\nSet `{{dataset_id}}` to the dataset ID you want to delete."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            },
+            {
+              "name": "403 Forbidden",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"detail\": \"Only the dataset owner or an admin can delete this dataset\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Dataset not found\"\n}"
             }
           ]
         }
@@ -2582,6 +2753,147 @@
               "body": "{\n  \"detail\": \"Template not found\"\n}"
             }
           ]
+        }
+      ]
+    },
+    {
+      "name": "Documents",
+      "description": "Upload, list, and delete PDF documents. Documents are processed for text extraction and stored alongside datasets for RAG enrichment.\n\n**Workflow:** Upload a PDF → text is extracted automatically → document metadata is stored → the extracted text can be used as additional context for the AI agent.\n\n**Access control:** Any authenticated user can upload and list their own documents. Admins (super-admin) can see all documents. Only the document owner or an admin can delete.",
+      "item": [
+        {
+          "name": "Upload Document (PDF)",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "body": {
+              "mode": "formdata",
+              "formdata": [
+                {
+                  "key": "file",
+                  "type": "file",
+                  "description": "PDF file to upload (max 20 MB)"
+                },
+                {
+                  "key": "name",
+                  "value": "Quarterly Report",
+                  "type": "text",
+                  "description": "Display name for the document"
+                },
+                {
+                  "key": "description",
+                  "value": "Q4 2025 payment trends report",
+                  "type": "text",
+                  "description": "Optional description"
+                },
+                {
+                  "key": "dataset_id",
+                  "value": "",
+                  "type": "text",
+                  "description": "Optional dataset ID to associate this document with"
+                }
+              ]
+            },
+            "url": {
+              "raw": "{{base_url}}/api/documents/upload",
+              "host": ["{{base_url}}"],
+              "path": ["api", "documents", "upload"]
+            },
+            "description": "Upload a PDF document. Text is extracted automatically using a PDF parser. The file is also backed up to R2 storage if configured.\n\nOnly `.pdf` files are accepted. Maximum file size is 20 MB.\n\nOptionally associate the document with a dataset by providing `dataset_id`."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"id\": \"doc-uuid-here\",\n  \"name\": \"Quarterly Report\",\n  \"description\": \"Q4 2025 payment trends report\",\n  \"file_name\": \"report.pdf\",\n  \"file_type\": \"application/pdf\",\n  \"file_size_bytes\": 1048576,\n  \"page_count\": 12,\n  \"dataset_id\": null,\n  \"created_by\": \"user-uuid\",\n  \"created_at\": \"2026-03-01T10:00:00\"\n}"
+            },
+            {
+              "name": "400 Bad Request — Not PDF",
+              "status": "Bad Request",
+              "code": 400,
+              "body": "{\n  \"detail\": \"Only PDF files are supported\"\n}"
+            },
+            {
+              "name": "413 Payload Too Large",
+              "status": "Payload Too Large",
+              "code": 413,
+              "body": "{\n  \"detail\": \"File too large. Maximum is 20 MB.\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "List Documents",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/documents",
+              "host": ["{{base_url}}"],
+              "path": ["api", "documents"]
+            },
+            "description": "List documents visible to the current user. Regular users see only their own documents. Super-admins see all documents across the platform."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"doc-uuid-here\",\n    \"name\": \"Quarterly Report\",\n    \"description\": \"Q4 2025 payment trends report\",\n    \"file_name\": \"report.pdf\",\n    \"file_type\": \"application/pdf\",\n    \"file_size_bytes\": 1048576,\n    \"page_count\": 12,\n    \"dataset_id\": null,\n    \"created_by\": \"user-uuid\",\n    \"created_at\": \"2026-03-01T10:00:00\"\n  }\n]"
+            }
+          ]
+        },
+        {
+          "name": "Delete Document",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/documents/doc-uuid-here",
+              "host": ["{{base_url}}"],
+              "path": ["api", "documents", "doc-uuid-here"]
+            },
+            "description": "Delete a document. Only the document owner or an admin can delete. Also removes the file from R2 storage if configured.\n\nReplace `doc-uuid-here` in the path with the document ID."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "{\n  \"status\": \"ok\"\n}"
+            },
+            {
+              "name": "403 Forbidden",
+              "status": "Forbidden",
+              "code": 403,
+              "body": "{\n  \"detail\": \"Not authorized to delete this document\"\n}"
+            },
+            {
+              "name": "404 Not Found",
+              "status": "Not Found",
+              "code": 404,
+              "body": "{\n  \"detail\": \"Document not found\"\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Voice",
+      "description": "Real-time voice transcription via WebSocket. The browser streams audio to a WebSocket endpoint which proxies it to Deepgram Nova-3 for speech-to-text, streaming transcript chunks back to the client.\n\n**Frontend usage:** The voice input button in the chat interface opens a WebSocket connection to `/api/transcribe`. Audio from the browser microphone (WebM/Opus format) is streamed in real-time. Transcripts are returned as JSON messages with interim and final results.\n\n**Authentication:** JWT token from the `__session` cookie or a `token` query parameter.\n\n**Requirements:** `DEEPGRAM_API_KEY` must be configured on the server.",
+      "item": [
+        {
+          "name": "Voice Transcription (WebSocket)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/transcribe",
+              "host": ["{{base_url}}"],
+              "path": ["api", "transcribe"]
+            },
+            "description": "**WebSocket endpoint** — Use Postman's WebSocket tab or a WebSocket client to connect.\n\n**URL:** `ws://localhost:8000/api/transcribe`\n\n**Authentication:** Pass JWT via:\n- Cookie: `__session=<token>` (automatic if logged in via browser)\n- Query param: `ws://localhost:8000/api/transcribe?token=<jwt>`\n\n**Protocol:**\n1. Client sends binary audio frames (WebM/Opus from browser MediaRecorder)\n2. Server proxies audio to Deepgram Nova-3\n3. Server streams back JSON transcript messages:\n\n```json\n{\n  \"type\": \"Results\",\n  \"channel\": {\"alternatives\": [{\"transcript\": \"hello world\", \"confidence\": 0.98}]},\n  \"is_final\": true\n}\n```\n\n**Deepgram config:** Model `nova-3`, language `en`, smart formatting, interim results, 1s utterance end.\n\n**Error codes:**\n- `4001` — Not authenticated\n- `4002` — Deepgram API key not configured\n- `1011` — Deepgram connection failed\n\n**Note:** This is a WebSocket endpoint. In Postman, use the WebSocket tab (not HTTP). In curl: `websocat ws://localhost:8000/api/transcribe`"
+          },
+          "response": []
         }
       ]
     }

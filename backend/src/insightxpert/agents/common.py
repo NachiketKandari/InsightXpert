@@ -430,15 +430,37 @@ async def agent_tool_loop(
             )
             break
     else:
+        # Iterations exhausted — make one final LLM call *without tools*
+        # so it summarises all work done so far instead of returning an error.
         total_ms = (time.time() - loop_start) * 1000
         logger.warning(
-            "%s EXHAUSTED [%s] max iterations=%d total=%.0fms",
+            "%s EXHAUSTED [%s] max iterations=%d total=%.0fms — requesting final summary",
             agent_name.upper(), cid, max_iter, total_ms,
         )
-        yield ChatChunk(
-            type="error",
-            content=f"{agent_name.title()} reached maximum iterations ({max_iter}).",
-            data={"agent": agent_name},
-            conversation_id=cid,
-            timestamp=time.time(),
-        )
+        messages.append({
+            "role": "user",
+            "content": (
+                "You have used all available tool-call iterations. "
+                "Do NOT call any more tools. "
+                "Summarise all the results and insights you have gathered so far "
+                "into a clear, complete answer for the user."
+            ),
+        })
+        try:
+            final_response = await llm.chat(messages, tools=[])
+            yield ChatChunk(
+                type="answer",
+                content=final_response.content,
+                data={"agent": agent_name},
+                conversation_id=cid,
+                timestamp=time.time(),
+            )
+        except Exception as exc:
+            logger.error("%s final summary call failed: %s", agent_name, exc, exc_info=True)
+            yield ChatChunk(
+                type="error",
+                content=f"{agent_name.title()} reached maximum iterations ({max_iter}) and could not generate a summary.",
+                data={"agent": agent_name},
+                conversation_id=cid,
+                timestamp=time.time(),
+            )
