@@ -6,10 +6,14 @@ import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
-from insightxpert.admin.dependencies import assert_resource_in_scope, require_admin_user
+from insightxpert.admin.dependencies import (
+    AdminContext,
+    assert_resource_in_scope,
+    get_admin_context,
+    require_admin_user,
+)
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
-from insightxpert.auth.permissions import is_admin_user
 from insightxpert.automations.models import (
     CompileTriggerRequest,
     CreateAutomationRequest,
@@ -211,12 +215,12 @@ async def create_automation(
 @router.get("")
 async def list_automations(
     request: Request,
-    user: User = Depends(require_admin_user),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     svc = _get_automation_service(request)
-    if user.org_id is not None:
+    if ctx.scoped_org_id is not None:
         # Org-scoped admin: see all automations in their org
-        return await asyncio.to_thread(svc.list_automations, org_id=user.org_id, org_scoped=True)
+        return await asyncio.to_thread(svc.list_automations, org_id=ctx.scoped_org_id, org_scoped=True)
     # Super admin: see all automations
     return await asyncio.to_thread(svc.list_automations)
 
@@ -401,16 +405,6 @@ async def get_run(
 # ---------------------------------------------------------------------------
 
 
-async def _is_admin_user(user: User, request: Request) -> bool:
-    """Check admin status using shared permission logic."""
-    from insightxpert.admin.dependencies import _get_admin_domains
-    try:
-        admin_domains = await asyncio.to_thread(_get_admin_domains, request)
-        return is_admin_user(user, admin_domains)
-    except Exception:
-        return False
-
-
 @notifications_router.get("")
 async def list_notifications(
     request: Request,
@@ -425,24 +419,19 @@ async def list_notifications(
 @notifications_router.get("/all")
 async def list_all_notifications(
     request: Request,
-    user: User = Depends(get_current_user),
+    ctx: AdminContext = Depends(get_admin_context),
     unread_only: bool = Query(default=False),
 ):
     """Get notifications scoped by role.
 
-    - Regular user: own notifications only.
     - Org admin: all notifications for users in their org (with user info).
     - Super admin: all notifications across the platform (with user info).
     """
     svc = _get_automation_service(request)
-    if await _is_admin_user(user, request):
-        # org_id=None → super admin (unrestricted); org_id set → org-scoped
-        org_scope = user.org_id
-        return await asyncio.to_thread(
-            svc.get_notifications_admin, org_scope, unread_only,
-        )
-    # Regular user: own notifications only
-    return await asyncio.to_thread(svc.get_notifications, user.id, unread_only)
+    # org_id=None → super admin (unrestricted); org_id set → org-scoped
+    return await asyncio.to_thread(
+        svc.get_notifications_admin, ctx.scoped_org_id, unread_only,
+    )
 
 
 @notifications_router.get("/count")
@@ -491,11 +480,11 @@ templates_router = APIRouter(prefix="/api/trigger-templates", tags=["trigger-tem
 @templates_router.get("")
 async def list_templates(
     request: Request,
-    user: User = Depends(require_admin_user),
+    ctx: AdminContext = Depends(get_admin_context),
 ):
     svc = _get_automation_service(request)
-    if user.org_id is not None:
-        return await asyncio.to_thread(svc.list_templates, org_id=user.org_id, org_scoped=True)
+    if ctx.scoped_org_id is not None:
+        return await asyncio.to_thread(svc.list_templates, org_id=ctx.scoped_org_id, org_scoped=True)
     return await asyncio.to_thread(svc.list_templates)
 
 

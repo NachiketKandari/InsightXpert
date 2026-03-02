@@ -267,6 +267,10 @@ async def list_users_with_stats(
     ctx: AdminContext = Depends(get_admin_context),
 ):
     """List all users with conversation and message counts."""
+    logger.debug(
+        "list_users: scoped_user_ids=%s scoped_org_id=%s",
+        ctx.scoped_user_ids, ctx.scoped_org_id,
+    )
     store: PersistentConversationStore = request.app.state.persistent_conv_store
     return {
         "users": await asyncio.to_thread(

@@ -94,6 +94,19 @@ def app(auth_engine, persistent_conv_store, rag_mock):
     application.state.persistent_conv_store = persistent_conv_store
     application.state.rag = rag_mock
 
+    # Seed the admin user in the DB so _resolve_admin_scope finds it
+    with Session(auth_engine) as session:
+        session.add(User(
+            id=ADMIN_USER_ID,
+            email="admin@test.com",
+            hashed_password="hashed",
+            is_active=True,
+            is_admin=True,
+            created_at=_utcnow(),
+            last_active=_utcnow(),
+        ))
+        session.commit()
+
     # Override auth dependency to return a mock admin user
     application.dependency_overrides[get_current_user] = _make_admin_user
 
@@ -135,7 +148,8 @@ def _seed_users(engine) -> tuple[str, str]:
             created_at=now,
             last_active=now,
         )
-        session.add_all([admin, other])
+        session.merge(admin)
+        session.merge(other)
         session.commit()
     return ADMIN_USER_ID, OTHER_USER_ID
 
