@@ -8,6 +8,7 @@ import { SAMPLE_QUESTIONS } from "@/lib/sample-questions";
 import { InputToolbar } from "./input-toolbar";
 import { useChatStore } from "@/stores/chat-store";
 import { useClientConfigStore } from "@/stores/client-config-store";
+import { useVoiceInput } from "@/hooks/use-voice-input";
 
 const ALL_QUESTIONS = SAMPLE_QUESTIONS.flatMap((cat) => cat.questions);
 
@@ -49,6 +50,12 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
   const [shuffleKey, setShuffleKey] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const displayName = useClientConfigStore((s) => s.config?.branding?.display_name);
+  const { voiceState, voiceError, voiceText, toggleVoice, clearVoiceText } = useVoiceInput();
+
+  // Sync voice transcript into textarea in real-time while recording
+  useEffect(() => {
+    if (voiceText) setValue(voiceText);
+  }, [voiceText]);
 
   // Subscribe to pendingInput changes outside the render cycle to avoid
   // cascading setState-in-effect warnings.
@@ -67,7 +74,8 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
     if (!trimmed || isStreaming) return;
     onSendMessage(trimmed);
     setValue("");
-  }, [value, isStreaming, onSendMessage]);
+    clearVoiceText();
+  }, [value, isStreaming, onSendMessage, clearVoiceText]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -122,6 +130,9 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
             onStop={onStop}
             isStreaming={isStreaming}
             canSend={!!value.trim()}
+            voiceState={voiceState}
+            voiceError={voiceError}
+            toggleVoice={toggleVoice}
           />
         </div>
       </motion.div>

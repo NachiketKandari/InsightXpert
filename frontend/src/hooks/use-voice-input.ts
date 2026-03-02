@@ -37,15 +37,18 @@ export function useVoiceInput() {
   const streamRef = useRef<MediaStream | null>(null);
   const committedRef = useRef("");
   const interimRef = useRef("");
+  const prefixRef = useRef("");
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const SILENCE_TIMEOUT_MS = 5_000;
+  const SILENCE_TIMEOUT_MS = 10_000;
 
-  /** Recompute voiceText from committed + interim and push to state. */
+  /** Recompute voiceText from prefix + committed + interim and push to state. */
   const emit = useCallback(() => {
+    const p = prefixRef.current;
     const c = committedRef.current;
     const i = interimRef.current;
-    const full = i ? (c ? `${c} ${i}` : i) : c;
+    const session = i ? (c ? `${c} ${i}` : i) : c;
+    const full = session ? (p ? `${p} ${session}` : session) : p;
     setVoiceText(full);
   }, []);
 
@@ -71,11 +74,20 @@ export function useVoiceInput() {
       interimRef.current = "";
     }
 
-    console.debug("[voice] stop — committed:", committedRef.current);
-
-    // Final state push
-    setVoiceText(committedRef.current);
+    // Merge this session's text into the running prefix so the next
+    // voice session appends rather than replacing.
+    const session = committedRef.current;
+    if (session) {
+      prefixRef.current = prefixRef.current
+        ? `${prefixRef.current} ${session}`
+        : session;
+    }
     committedRef.current = "";
+
+    console.debug("[voice] stop — prefix:", prefixRef.current);
+
+    // Final state push — full accumulated text across all sessions
+    setVoiceText(prefixRef.current);
 
     wsRef.current?.close();
     wsRef.current = null;
@@ -83,10 +95,9 @@ export function useVoiceInput() {
   }, [clearSilenceTimer]);
 
   const start = useCallback(async () => {
-    // Reset from any previous session
+    // Reset session-local state but keep prefixRef (accumulated prior text)
     committedRef.current = "";
     interimRef.current = "";
-    setVoiceText("");
     setVoiceError(null);
     setVoiceState("requesting");
 
@@ -206,10 +217,18 @@ export function useVoiceInput() {
     };
   }, [stop, emit, clearSilenceTimer, token]);
 
+  /** Reset accumulated voice text — call after sending the message. */
+  const clearVoiceText = useCallback(() => {
+    prefixRef.current = "";
+    committedRef.current = "";
+    interimRef.current = "";
+    setVoiceText("");
+  }, []);
+
   const toggleVoice = useCallback(() => {
     if (voiceState === "idle") start();
     else stop();
   }, [voiceState, start, stop]);
 
-  return { voiceState, voiceError, voiceText, toggleVoice };
+  return { voiceState, voiceError, voiceText, toggleVoice, clearVoiceText };
 }
