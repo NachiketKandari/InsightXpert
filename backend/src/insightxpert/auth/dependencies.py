@@ -45,6 +45,12 @@ def _update_last_active(engine, user_id: str) -> None:
 async def get_current_user(request: Request) -> User:
     token = request.cookies.get("__session")
     if not token:
+        # Fall back to Authorization: Bearer <token> header (used by SSE
+        # requests that go directly to Cloud Run, bypassing the CDN proxy).
+        auth_header = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",

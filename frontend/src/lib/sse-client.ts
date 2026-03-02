@@ -1,4 +1,4 @@
-import { API_BASE_URL } from "./constants";
+import { SSE_BASE_URL } from "./constants";
 
 export interface SSECallbacks {
   onChunk: (data: string) => void;
@@ -18,6 +18,7 @@ export function createSSEStream(
   callbacks: SSECallbacks,
   agentMode: AgentMode = "agentic",
   options: SSEOptions = {},
+  token?: string | null,
 ): AbortController {
   const controller = new AbortController();
 
@@ -48,9 +49,14 @@ export function createSSEStream(
     }
 
     try {
-      const response = await fetch(`${API_BASE_URL}/api/chat`, {
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${SSE_BASE_URL}/api/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         credentials: "include",
         body: JSON.stringify({
           message,
