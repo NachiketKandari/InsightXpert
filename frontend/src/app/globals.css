@@ -197,6 +197,16 @@
     0 0 24px oklch(0.70 0.12 230 / 0.08);
 }
 
+/* Voice recording waveform animation */
+@keyframes voice-bar-bounce {
+  0%, 100% { height: 15%; }
+  50% { height: 100%; }
+}
+
+.voice-bar {
+  animation: voice-bar-bounce 1.2s ease-in-out infinite;
+}
+
 /* Custom scrollbar */
 ::-webkit-scrollbar {
   width: 6px;

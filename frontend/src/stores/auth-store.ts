@@ -85,13 +85,13 @@ export const useAuthStore = create<AuthState>((set) => ({
     try {
       const res = await apiFetch("/api/auth/me");
       if (!res.ok) {
-        set({ user: null, isLoading: false });
+        set({ user: null, token: null, isLoading: false });
         return;
       }
       const data = await res.json();
-      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, isLoading: false });
+      set({ user: { id: data.id, email: data.email, is_admin: data.is_admin ?? false }, token: data.token ?? null, isLoading: false });
     } catch {
-      set({ user: null, isLoading: false });
+      set({ user: null, token: null, isLoading: false });
     }
   },
 }));

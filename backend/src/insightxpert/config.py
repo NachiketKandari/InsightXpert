@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     # Stats context injection
     enable_stats_context: bool = True  # Set ENABLE_STATS_CONTEXT=false to disable
 
+    # Voice / Speech-to-text (Deepgram)
+    deepgram_api_key: str = ""
+
     # Logging
     log_level: str = "INFO"
 
