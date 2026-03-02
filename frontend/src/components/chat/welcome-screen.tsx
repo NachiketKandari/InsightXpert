@@ -50,12 +50,7 @@ export function WelcomeScreen({ onSendMessage, onStop, isStreaming }: WelcomeScr
   const [shuffleKey, setShuffleKey] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const displayName = useClientConfigStore((s) => s.config?.branding?.display_name);
-  const { voiceState, voiceError, voiceText, toggleVoice, clearVoiceText } = useVoiceInput();
-
-  // Sync voice transcript into textarea in real-time while recording
-  useEffect(() => {
-    if (voiceText) setValue(voiceText);
-  }, [voiceText]);
+  const { voiceState, voiceError, toggleVoice, clearVoiceText } = useVoiceInput(setValue);
 
   // Subscribe to pendingInput changes outside the render cycle to avoid
   // cascading setState-in-effect warnings.

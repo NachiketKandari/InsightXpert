@@ -15,12 +15,7 @@ interface MessageInputProps {
 export function MessageInput({ onSend, onStop, isStreaming }: MessageInputProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const { voiceState, voiceError, voiceText, toggleVoice, clearVoiceText } = useVoiceInput();
-
-  // Sync voice transcript into textarea in real-time while recording
-  useEffect(() => {
-    if (voiceText) setValue(voiceText);
-  }, [voiceText]);
+  const { voiceState, voiceError, toggleVoice, clearVoiceText } = useVoiceInput(setValue);
 
   // Subscribe to pendingInput changes outside the render cycle to avoid
   // cascading setState-in-effect warnings.

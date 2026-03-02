@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState, useCallback } from "react";
+import { useRef, useState, useCallback, useEffect } from "react";
 import { SSE_BASE_URL } from "@/lib/constants";
 import { useAuthStore } from "@/stores/auth-store";
 
@@ -22,15 +22,20 @@ function getWsBaseUrl(): string {
 /**
  * Streams mic audio to /api/transcribe (backend WS proxy → Deepgram Nova-3).
  *
- * Returns `voiceText` — the full accumulated transcript (committed + interim)
- * — which updates in real-time as the user speaks.  The consumer composites
- * this into the textarea value directly; no callback indirection needed.
+ * Accepts an `onTranscript` callback that receives the full accumulated
+ * transcript (prefix + committed + interim) as it updates in real-time.
+ * The consumer wires this to its textarea setter — no useEffect needed.
  */
-export function useVoiceInput() {
+export function useVoiceInput(onTranscript?: (text: string) => void) {
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [voiceText, setVoiceText] = useState("");
   const token = useAuthStore((s) => s.token);
+
+  // Stable ref so WS handlers always see the latest callback without re-creating
+  const onTranscriptRef = useRef(onTranscript);
+  useEffect(() => {
+    onTranscriptRef.current = onTranscript;
+  });
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -42,14 +47,14 @@ export function useVoiceInput() {
 
   const SILENCE_TIMEOUT_MS = 10_000;
 
-  /** Recompute voiceText from prefix + committed + interim and push to state. */
+  /** Recompute full transcript from prefix + committed + interim and push to consumer. */
   const emit = useCallback(() => {
     const p = prefixRef.current;
     const c = committedRef.current;
     const i = interimRef.current;
     const session = i ? (c ? `${c} ${i}` : i) : c;
     const full = session ? (p ? `${p} ${session}` : session) : p;
-    setVoiceText(full);
+    onTranscriptRef.current?.(full);
   }, []);
 
   const clearSilenceTimer = useCallback(() => {
@@ -87,7 +92,7 @@ export function useVoiceInput() {
     console.debug("[voice] stop — prefix:", prefixRef.current);
 
     // Final state push — full accumulated text across all sessions
-    setVoiceText(prefixRef.current);
+    onTranscriptRef.current?.(prefixRef.current);
 
     wsRef.current?.close();
     wsRef.current = null;
@@ -222,7 +227,6 @@ export function useVoiceInput() {
     prefixRef.current = "";
     committedRef.current = "";
     interimRef.current = "";
-    setVoiceText("");
   }, []);
 
   const toggleVoice = useCallback(() => {
@@ -230,5 +234,5 @@ export function useVoiceInput() {
     else stop();
   }, [voiceState, start, stop]);
 
-  return { voiceState, voiceError, voiceText, toggleVoice, clearVoiceText };
+  return { voiceState, voiceError, toggleVoice, clearVoiceText };
 }
