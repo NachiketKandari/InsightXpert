@@ -37,5 +37,6 @@ class LLMProvider(Protocol):
     def model(self) -> str: ...
 
     async def chat(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self, messages: list[dict], tools: list[dict] | None = None,
+        force_tool_use: bool = False,
     ) -> LLMResponse: ...

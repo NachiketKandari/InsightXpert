@@ -68,7 +68,7 @@ async def test_llm_error_defaults_to_execute():
         def model(self) -> str:
             return "failing"
 
-        async def chat(self, messages, tools=None):
+        async def chat(self, messages, tools=None, force_tool_use=False):
             raise RuntimeError("LLM is down")
 
     result = await clarification_check(
@@ -121,7 +121,7 @@ async def test_history_is_included():
         def model(self) -> str:
             return "capturing"
 
-        async def chat(self, messages, tools=None):
+        async def chat(self, messages, tools=None, force_tool_use=False):
             calls.append(messages)
             return LLMResponse(content='{"action": "execute"}')
 

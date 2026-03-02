@@ -327,7 +327,11 @@ async def agent_tool_loop(
 
         llm_start = time.time()
         try:
-            response = await llm.chat(messages, tools=tool_registry.get_schemas())
+            response = await llm.chat(
+                messages,
+                tools=tool_registry.get_schemas(),
+                force_tool_use=not tools_executed,
+            )
         except Exception as exc:
             logger.error("%s LLM call failed: %s", agent_name, exc, exc_info=True)
             yield ChatChunk(

@@ -91,8 +91,8 @@ class _TokenCountingLLM:
     def model(self) -> str:
         return self._llm.model
 
-    async def chat(self, messages: list[dict], tools: list[dict] | None = None):
-        resp = await self._llm.chat(messages, tools)
+    async def chat(self, messages: list[dict], tools: list[dict] | None = None, force_tool_use: bool = False):
+        resp = await self._llm.chat(messages, tools, force_tool_use=force_tool_use)
         self.input_tokens += resp.input_tokens
         self.output_tokens += resp.output_tokens
         return resp

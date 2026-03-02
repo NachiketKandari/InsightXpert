@@ -238,7 +238,11 @@ async def analyst_loop(
 
         llm_start = time.time()
         try:
-            response = await llm.chat(messages, tools=tool_registry.get_schemas())
+            response = await llm.chat(
+                messages,
+                tools=tool_registry.get_schemas(),
+                force_tool_use=not tools_executed and not stats_context,
+            )
         except Exception as exc:
             logger.error("LLM call failed: %s", exc, exc_info=True)
             yield ChatChunk(
