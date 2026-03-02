@@ -24,7 +24,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   currentModel: "gemini-2.5-flash",
   providers: [],
   loading: false,
-  agentMode: "agentic" as AgentMode,
+  agentMode: "basic" as AgentMode,
 
   fetchConfig: async () => {
     set({ loading: true });

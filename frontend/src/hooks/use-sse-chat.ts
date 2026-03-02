@@ -35,7 +35,7 @@ export function useSSEChat() {
   const isActiveStreaming = isStreaming && streamingConversationId === activeConversationId;
 
   const sendMessage = useCallback(
-    (message: string, agentMode: AgentMode = "agentic") => {
+    (message: string, agentMode: AgentMode = "basic") => {
       if (isActiveStreaming) return;
 
       let convId = activeConversationId;

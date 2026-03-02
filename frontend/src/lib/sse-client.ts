@@ -16,7 +16,7 @@ export function createSSEStream(
   message: string,
   conversationId: string | null,
   callbacks: SSECallbacks,
-  agentMode: AgentMode = "agentic",
+  agentMode: AgentMode = "basic",
   options: SSEOptions = {},
   token?: string | null,
 ): AbortController {

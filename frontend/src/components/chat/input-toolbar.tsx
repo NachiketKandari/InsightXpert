@@ -127,7 +127,7 @@ export function InputToolbar({
 
   const modeConfig = {
     basic: {
-      label: "SQL Only",
+      label: "Basic",
       icon: Sparkles,
       color: "text-amber-500",
       bg: "bg-amber-500/10",
@@ -223,7 +223,7 @@ export function InputToolbar({
             </DropdownMenuLabel>
             <DropdownMenuItem onSelect={() => setAgentMode("basic")}>
               <Sparkles className="size-4" />
-              SQL Only
+              Basic
               {agentMode === "basic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setAgentMode("agentic")}>
@@ -267,7 +267,7 @@ export function InputToolbar({
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => setAgentMode("basic")}>
                 <Sparkles className="size-4 text-amber-500" />
-                SQL Only
+                Basic
                 {agentMode === "basic" && <Check className="size-3.5 ml-auto text-emerald-500" />}
               </DropdownMenuItem>
               <DropdownMenuItem onSelect={() => setAgentMode("agentic")}>
