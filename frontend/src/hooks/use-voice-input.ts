@@ -1,16 +1,22 @@
 "use client";
 
 import { useRef, useState, useCallback } from "react";
-import { API_BASE_URL } from "@/lib/constants";
+import { SSE_BASE_URL } from "@/lib/constants";
+import { useAuthStore } from "@/stores/auth-store";
 
 export type VoiceState = "idle" | "requesting" | "listening";
 
 function getWsBaseUrl(): string {
-  if (API_BASE_URL) {
-    return API_BASE_URL.replace(/^https/, "wss").replace(/^http/, "ws");
+  // Use SSE_BASE_URL (direct to backend) — WebSocket can't go through CDN proxy.
+  if (SSE_BASE_URL) {
+    const base = SSE_BASE_URL.replace(/^https/, "wss").replace(/^http/, "ws");
+    console.debug("[voice] WS base URL (from SSE_BASE_URL):", base);
+    return base;
   }
   const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${window.location.host}`;
+  const base = `${proto}//${window.location.host}`;
+  console.debug("[voice] WS base URL (from location):", base);
+  return base;
 }
 
 /**
@@ -24,6 +30,7 @@ export function useVoiceInput() {
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const [voiceText, setVoiceText] = useState("");
+  const token = useAuthStore((s) => s.token);
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
@@ -64,6 +71,8 @@ export function useVoiceInput() {
       interimRef.current = "";
     }
 
+    console.debug("[voice] stop — committed:", committedRef.current);
+
     // Final state push
     setVoiceText(committedRef.current);
     committedRef.current = "";
@@ -81,6 +90,7 @@ export function useVoiceInput() {
     setVoiceError(null);
     setVoiceState("requesting");
 
+    console.debug("[voice] start — requesting mic");
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -91,11 +101,18 @@ export function useVoiceInput() {
     }
 
     streamRef.current = stream;
-    const ws = new WebSocket(`${getWsBaseUrl()}/api/transcribe`);
+
+    // Build WS URL with auth token (cookies may not reach Cloud Run directly)
+    const wsUrl = new URL(`${getWsBaseUrl()}/api/transcribe`);
+    if (token) wsUrl.searchParams.set("token", token);
+    console.debug("[voice] WS URL:", wsUrl.toString());
+
+    const ws = new WebSocket(wsUrl.toString());
     wsRef.current = ws;
     ws.binaryType = "arraybuffer";
 
     ws.onopen = () => {
+      console.debug("[voice] WS open");
       setVoiceState("listening");
 
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
@@ -103,6 +120,7 @@ export function useVoiceInput() {
         : "audio/webm";
       const recorder = new MediaRecorder(stream, { mimeType });
       recorderRef.current = recorder;
+      console.debug("[voice] MediaRecorder started, mimeType:", mimeType);
 
       recorder.addEventListener("dataavailable", (e) => {
         if (e.data.size > 0 && ws.readyState === WebSocket.OPEN) {
@@ -111,7 +129,7 @@ export function useVoiceInput() {
       });
       recorder.start(250);
 
-      // Start silence timer — auto-stop if no speech within 3s
+      // Start silence timer — auto-stop if no speech within timeout
       silenceTimerRef.current = setTimeout(() => stop(), SILENCE_TIMEOUT_MS);
     };
 
@@ -127,6 +145,12 @@ export function useVoiceInput() {
 
         const transcript =
           (data?.channel?.alternatives?.[0]?.transcript as string) ?? "";
+
+        console.debug(
+          "[voice] DG message — is_final:", data.is_final,
+          "speech_final:", data.speech_final,
+          "transcript:", transcript.slice(0, 60),
+        );
 
         if (data.is_final) {
           if (transcript) {
@@ -158,12 +182,14 @@ export function useVoiceInput() {
       }
     };
 
-    ws.onerror = () => {
+    ws.onerror = (ev) => {
+      console.debug("[voice] WS error:", ev);
       setVoiceError("Voice connection failed");
       stop();
     };
 
     ws.onclose = (event) => {
+      console.debug("[voice] WS close — code:", event.code, "reason:", event.reason);
       clearSilenceTimer();
       recorderRef.current?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
@@ -178,7 +204,7 @@ export function useVoiceInput() {
         setVoiceError("Speech-to-text is not configured");
       }
     };
-  }, [stop, emit, clearSilenceTimer]);
+  }, [stop, emit, clearSilenceTimer, token]);
 
   const toggleVoice = useCallback(() => {
     if (voiceState === "idle") start();
