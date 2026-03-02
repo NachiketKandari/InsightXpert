@@ -512,10 +512,11 @@ async def _run_quant_analyst(
                                 "rows": r[:50],
                                 "row_count": len(r),
                             })
-                        elif not step.get("result_data"):
-                            # For non-rows results, store the raw parsed JSON
-                            # so the frontend can attempt to render it
-                            step["result_data"] = str(chunk.data["result"])
+                        else:
+                            # Non-table results (run_python output, stat tool
+                            # results, errors) — store as valid JSON so the
+                            # frontend can parse and render appropriately.
+                            step["result_data"] = json.dumps(parsed_r)
                     except (json.JSONDecodeError, AttributeError, TypeError):
                         pass
             elif chunk.type == "answer" and chunk.content:
