@@ -182,7 +182,8 @@ class GeminiProvider:
         return LLMResponse(content=content, tool_calls=tool_calls, input_tokens=input_tokens, output_tokens=output_tokens)
 
     async def chat(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self, messages: list[dict], tools: list[dict] | None = None,
+        force_tool_use: bool = False,
     ) -> LLMResponse:
         """Send a chat request to the Gemini API and return a parsed response.
 
@@ -194,17 +195,34 @@ class GeminiProvider:
             messages: OpenAI-style message list (system/user/assistant/tool).
             tools: Optional list of tool schemas in OpenAI function-calling
                 format.
+            force_tool_use: When True and tools are provided, sets Gemini's
+                tool_config mode to ANY, forcing the model to call a tool
+                instead of returning a text-only response.
 
         Returns:
             An ``LLMResponse`` containing the model's text and/or tool calls.
         """
         msg_count = len(messages)
         tool_count = len(tools) if tools else 0
-        logger.debug("chat() messages=%d tools=%d model=%s", msg_count, tool_count, self._model)
+        logger.debug("chat() messages=%d tools=%d force_tool=%s model=%s",
+                      msg_count, tool_count, force_tool_use, self._model)
 
         system_instruction, contents = self._convert_messages(messages)
+        gemini_tools = self._convert_tools(tools)
+
+        # When force_tool_use is set and tools exist, tell Gemini it MUST
+        # call a function (mode=ANY) rather than returning plain text.
+        tool_config = None
+        if force_tool_use and gemini_tools:
+            tool_config = types.ToolConfig(
+                function_calling_config=types.FunctionCallingConfig(
+                    mode=types.FunctionCallingConfigMode.ANY,
+                ),
+            )
+
         config = types.GenerateContentConfig(
-            tools=self._convert_tools(tools),
+            tools=gemini_tools,
+            tool_config=tool_config,
             system_instruction=system_instruction,
         )
         start = time.time()

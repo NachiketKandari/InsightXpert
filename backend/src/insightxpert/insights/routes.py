@@ -6,6 +6,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 
+from insightxpert.admin.dependencies import AdminContext, get_admin_context
 from insightxpert.auth.conversation_store import PersistentConversationStore
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
@@ -17,29 +18,6 @@ router = APIRouter(prefix="/api/insights", tags=["insights"])
 
 def _get_store(request: Request) -> PersistentConversationStore:
     return request.app.state.persistent_conv_store
-
-
-# --- Admin scoping (mirrors admin/routes.py pattern) --------------------------
-
-class _AdminContext:
-    __slots__ = ("user", "scoped_user_ids", "scoped_org_id")
-
-    def __init__(self, user: User, scoped_user_ids: set[str] | None, scoped_org_id: str | None) -> None:
-        self.user = user
-        self.scoped_user_ids = scoped_user_ids
-        self.scoped_org_id = scoped_org_id
-
-
-def _get_admin_context(request: Request, user: User = Depends(get_current_user)) -> _AdminContext:
-    from insightxpert.admin.config_store import read_config
-    from insightxpert.auth.dependencies import require_admin
-    from insightxpert.admin.routes import _resolve_admin_scope
-
-    engine = request.app.state.auth_engine
-    config = read_config(engine)
-    require_admin(user, config.admin_domains)
-    scoped_ids, scoped_org_id = _resolve_admin_scope(user, engine)
-    return _AdminContext(user, scoped_ids, scoped_org_id)
 
 
 # --- Request / response models -----------------------------------------------
@@ -89,7 +67,7 @@ async def list_insights(
 @router.get("/all")
 async def list_insights_admin(
     request: Request,
-    ctx: _AdminContext = Depends(_get_admin_context),
+    ctx: AdminContext = Depends(get_admin_context),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
 ):

@@ -17,6 +17,7 @@ import json
 import logging
 import time
 
+from insightxpert.agents.common import strip_json_fences
 from insightxpert.agents.dag_executor import OrchestratorPlan, SubTask
 from insightxpert.llm.base import LLMProvider
 from insightxpert.prompts import render as render_prompt
@@ -75,12 +76,7 @@ async def plan_tasks(
         raw = (response.content or "").strip()
         planning_ms = int((time.time() - t0) * 1000)
 
-        # Strip markdown fencing if present
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
+        raw = strip_json_fences(raw)
 
         parsed = json.loads(raw)
         plan = _validate_plan(parsed, max_tasks)
@@ -152,6 +148,18 @@ def _validate_plan(parsed: dict, max_tasks: int) -> OrchestratorPlan:
     # Remove references to non-existent task IDs
     for t in tasks:
         t.depends_on = [d for d in t.depends_on if d in seen_ids]
+
+    # quant_analyst requires upstream data — it must depend on at least one
+    # other task.  If the LLM planned it with no dependencies, demote to
+    # sql_analyst so it can fetch its own data instead of failing at runtime.
+    for t in tasks:
+        if t.agent == "quant_analyst" and not t.depends_on:
+            logger.warning(
+                "Demoting task %s from quant_analyst to sql_analyst "
+                "(no upstream dependency)",
+                t.id,
+            )
+            t.agent = "sql_analyst"
 
     # Check for circular dependencies
     if _has_cycle(tasks):
@@ -259,12 +267,7 @@ async def evaluate_for_enrichment(
         raw = (response.content or "").strip()
         eval_ms = int((time.time() - t0) * 1000)
 
-        # Strip markdown fencing
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
+        raw = strip_json_fences(raw)
 
         parsed = json.loads(raw)
 
@@ -359,12 +362,7 @@ async def evaluate_for_investigation(
         raw = (response.content or "").strip()
         eval_ms = int((time.time() - t0) * 1000)
 
-        # Strip markdown fencing
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
+        raw = strip_json_fences(raw)
 
         parsed = json.loads(raw)
 
@@ -372,13 +370,15 @@ async def evaluate_for_investigation(
             logger.info("Investigation evaluator says NO follow-up needed (%dms)", eval_ms)
             return None
 
-        # Parse investigation plan
+        # Parse investigation plan — _validate_plan already prunes
+        # dangling deps and demotes orphaned quant_analyst tasks.
         plan = _validate_plan(parsed, max_tasks)
 
-        # Force all tasks to be sql_analyst (no quant_analyst for follow-up)
+        # Investigation sql_analyst tasks are standalone (no cross-deps
+        # to prior enrichment tasks which are already finished).
         for task in plan.tasks:
-            task.agent = "sql_analyst"
-            task.depends_on = []
+            if task.agent == "sql_analyst":
+                task.depends_on = []
 
         logger.info(
             "Investigation evaluator produced %d follow-up tasks in %dms: %s",
@@ -457,12 +457,7 @@ async def evaluate_insight_quality(
         raw = (response.content or "").strip()
         eval_ms = int((time.time() - t0) * 1000)
 
-        # Strip markdown fencing
-        if raw.startswith("```"):
-            raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-            if raw.endswith("```"):
-                raw = raw[:-3]
-            raw = raw.strip()
+        raw = strip_json_fences(raw)
 
         parsed = json.loads(raw)
 

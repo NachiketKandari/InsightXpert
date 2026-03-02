@@ -169,14 +169,14 @@ const isMarkdownStep = (type: string) =>
 // ---------------------------------------------------------------------------
 // Reusable pieces
 // ---------------------------------------------------------------------------
-/** Try to parse result_data into columns + rows for DataTable. */
-function parseResultTable(
-  resultData: string | null | undefined,
+/** Try to parse a JSON string into columns + rows for DataTable. */
+function parseJsonToTable(
+  raw: string | null | undefined,
 ): { columns: string[]; rows: Record<string, unknown>[] } | null {
-  if (!resultData) return null;
+  if (!raw) return null;
   try {
-    const parsed = JSON.parse(resultData);
-    // Format: { columns: [...], rows: [...] }
+    const parsed = JSON.parse(raw);
+    // Format: { columns: [...], rows: [...] }  or  { rows: [...], row_count: N }
     if (Array.isArray(parsed.rows) && parsed.rows.length > 0) {
       const columns: string[] =
         Array.isArray(parsed.columns) && parsed.columns.length > 0
@@ -188,10 +188,37 @@ function parseResultTable(
     if (Array.isArray(parsed) && parsed.length > 0 && typeof parsed[0] === "object") {
       return { columns: Object.keys(parsed[0]), rows: parsed };
     }
+    // Format: nested array field (e.g. { ranked_segments: [...] })
+    if (typeof parsed === "object" && parsed !== null) {
+      const keys = Object.keys(parsed);
+      const arrayField = keys.find(
+        (k) =>
+          Array.isArray(parsed[k]) &&
+          parsed[k].length > 0 &&
+          typeof parsed[k][0] === "object" &&
+          parsed[k][0] !== null,
+      );
+      if (arrayField) {
+        const rows = parsed[arrayField] as Record<string, unknown>[];
+        return { columns: Object.keys(rows[0]), rows };
+      }
+      // Flat key-value object (e.g. descriptive stats)
+      if (keys.length >= 3 && keys.every((k) => !Array.isArray(parsed[k]) && typeof parsed[k] !== "object")) {
+        const rows = keys.map((k) => ({ Metric: k, Value: parsed[k] }));
+        return { columns: ["Metric", "Value"], rows };
+      }
+    }
   } catch {
     /* not JSON */
   }
   return null;
+}
+
+/** Try to parse result_data into columns + rows for DataTable. Falls back to result_preview. */
+function parseResultTable(
+  step: TraceStep,
+): { columns: string[]; rows: Record<string, unknown>[] } | null {
+  return parseJsonToTable(step.result_data) ?? parseJsonToTable(step.result_preview);
 }
 
 function SqlBlock({ sql }: { sql: string }) {
@@ -221,8 +248,77 @@ function SqlBlock({ sql }: { sql: string }) {
   );
 }
 
+/** Try to extract a presentable result from raw JSON that isn't a table.
+ *  Returns { type, content } for rendering, or null. */
+function parseNonTableResult(
+  raw: string | null | undefined,
+): { type: "output" | "stats" | "error"; content: string } | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+
+    // run_python: { output: "...stdout..." }
+    if (typeof parsed.output === "string") {
+      return { type: "output", content: parsed.output };
+    }
+    // Error results: { error: "..." }
+    if (typeof parsed.error === "string") {
+      return { type: "error", content: parsed.error };
+    }
+    // Stat tool results: flat key-value objects (test_hypothesis, compute_correlation, etc.)
+    const keys = Object.keys(parsed);
+    if (
+      keys.length >= 2 &&
+      keys.every((k) => !Array.isArray(parsed[k]) && (typeof parsed[k] !== "object" || parsed[k] === null))
+    ) {
+      return { type: "stats", content: JSON.stringify(parsed) };
+    }
+  } catch {
+    /* not JSON */
+  }
+  return null;
+}
+
+function StatsResultBlock({ json }: { json: string }) {
+  const entries = useMemo(() => {
+    try {
+      const parsed = JSON.parse(json);
+      return Object.entries(parsed).map(([k, v]) => ({
+        key: k.replace(/_/g, " "),
+        value: typeof v === "number" ? (Number.isInteger(v) ? String(v) : v.toFixed(4)) : String(v),
+      }));
+    } catch {
+      return [];
+    }
+  }, [json]);
+
+  if (!entries.length) return null;
+
+  return (
+    <div className="rounded-md border border-border/50 overflow-hidden">
+      <table className="w-full text-[11px]">
+        <tbody>
+          {entries.map(({ key, value }) => (
+            <tr key={key} className="border-t border-border/30 first:border-t-0">
+              <td className="px-2 py-1 font-medium text-muted-foreground capitalize whitespace-nowrap">
+                {key}
+              </td>
+              <td className="px-2 py-1 font-mono">{value}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ResultDataBlock({ step }: { step: TraceStep }) {
-  const tableData = useMemo(() => parseResultTable(step.result_data), [step.result_data]);
+  const tableData = useMemo(() => parseResultTable(step), [step]);
+  const nonTable = useMemo(
+    () => (tableData ? null : parseNonTableResult(step.result_data) ?? parseNonTableResult(step.result_preview)),
+    [tableData, step.result_data, step.result_preview],
+  );
 
   if (tableData) {
     return (
@@ -240,12 +336,33 @@ function ResultDataBlock({ step }: { step: TraceStep }) {
     );
   }
 
-  // Fallback: try to extract row count from the raw preview, otherwise show
-  // a compact summary instead of dumping raw JSON.
+  // run_python stdout: render as preformatted text (may contain tables, stats, etc.)
+  if (nonTable?.type === "output") {
+    return (
+      <pre className="bg-muted/30 rounded-md p-2 text-[11px] font-mono whitespace-pre-wrap overflow-x-auto max-h-64 overflow-y-auto">
+        {nonTable.content}
+      </pre>
+    );
+  }
+
+  // Stat tool results: render as a clean key-value table
+  if (nonTable?.type === "stats") {
+    return <StatsResultBlock json={nonTable.content} />;
+  }
+
+  // Error results
+  if (nonTable?.type === "error") {
+    return (
+      <div className="bg-destructive/10 rounded-md p-2 text-[11px] text-destructive">
+        {nonTable.content}
+      </div>
+    );
+  }
+
+  // Final fallback: show a compact summary
   if (step.result_preview) {
     let summary = step.result_preview;
     try {
-      // Attempt partial parse to at least show a row count
       const match = step.result_preview.match(/"row_count"\s*:\s*(\d+)/);
       if (match) {
         summary = `Query returned ${match[1]} rows`;

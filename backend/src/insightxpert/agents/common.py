@@ -21,6 +21,43 @@ from .tool_base import ToolContext, ToolRegistry
 
 logger = logging.getLogger("insightxpert.agents.common")
 
+
+def strip_json_fences(raw: str) -> str:
+    """Strip markdown ```json fences from LLM output."""
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
+        if raw.endswith("```"):
+            raw = raw[:-3]
+        raw = raw.strip()
+    return raw
+
+
+def make_plan_chunk(
+    plan: OrchestratorPlan, content: str, conversation_id: str,
+) -> ChatChunk:
+    """Build a ChatChunk for an orchestrator_plan event."""
+    return ChatChunk(
+        type="orchestrator_plan",
+        data={
+            "reasoning": plan.reasoning,
+            "tasks": [
+                {
+                    "id": t.id,
+                    "agent": t.agent,
+                    "task": t.task,
+                    "depends_on": t.depends_on,
+                    "category": t.category,
+                }
+                for t in plan.tasks
+            ],
+        },
+        content=content,
+        conversation_id=conversation_id,
+        timestamp=time.time(),
+    )
+
+
 # Shared enrichment category labels — used by orchestrator, deep_think,
 # response_generator, and enrichment trace emission.
 CATEGORY_LABELS = {
@@ -290,7 +327,11 @@ async def agent_tool_loop(
 
         llm_start = time.time()
         try:
-            response = await llm.chat(messages, tools=tool_registry.get_schemas())
+            response = await llm.chat(
+                messages,
+                tools=tool_registry.get_schemas(),
+                force_tool_use=not tools_executed,
+            )
         except Exception as exc:
             logger.error("%s LLM call failed: %s", agent_name, exc, exc_info=True)
             yield ChatChunk(

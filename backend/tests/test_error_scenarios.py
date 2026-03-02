@@ -101,7 +101,7 @@ class FailingLLM:
     def model(self) -> str:
         return "failing-mock"
 
-    async def chat(self, messages, tools=None):
+    async def chat(self, messages, tools=None, force_tool_use=False):
         raise ConnectionError("LLM service unavailable")
 
 

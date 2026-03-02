@@ -82,6 +82,16 @@ If investigation not needed:
 If investigation warranted (1-{{ max_tasks }} follow-up tasks, IDs start at "{{ next_task_id }}"):
 {"investigate": true, "reasoning": "Brief explanation of what gaps the follow-up would fill", "tasks": [{"id": "{{ next_task_id }}", "agent": "sql_analyst", "category": "root_cause", "task": "Full self-contained question for follow-up analysis", "depends_on": []}]}
 
+## Available Agents
+
+1. **sql_analyst** — SQL queries for additional data. Use `depends_on: []`.
+2. **quant_analyst** — Statistical tests, correlations, hypothesis testing on data
+   from an upstream sql_analyst task in this plan. Must have `depends_on` referencing
+   at least one sql_analyst task ID in this plan.
+
+Use quant_analyst when the gap involves validating whether a difference is
+statistically significant, testing a correlation, or detecting anomalies.
+
 ## Rules
 
 - Task IDs start at "{{ next_task_id }}" (continuing from existing task IDs)
@@ -90,7 +100,6 @@ If investigation warranted (1-{{ max_tasks }} follow-up tasks, IDs start at "{{ 
 - Tasks must be **self-contained questions** — the downstream agent has no context
   from this conversation
 - Do NOT duplicate work already done by the enrichment tasks
-- Only suggest sql_analyst tasks (no quant_analyst for follow-up)
 - **Bias toward NOT investigating** — only suggest follow-up when the gap is clearly
   meaningful and the database can fill it
 - Each task must be answerable from the database schema above

@@ -38,8 +38,6 @@ def _quant_registry(python_exec_timeout: int = 10) -> ToolRegistry:
     """Create a focused ToolRegistry with 7 essential tools.
 
     Keeps only what the quant analyst actually needs on pre-aggregated data.
-    The full tool sets remain available via statistician_registry() and
-    advanced_registry() for other consumers.
     """
     registry = ToolRegistry()
     registry.register(RunSqlTool())

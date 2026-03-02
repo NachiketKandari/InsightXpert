@@ -238,7 +238,11 @@ async def analyst_loop(
 
         llm_start = time.time()
         try:
-            response = await llm.chat(messages, tools=tool_registry.get_schemas())
+            response = await llm.chat(
+                messages,
+                tools=tool_registry.get_schemas(),
+                force_tool_use=not tools_executed and not stats_context,
+            )
         except Exception as exc:
             logger.error("LLM call failed: %s", exc, exc_info=True)
             yield ChatChunk(
@@ -403,6 +407,12 @@ async def analyst_loop(
         else:
             total_ms = (time.time() - loop_start) * 1000
             answer_preview = (response.content or "")[:200]
+            if not response.content:
+                logger.warning(
+                    "LLM returned empty final answer (%.0fms) on iteration %d — "
+                    "model may have produced a thinking-only response or been safety-filtered",
+                    llm_ms, iteration + 1,
+                )
             logger.info("LLM final answer (%.0fms): %s...", llm_ms, answer_preview)
             logger.info(
                 "DONE [%s] total=%.0fms iterations=%d",

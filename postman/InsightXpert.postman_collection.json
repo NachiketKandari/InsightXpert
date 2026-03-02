@@ -1789,7 +1789,7 @@
     },
     {
       "name": "Datasets",
-      "description": "Manage datasets and their metadata. A dataset represents a database table with rich metadata (column descriptions, domain rules, example queries) that is used to train the RAG knowledge base.\n\n**Frontend usage:**\n- `components/layout/dataset-selector.tsx` — dataset picker dropdown (calls `/api/datasets/public`)\n- `components/dataset/dataset-viewer.tsx` — interactive table browser with column metadata, pagination, and SQL querying (calls `/api/datasets/public/{id}/columns`)\n- Admin panel — full CRUD for datasets, columns, and example queries\n\n**Workflow:** Create dataset → Add column metadata → Add example queries → Activate dataset → Retrain RAG → the agent now uses this metadata for better SQL generation.\n\nMost endpoints require admin authentication. `GET /api/datasets/public` is accessible to any authenticated user.\n\nSet the `{{dataset_id}}` collection variable to a dataset ID from the List Datasets response.",
+      "description": "Manage datasets and their metadata. A dataset represents a database table with rich metadata (column descriptions, domain rules, example queries) that is used to train the RAG knowledge base.\n\n**Frontend usage:**\n- `components/layout/dataset-selector.tsx` — dataset picker dropdown (calls `/api/datasets/public`)\n- `components/dataset/dataset-viewer.tsx` — interactive table browser with column metadata, pagination, and SQL querying (calls `/api/datasets/public/{id}/columns`)\n- Admin panel — full CRUD for datasets, columns, and example queries\n\n**Workflow:** Create dataset → Add column metadata → Add example queries → Activate dataset → Retrain RAG → the agent now uses this metadata for better SQL generation.\n\n**Access control:**\n- `GET /api/datasets/public` and `GET /api/datasets/public/{id}/columns` — any authenticated user\n- All other endpoints — **super-admin only** (org-scoped admins are blocked; only admins with no org assignment can manage datasets)\n\nSet the `{{dataset_id}}` collection variable to a dataset ID from the List Datasets response.",
       "item": [
         {
           "name": "List Datasets (Admin)",
@@ -1801,7 +1801,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets"]
             },
-            "description": "List all datasets with full metadata.\n\nRequires admin authentication."
+            "description": "List all datasets with full metadata.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -1834,6 +1834,27 @@
           ]
         },
         {
+          "name": "Get Dataset Columns (Public)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{base_url}}/api/datasets/public/{{dataset_id}}/columns",
+              "host": ["{{base_url}}"],
+              "path": ["api", "datasets", "public", "{{dataset_id}}", "columns"]
+            },
+            "description": "Return column metadata for a specific dataset. No admin required — accessible to any authenticated user.\n\n**Frontend:** Called by `components/dataset/dataset-viewer.tsx` when loading column metadata for the interactive table browser and the column explorer panel.\n\nSet `{{dataset_id}}` to the target dataset ID from the List Datasets (Public) response."
+          },
+          "response": [
+            {
+              "name": "200 OK",
+              "status": "OK",
+              "code": 200,
+              "body": "[\n  {\n    \"id\": \"col-uuid-here\",\n    \"column_name\": \"amount_inr\",\n    \"column_type\": \"REAL\",\n    \"description\": \"Transaction amount in Indian Rupees\",\n    \"domain_values\": null,\n    \"domain_rules\": \"Always positive. Range: 1 to 100000.\",\n    \"ordinal_position\": 5\n  },\n  {\n    \"id\": \"col-uuid-2\",\n    \"column_name\": \"transaction_type\",\n    \"column_type\": \"TEXT\",\n    \"description\": \"Type of digital transaction\",\n    \"domain_values\": \"P2P Transfer, Bill Payment, Food Delivery, Online Shopping, Recharge\",\n    \"domain_rules\": null,\n    \"ordinal_position\": 3\n  }\n]"
+            }
+          ]
+        },
+        {
           "name": "Get Dataset",
           "request": {
             "method": "GET",
@@ -1843,7 +1864,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}"]
             },
-            "description": "Get full dataset details including column metadata and example queries.\n\nRequires admin authentication."
+            "description": "Get full dataset details including column metadata and example queries.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -1870,7 +1891,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}"]
             },
-            "description": "Update dataset fields. All fields are optional — only include the fields you want to change.\n\nRequires admin authentication."
+            "description": "Update dataset fields. All fields are optional — only include the fields you want to change.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -1891,7 +1912,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}", "activate"]
             },
-            "description": "Set this dataset as the active dataset. Only one dataset can be active at a time.\n\nRequires admin authentication."
+            "description": "Set this dataset as the active dataset. Only one dataset can be active at a time.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -1918,7 +1939,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}", "columns"]
             },
-            "description": "Add column-level metadata to a dataset. This metadata is used to enrich RAG context for the agent.\n\nRequires admin authentication."
+            "description": "Add column-level metadata to a dataset. This metadata is used to enrich RAG context for the agent.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -1945,7 +1966,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}", "columns", "col-uuid-here"]
             },
-            "description": "Update an existing column metadata entry. Replace `col-uuid-here` in the path with the column record ID.\n\nRequires admin authentication."
+            "description": "Update an existing column metadata entry. Replace `col-uuid-here` in the path with the column record ID.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -1972,7 +1993,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}", "queries"]
             },
-            "description": "Add an example question-SQL pair to the dataset. Example queries are used during RAG training.\n\nRequires admin authentication."
+            "description": "Add an example question-SQL pair to the dataset. Example queries are used during RAG training.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -1993,7 +2014,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}", "queries", "query-uuid-here"]
             },
-            "description": "Delete an example query from the dataset. Replace `query-uuid-here` in the path with the query record ID.\n\nRequires admin authentication."
+            "description": "Delete an example query from the dataset. Replace `query-uuid-here` in the path with the query record ID.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -2014,7 +2035,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "datasets", "{{dataset_id}}", "retrain"]
             },
-            "description": "Re-run RAG training using all metadata stored in the dataset (DDL, documentation, column descriptions, and example queries). Existing embeddings for this dataset are replaced.\n\n**When to use:** After adding/updating column metadata, example queries, or documentation. The retrain syncs all dataset metadata into ChromaDB so the AI agent can use the latest context for SQL generation.\n\nRequires admin authentication."
+            "description": "Re-run RAG training using all metadata stored in the dataset (DDL, documentation, column descriptions, and example queries). Existing embeddings for this dataset are replaced.\n\n**When to use:** After adding/updating column metadata, example queries, or documentation. The retrain syncs all dataset metadata into ChromaDB so the AI agent can use the latest context for SQL generation.\n\nRequires **super-admin** authentication (org-scoped admins are blocked with 403)."
           },
           "response": [
             {
@@ -2029,7 +2050,7 @@
     },
     {
       "name": "Automations",
-      "description": "Create and manage scheduled SQL automations with trigger conditions. Automations run SQL queries on a cron schedule and fire notifications when trigger conditions are met.\n\n**Frontend usage:** `stores/automation-store.ts` — powers the entire Automations page. The workflow builder lets users:\n1. Describe what they want to monitor in natural language → `Generate SQL from Prompt`\n2. Define alert conditions in natural language → `Compile NL Trigger`\n3. Create the automation with schedule + SQL + triggers → `Create Automation`\n4. Test it immediately → `Trigger Manual Run`\n5. View run history → `List Automation Runs`\n\n**Schedule presets:** `hourly` (0 * * * *), `daily` (0 9 * * *), `weekly` (0 9 * * 1), `monthly` (0 9 1 * *). Custom 5-field cron expressions are also supported.\n\n**Trigger types:** `threshold`, `change_detection`, `row_count`, `column_expression`, `slope`.\n\nAll endpoints require admin authentication.",
+      "description": "Create and manage scheduled SQL automations with trigger conditions. Automations run SQL queries on a cron schedule and fire notifications when trigger conditions are met.\n\n**Frontend usage:** `stores/automation-store.ts` — powers the entire Automations page. The workflow builder lets users:\n1. Describe what they want to monitor in natural language → `Generate SQL from Prompt`\n2. Define alert conditions in natural language → `Compile NL Trigger`\n3. Create the automation with schedule + SQL + triggers → `Create Automation`\n4. Test it immediately → `Trigger Manual Run`\n5. View run history → `List Automation Runs`\n\n**Schedule presets:** `hourly` (0 * * * *), `daily` (0 9 * * *), `weekly` (0 9 * * 1), `monthly` (0 9 1 * *). Custom 5-field cron expressions are also supported.\n\n**Trigger types:** `threshold`, `change_detection`, `row_count`, `column_expression`, `slope`.\n\n**Access control:** All endpoints require admin authentication. **Org-scoped admins** can only view and manage automations within their organization (filtered by `org_id`). Attempting to access automations outside your org returns 403. Super admins can manage all automations platform-wide.",
       "item": [
         {
           "name": "Generate SQL from Prompt",
@@ -2128,7 +2149,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "automations"]
             },
-            "description": "List all automations for the current user.\n\nRequires admin authentication."
+            "description": "List automations. Org-scoped admins see only automations in their organization. Super admins see all.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -2149,7 +2170,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "automations", "{{automation_id}}"]
             },
-            "description": "Get full automation details including recent runs.\n\nSet `{{automation_id}}` collection variable to a valid automation ID.\n\nRequires admin authentication."
+            "description": "Get full automation details including recent runs. Returns 403 if the automation belongs to a different org than the requesting admin.\n\nSet `{{automation_id}}` collection variable to a valid automation ID.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -2182,7 +2203,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "automations", "{{automation_id}}"]
             },
-            "description": "Update an automation. All fields are optional — only include fields you want to change.\n\nRequires admin authentication."
+            "description": "Update an automation. All fields are optional — only include fields you want to change. Returns 403 if the automation belongs to a different org than the requesting admin.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -2203,7 +2224,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "automations", "{{automation_id}}"]
             },
-            "description": "Delete an automation and remove it from the scheduler.\n\nRequires admin authentication."
+            "description": "Delete an automation and remove it from the scheduler. Returns 403 if the automation belongs to a different org than the requesting admin.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -2230,7 +2251,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "automations", "{{automation_id}}", "toggle"]
             },
-            "description": "Toggle an automation on or off. When disabled, the scheduler pauses the job.\n\nRequires admin authentication."
+            "description": "Toggle an automation on or off. When disabled, the scheduler pauses the job. Returns 403 if the automation belongs to a different org than the requesting admin.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -2251,7 +2272,7 @@
               "host": ["{{base_url}}"],
               "path": ["api", "automations", "{{automation_id}}", "run"]
             },
-            "description": "Trigger an immediate manual run of an automation, bypassing the cron schedule.\n\nRequires admin authentication."
+            "description": "Trigger an immediate manual run of an automation, bypassing the cron schedule. Returns 403 if the automation belongs to a different org than the requesting admin.\n\nRequires admin authentication."
           },
           "response": [
             {
@@ -2279,7 +2300,7 @@
                 }
               ]
             },
-            "description": "List execution runs for an automation.\n\nRequires admin authentication."
+            "description": "List execution runs for an automation. Returns 403 if the automation belongs to a different org than the requesting admin.\n\nRequires admin authentication."
           },
           "response": [
             {

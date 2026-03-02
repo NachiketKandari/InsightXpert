@@ -25,6 +25,7 @@ from insightxpert.agents.common import (
     AnalystCollector,
     build_dag_callbacks,
     build_evidence_blocks,
+    make_plan_chunk,
     yield_enrichment_traces,
 )
 from insightxpert.agents.dag_executor import (
@@ -236,24 +237,10 @@ async def orchestrator_loop(
     # ── Phase 3: Execute additional enrichment tasks via DAG ─────────
     original = collector.to_original_result()
 
-    yield ChatChunk(
-        type="orchestrator_plan",
-        data={
-            "reasoning": enrichment_plan.reasoning,
-            "tasks": [
-                {
-                    "id": t.id,
-                    "agent": t.agent,
-                    "task": t.task,
-                    "depends_on": t.depends_on,
-                    "category": t.category,
-                }
-                for t in enrichment_plan.tasks
-            ],
-        },
-        content=f"Enriching with {len(enrichment_plan.tasks)} additional task{'s' if len(enrichment_plan.tasks) != 1 else ''}",
-        conversation_id=cid,
-        timestamp=time.time(),
+    yield make_plan_chunk(
+        enrichment_plan,
+        f"Enriching with {len(enrichment_plan.tasks)} additional task{'s' if len(enrichment_plan.tasks) != 1 else ''}",
+        cid,
     )
 
     yield ChatChunk(
@@ -425,12 +412,13 @@ async def _run_sql_analyst(
                 step["tool_name"] = tool_name
                 result_str = str(chunk.data.get("result", ""))
                 step["result_preview"] = result_str[:500]
-                if tool_name == "run_sql" and chunk.data.get("result"):
+                if chunk.data.get("result"):
                     try:
                         parsed = json.loads(chunk.data["result"])
                         rows = parsed.get("rows", [])
                         if rows:
-                            collected_rows = rows
+                            if tool_name == "run_sql":
+                                collected_rows = rows
                             # Store structured result for trace display
                             display_data = {
                                 "columns": parsed.get("columns", list(rows[0].keys()) if rows else []),
@@ -524,6 +512,11 @@ async def _run_quant_analyst(
                                 "rows": r[:50],
                                 "row_count": len(r),
                             })
+                        else:
+                            # Non-table results (run_python output, stat tool
+                            # results, errors) — store as valid JSON so the
+                            # frontend can parse and render appropriately.
+                            step["result_data"] = json.dumps(parsed_r)
                     except (json.JSONDecodeError, AttributeError, TypeError):
                         pass
             elif chunk.type == "answer" and chunk.content:

@@ -36,7 +36,7 @@ class MockLLM:
     def model(self) -> str:
         return "mock"
 
-    async def chat(self, messages, tools=None):
+    async def chat(self, messages, tools=None, force_tool_use=False):
         idx = min(self._call_count, len(self._responses) - 1)
         self._call_count += 1
         return self._responses[idx]

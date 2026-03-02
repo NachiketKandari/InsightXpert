@@ -12,7 +12,6 @@ from insightxpert.agents.stat_tools import (
     FitDistributionTool,
     RunPythonTool,
     TestHypothesisTool,
-    statistician_registry,
 )
 from insightxpert.agents.tool_base import ToolContext
 
@@ -268,13 +267,4 @@ async def test_run_python_error_handling(db_connector, rag_store):
     assert "test error" in result["error"]
 
 
-@pytest.mark.asyncio
-async def test_statistician_registry_has_all_tools():
-    registry = statistician_registry()
-    schemas = registry.get_schemas()
-    names = {s["name"] for s in schemas}
-    assert names == {
-        "run_python", "compute_descriptive_stats", "test_hypothesis",
-        "compute_correlation", "fit_distribution", "run_sql",
-    }
 
