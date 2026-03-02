@@ -8,11 +8,10 @@ import logging
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from insightxpert.admin.config_store import read_config
 from insightxpert.admin.dependencies import require_super_admin_user
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
-from insightxpert.auth.permissions import is_admin_user
+from insightxpert.datasets.dependencies import ResolvedUser, resolve_user_roles
 from insightxpert.datasets.service import DatasetService
 
 logger = logging.getLogger("insightxpert.datasets")
@@ -47,9 +46,30 @@ class ColumnRequest(BaseModel):
     ordinal_position: int = 0
 
 
+class ColumnProfileModel(BaseModel):
+    name: str
+    original_name: str
+    inferred_type: str
+    distinct_count: int
+    null_count: int
+    null_percent: float
+    is_unique: bool
+    cardinality: str
+    unique_values: list[str] | None = None
+    min: float | None = None
+    max: float | None = None
+    mean: float | None = None
+
+
+class DatasetProfileModel(BaseModel):
+    row_count: int
+    column_count: int
+    columns: list[ColumnProfileModel]
+
+
 class ConfirmDatasetRequest(BaseModel):
     column_descriptions: dict[str, str] = {}
-    profile: dict
+    profile: DatasetProfileModel
 
 
 class ExampleQueryRequest(BaseModel):
@@ -72,7 +92,7 @@ async def list_datasets(
 @router.get("/public")
 async def list_datasets_public(
     request: Request,
-    user: User = Depends(get_current_user),
+    roles: ResolvedUser = Depends(resolve_user_roles),
 ):
     """List datasets visible to the current user.
 
@@ -82,15 +102,10 @@ async def list_datasets_public(
     """
     svc = _get_dataset_service(request)
 
-    # Super admin = admin + no org
-    config = await asyncio.to_thread(read_config, request.app.state.auth_engine)
-    admin = is_admin_user(user, config.admin_domains)
-    super_admin = admin and user.org_id is None
-
     datasets = await asyncio.to_thread(
         svc.list_datasets,
-        user_id=user.id,
-        is_super_admin=super_admin,
+        user_id=roles.user.id,
+        is_super_admin=roles.is_super_admin,
     )
     return [
         {
@@ -110,7 +125,7 @@ async def list_datasets_public(
 async def get_dataset_columns_public(
     dataset_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    roles: ResolvedUser = Depends(resolve_user_roles),
 ):
     """Return column metadata for a dataset.
 
@@ -123,10 +138,8 @@ async def get_dataset_columns_public(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     # Enforce user-scope for uploaded datasets
-    if ds.get("created_by") is not None and ds["created_by"] != user.id:
-        config = await asyncio.to_thread(read_config, request.app.state.auth_engine)
-        admin = is_admin_user(user, config.admin_domains)
-        if not (admin and user.org_id is None):
+    if ds.get("created_by") is not None and ds["created_by"] != roles.user.id:
+        if not roles.is_super_admin:
             raise HTTPException(status_code=403, detail="Access denied")
 
     cols = await asyncio.to_thread(svc.get_dataset_columns, dataset_id)
@@ -202,7 +215,8 @@ async def upload_dataset(
                     logger.info("R2 backup stored: %s", r2_key)
             except Exception as e:
                 logger.warning("R2 backup failed for dataset %s: %s", result["id"], e)
-        asyncio.ensure_future(_r2_upload())
+        task = asyncio.create_task(_r2_upload())
+        task.add_done_callback(lambda t: None if t.cancelled() else t.exception())
 
     return result
 
@@ -211,7 +225,7 @@ async def upload_dataset(
 async def delete_dataset(
     dataset_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    roles: ResolvedUser = Depends(resolve_user_roles),
 ):
     """Delete a dataset and its data table.
 
@@ -219,17 +233,13 @@ async def delete_dataset(
     """
     svc = _get_dataset_service(request)
 
-    # Resolve admin status
-    config = await asyncio.to_thread(read_config, request.app.state.auth_engine)
-    admin = is_admin_user(user, config.admin_domains)
-
     # Get r2_key before deletion for cleanup
     ds_info = await asyncio.to_thread(svc.get_dataset_by_id, dataset_id)
     r2_key = ds_info.get("r2_key") if ds_info else None
 
     try:
         deleted = await asyncio.to_thread(
-            svc.delete_dataset, dataset_id, user.id, admin,
+            svc.delete_dataset, dataset_id, roles.user.id, roles.is_admin,
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
@@ -239,12 +249,13 @@ async def delete_dataset(
     if not deleted:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    logger.info("User %s deleted dataset %s", user.id, dataset_id)
+    logger.info("User %s deleted dataset %s", roles.user.id, dataset_id)
 
     # Fire-and-forget R2 cleanup
     r2 = getattr(request.app.state, "r2_storage", None)
     if r2 is not None and r2_key:
-        asyncio.ensure_future(asyncio.to_thread(r2.delete_file, r2_key))
+        task = asyncio.create_task(asyncio.to_thread(r2.delete_file, r2_key))
+        task.add_done_callback(lambda t: None if t.cancelled() else t.exception())
 
     return {"status": "ok"}
 
@@ -254,7 +265,7 @@ async def confirm_dataset(
     dataset_id: str,
     body: ConfirmDatasetRequest,
     request: Request,
-    user: User = Depends(get_current_user),
+    roles: ResolvedUser = Depends(resolve_user_roles),
 ):
     """Confirm a dataset after upload by providing column descriptions.
 
@@ -263,18 +274,14 @@ async def confirm_dataset(
     """
     svc = _get_dataset_service(request)
 
-    # Resolve admin status (same pattern as delete)
-    config = await asyncio.to_thread(read_config, request.app.state.auth_engine)
-    admin = is_admin_user(user, config.admin_domains)
-
     try:
         result = await asyncio.to_thread(
             svc.confirm_dataset,
             dataset_id,
-            user.id,
-            admin,
+            roles.user.id,
+            roles.is_admin,
             body.column_descriptions,
-            body.profile,
+            body.profile.model_dump(),
         )
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc))
@@ -282,7 +289,7 @@ async def confirm_dataset(
     if not result:
         raise HTTPException(status_code=404, detail="Dataset not found")
 
-    logger.info("User %s confirmed dataset %s", user.id, dataset_id)
+    logger.info("User %s confirmed dataset %s", roles.user.id, dataset_id)
     return result
 
 
@@ -379,7 +386,7 @@ async def delete_example_query(
 async def activate_dataset(
     dataset_id: str,
     request: Request,
-    user: User = Depends(get_current_user),
+    roles: ResolvedUser = Depends(resolve_user_roles),
 ):
     svc = _get_dataset_service(request)
     ds = await asyncio.to_thread(svc.get_dataset_by_id, dataset_id)
@@ -388,10 +395,8 @@ async def activate_dataset(
 
     # System datasets (created_by is None) can be activated by anyone.
     # User-uploaded datasets can only be activated by the owner or a super admin.
-    if ds.get("created_by") is not None and ds["created_by"] != user.id:
-        config = await asyncio.to_thread(read_config, request.app.state.auth_engine)
-        admin = is_admin_user(user, config.admin_domains)
-        if not (admin and user.org_id is None):
+    if ds.get("created_by") is not None and ds["created_by"] != roles.user.id:
+        if not roles.is_super_admin:
             raise HTTPException(status_code=403, detail="Access denied")
 
     ok = await asyncio.to_thread(svc.activate_dataset, dataset_id)

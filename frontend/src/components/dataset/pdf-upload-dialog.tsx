@@ -24,6 +24,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
+import { formatFileName, formatFileSize } from "@/lib/file-utils";
 
 interface UploadResult {
   id: string;
@@ -41,19 +42,6 @@ interface PdfUploadDialogProps {
 }
 
 const MAX_FILE_SIZE = 20 * 1024 * 1024; // 20 MB
-
-function formatFileSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function formatFileName(fileName: string): string {
-  return fileName
-    .replace(/\.pdf$/i, "")
-    .replace(/[_-]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
-}
 
 export function PdfUploadDialog({
   open,

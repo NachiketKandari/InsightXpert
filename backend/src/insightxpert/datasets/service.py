@@ -345,20 +345,6 @@ class DatasetService:
             safe = "ds_" + safe
         return safe
 
-    @staticmethod
-    def _pandas_dtype_to_sqlite(dtype) -> str:
-        """Map a pandas dtype to a SQLite column type."""
-        name = str(dtype)
-        if "int" in name:
-            return "INTEGER"
-        if "float" in name:
-            return "REAL"
-        if "bool" in name:
-            return "INTEGER"
-        if "datetime" in name:
-            return "TEXT"
-        return "TEXT"
-
     def create_dataset_from_csv(
         self,
         *,
@@ -376,7 +362,12 @@ class DatasetService:
         field is left empty until the user confirms via ``confirm_dataset``.
         Raises ValueError on parse / validation errors.
         """
-        # Parse the CSV
+        # Parse the CSV.
+        # Note: pd.read_csv loads the entire file into memory. At 50 MB the
+        # resulting DataFrame can be 3–5x the raw CSV size (~150–250 MB). Two
+        # concurrent uploads can therefore spike memory by 300–500 MB.
+        # Keep MAX_CSV_SIZE in the route at ≤50 MB and monitor memory usage
+        # in production.
         try:
             df = pd.read_csv(io.BytesIO(csv_content))
         except Exception as exc:
@@ -509,15 +500,7 @@ class DatasetService:
             doc_lines.append("")
 
             # Extract table name from DDL
-            table_name = self._sanitize_table_name(ds.name)
-            if ds.ddl:
-                m = re.search(
-                    r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?(\w+)["`]?',
-                    ds.ddl,
-                    re.IGNORECASE,
-                )
-                if m:
-                    table_name = m.group(1)
+            table_name = self._extract_table_name(ds.ddl) or self._sanitize_table_name(ds.name)
 
             doc_lines.append(f"Table: `{table_name}`")
             doc_lines.append(f"Rows: {profile.get('row_count', 'N/A'):,}")
@@ -632,15 +615,7 @@ class DatasetService:
             was_active = ds.is_active
 
             # Extract table name from DDL and drop the data table
-            table_name = None
-            if ds.ddl:
-                m = re.search(
-                    r'CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?["`]?(\w+)["`]?',
-                    ds.ddl,
-                    re.IGNORECASE,
-                )
-                if m:
-                    table_name = m.group(1)
+            table_name = self._extract_table_name(ds.ddl)
 
             if table_name and re.fullmatch(r"[a-z0-9_]+", table_name):
                 try:
