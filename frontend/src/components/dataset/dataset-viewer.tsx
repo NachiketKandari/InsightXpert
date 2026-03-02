@@ -31,6 +31,23 @@ import type { QueryResult } from "@/types/api";
 
 const PAGE_SIZE = 100;
 
+/** Badge color class per column type — matches the upload review modal. */
+function typeBadgeVariant(type: string): string {
+  switch (type) {
+    case "TEXT":
+      return "border-blue-500/40 text-blue-600 dark:text-blue-400";
+    case "INTEGER":
+    case "REAL":
+      return "border-emerald-500/40 text-emerald-600 dark:text-emerald-400";
+    case "BOOLEAN":
+      return "border-orange-500/40 text-orange-600 dark:text-orange-400";
+    case "DATETIME":
+      return "border-purple-500/40 text-purple-600 dark:text-purple-400";
+    default:
+      return "border-border text-muted-foreground";
+  }
+}
+
 interface ColumnMeta {
   id: string;
   column_name: string;
@@ -161,10 +178,12 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
   const parseDomainValues = (raw: string | null): string[] => {
     if (!raw) return [];
     try {
-      return JSON.parse(raw);
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
     } catch {
-      return [raw];
+      // Not JSON — treat as comma-separated
     }
+    return raw.split(",").map((s) => s.trim()).filter(Boolean);
   };
 
   return (
@@ -341,44 +360,81 @@ export function DatasetViewer({ open, onOpenChange, tableName = "transactions", 
               )}
 
               {columns && columns.length > 0 && (
-                <div className="divide-y divide-border/40">
-                  {columns.map((col) => {
-                    const domainValues = parseDomainValues(col.domain_values);
-                    return (
-                      <div key={col.id} className="px-5 py-3 hover:bg-accent/30 transition-colors">
-                        <div className="flex items-baseline gap-2.5">
-                          <code className="text-[13px] font-semibold text-foreground">
+                <div>
+                  {/* Table header */}
+                  <div className="sticky top-0 z-10 grid grid-cols-[1fr_80px_1fr_1fr] gap-3 border-b border-border/60 bg-muted px-5 py-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    <span>Column</span>
+                    <span>Type</span>
+                    <span>Values</span>
+                    <span>Description</span>
+                  </div>
+
+                  {/* Column rows */}
+                  <div className="divide-y divide-border/40">
+                    {columns.map((col) => {
+                      const domainValues = parseDomainValues(col.domain_values);
+                      return (
+                        <div
+                          key={col.id}
+                          className="grid grid-cols-[1fr_80px_1fr_1fr] gap-3 items-start px-5 py-2.5 hover:bg-accent/30 transition-colors"
+                        >
+                          {/* Column name */}
+                          <code className="font-mono text-xs font-medium text-foreground">
                             {col.column_name}
                           </code>
-                          <Badge variant="outline" className="text-[10px] font-mono px-1.5 py-0">
-                            {col.column_type}
-                          </Badge>
-                        </div>
-                        {col.description && (
-                          <p className="mt-1 text-xs text-muted-foreground">
-                            {col.description}
-                          </p>
-                        )}
-                        {domainValues.length > 0 && (
-                          <div className="mt-1.5 flex flex-wrap gap-1">
-                            {domainValues.map((v) => (
-                              <span
-                                key={v}
-                                className="inline-block px-1.5 py-0.5 text-[10px] rounded bg-primary/8 dark:bg-cyan-accent/10 text-primary/80 dark:text-cyan-accent/80 font-medium"
-                              >
-                                {v}
-                              </span>
-                            ))}
+
+                          {/* Type badge */}
+                          <div>
+                            <Badge
+                              variant="outline"
+                              className={`text-[10px] px-1.5 py-0 font-mono ${typeBadgeVariant(col.column_type)}`}
+                            >
+                              {col.column_type}
+                            </Badge>
                           </div>
-                        )}
-                        {col.domain_rules && (
-                          <p className="mt-1 text-[11px] text-muted-foreground/70 italic">
-                            {col.domain_rules}
-                          </p>
-                        )}
-                      </div>
-                    );
-                  })}
+
+                          {/* Domain values */}
+                          <div className="min-w-0">
+                            {domainValues.length > 0 ? (
+                              <div className="flex flex-wrap gap-1">
+                                {domainValues.slice(0, 10).map((v) => (
+                                  <span
+                                    key={v}
+                                    className="inline-block rounded bg-muted/60 border border-border/40 px-1.5 py-px text-[10px] text-muted-foreground truncate max-w-[120px]"
+                                  >
+                                    {v}
+                                  </span>
+                                ))}
+                                {domainValues.length > 10 && (
+                                  <span className="text-[10px] text-muted-foreground/60 self-center">
+                                    +{domainValues.length - 10} more
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/50">—</span>
+                            )}
+                          </div>
+
+                          {/* Description */}
+                          <div className="min-w-0">
+                            {col.description ? (
+                              <p className="text-xs text-muted-foreground leading-snug">
+                                {col.description}
+                              </p>
+                            ) : (
+                              <span className="text-xs text-muted-foreground/50">—</span>
+                            )}
+                            {col.domain_rules && (
+                              <p className="mt-0.5 text-[11px] text-muted-foreground/60 italic">
+                                {col.domain_rules}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

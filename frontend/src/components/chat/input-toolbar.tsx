@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   Plus,
-  Paperclip,
+  Upload,
+  FileText,
   TerminalSquare,
   Sparkles,
   Zap,
@@ -13,6 +14,8 @@ import {
   ArrowUp,
   Square,
   Network,
+  Mic,
+  Loader2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -37,12 +40,44 @@ import { useSettingsStore } from "@/stores/settings-store";
 import { useChatStore } from "@/stores/chat-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { PROVIDER_LABELS, formatModelName } from "@/lib/model-utils";
+import { CsvUploadDialog } from "@/components/dataset/csv-upload-dialog";
+import { PdfUploadDialog } from "@/components/dataset/pdf-upload-dialog";
+import type { VoiceState } from "@/hooks/use-voice-input";
+import { cn } from "@/lib/utils";
 
 interface InputToolbarProps {
   onSend: () => void;
   onStop: () => void;
   isStreaming: boolean;
   canSend: boolean;
+  onUploadSuccess?: () => void;
+  voiceState: VoiceState;
+  voiceError: string | null;
+  toggleVoice: () => void;
+}
+
+/** 5-bar audio waveform animation — click to stop recording. */
+function VoiceWaveButton({ onClick }: { onClick: () => void }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          onClick={onClick}
+          className="relative flex items-center justify-center h-8 w-8 shrink-0 rounded-lg bg-red-500/10 hover:bg-red-500/20 transition-colors outline-none"
+          aria-label="Stop recording"
+        >
+          <div className="voice-wave flex items-end gap-[3px] h-4">
+            <span className="voice-bar w-[3px] rounded-full bg-red-500" style={{ animationDelay: "0ms" }} />
+            <span className="voice-bar w-[3px] rounded-full bg-red-500" style={{ animationDelay: "150ms" }} />
+            <span className="voice-bar w-[3px] rounded-full bg-red-500" style={{ animationDelay: "300ms" }} />
+            <span className="voice-bar w-[3px] rounded-full bg-red-500" style={{ animationDelay: "100ms" }} />
+            <span className="voice-bar w-[3px] rounded-full bg-red-500" style={{ animationDelay: "250ms" }} />
+          </div>
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">Click to stop recording</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function InputToolbar({
@@ -50,7 +85,13 @@ export function InputToolbar({
   onStop,
   isStreaming,
   canSend,
+  onUploadSuccess,
+  voiceState,
+  voiceError,
+  toggleVoice,
 }: InputToolbarProps) {
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [pdfUploadOpen, setPdfUploadOpen] = useState(false);
   const { isFeatureEnabled } = useClientConfig();
   const showModelSwitching = isFeatureEnabled("model_switching");
   const showSqlExecutor = isFeatureEnabled("sql_executor");
@@ -140,6 +181,7 @@ export function InputToolbar({
   const ActiveIcon = active.icon;
 
   return (
+    <>
     <div className="flex items-center justify-between pt-1">
       {/* Left: + menu and agent mode tag */}
       <div className="flex items-center gap-1">
@@ -159,10 +201,13 @@ export function InputToolbar({
             <TooltipContent side="top">Attach, tools & agents</TooltipContent>
           </Tooltip>
           <DropdownMenuContent side="top" align="start" className="min-w-[200px]">
-            <DropdownMenuItem disabled>
-              <Paperclip className="size-4" />
+            <DropdownMenuItem onSelect={() => setUploadOpen(true)}>
+              <Upload className="size-4" />
               Upload CSV
-              <span className="ml-auto text-[10px] text-muted-foreground/60">Soon</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setPdfUploadOpen(true)}>
+              <FileText className="size-4" />
+              Upload Document
             </DropdownMenuItem>
 
             {showSqlExecutor && (
@@ -240,7 +285,7 @@ export function InputToolbar({
         )}
       </div>
 
-      {/* Right: Model selector + Send/Stop */}
+      {/* Right: Model selector + Mic / Send / Stop */}
       <div className="flex items-center gap-1">
         {showModelSwitching && (
           <Tooltip>
@@ -292,6 +337,33 @@ export function InputToolbar({
           </Tooltip>
         )}
 
+        {/* Mic / waveform button — wavy bars while recording, mic icon when idle */}
+        {voiceState === "listening" ? (
+          <VoiceWaveButton onClick={toggleVoice} />
+        ) : (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                onClick={toggleVoice}
+                className={cn(
+                  "flex items-center justify-center h-8 w-8 shrink-0 rounded-lg transition-colors outline-none",
+                  voiceState === "requesting"
+                    ? "text-muted-foreground cursor-wait"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                )}
+                aria-label="Start voice input"
+              >
+                {voiceState === "requesting" ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mic className="h-4 w-4" />
+                )}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="top">Voice input</TooltipContent>
+          </Tooltip>
+        )}
+
         {isStreaming ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -323,5 +395,24 @@ export function InputToolbar({
         )}
       </div>
     </div>
+
+    {/* Voice error toast */}
+    {voiceError && voiceState === "idle" && (
+      <p className="px-1 pb-0.5 text-xs text-red-500">
+        {voiceError}
+      </p>
+    )}
+
+    <CsvUploadDialog
+      open={uploadOpen}
+      onOpenChange={setUploadOpen}
+      onUploadSuccess={() => { onUploadSuccess?.(); }}
+    />
+    <PdfUploadDialog
+      open={pdfUploadOpen}
+      onOpenChange={setPdfUploadOpen}
+      onUploadSuccess={() => onUploadSuccess?.()}
+    />
+    </>
   );
 }
