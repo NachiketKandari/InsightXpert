@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 
+from insightxpert.agents.sql_guard import FORBIDDEN_SQL_RE, validate_tables
 from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
 
 logger = logging.getLogger("insightxpert.tools")
@@ -44,8 +45,20 @@ class RunSqlTool(Tool):
         }
 
     async def execute(self, context: ToolContext, args: dict) -> str:
+        sql = args["sql"]
+
+        # Block write operations
+        if FORBIDDEN_SQL_RE.match(sql):
+            return json.dumps({"error": "Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed."})
+
+        # Enforce table-level access control
+        if context.allowed_tables is not None:
+            error = validate_tables(sql, context.allowed_tables)
+            if error:
+                return json.dumps({"error": error})
+
         rows = await asyncio.to_thread(
-            context.db.execute, args["sql"], row_limit=context.row_limit,
+            context.db.execute, sql, row_limit=context.row_limit,
         )
         logger.debug("run_sql returned %d rows", len(rows))
         return json.dumps({"rows": rows, "row_count": len(rows)}, default=str)
@@ -76,6 +89,18 @@ class GetSchemaTool(Tool):
         from insightxpert.db.schema import get_schema_ddl, get_table_info
 
         tables = args.get("tables", [])
+
+        # Filter to allowed tables when dataset isolation is active
+        if context.allowed_tables is not None:
+            allowed_lower = {t.lower() for t in context.allowed_tables}
+            if tables:
+                tables = [t for t in tables if t.lower() in allowed_lower]
+                if not tables:
+                    return json.dumps({"error": "None of the requested tables are in the active dataset."})
+            else:
+                # No specific tables requested — return only allowed tables
+                tables = sorted(context.allowed_tables)
+
         if tables:
             results = await asyncio.gather(
                 *(asyncio.to_thread(get_table_info, context.db.engine, t) for t in tables)
@@ -150,12 +175,20 @@ class SearchSimilarTool(Tool):
         collection = args["collection"]
         if collection == "qa_pairs":
             items = await asyncio.to_thread(
-                context.rag.search_qa, query, max_distance=1.0, sql_valid_only=True,
+                context.rag.search_qa, query,
+                max_distance=1.0, sql_valid_only=True,
+                dataset_id=context.dataset_id, org_id=context.org_id,
             )
         elif collection == "ddl":
-            items = await asyncio.to_thread(context.rag.search_ddl, query)
+            items = await asyncio.to_thread(
+                context.rag.search_ddl, query,
+                dataset_id=context.dataset_id, org_id=context.org_id,
+            )
         elif collection == "docs":
-            items = await asyncio.to_thread(context.rag.search_docs, query)
+            items = await asyncio.to_thread(
+                context.rag.search_docs, query,
+                dataset_id=context.dataset_id, org_id=context.org_id,
+            )
         else:
             logger.warning("Unknown collection: %s", collection)
             return json.dumps({"error": f"Unknown collection: {collection}"})

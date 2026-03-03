@@ -83,6 +83,9 @@ async def orchestrator_loop(
     # Resolve active dataset DDL and documentation
     ddl_override: str | None = None
     docs_override: str | None = None
+    allowed_tables: set[str] | None = None
+    dataset_id: str | None = None
+    org_id: str | None = None
 
     if dataset_service is not None:
         active_ds = await asyncio.to_thread(dataset_service.get_active_dataset)
@@ -91,6 +94,12 @@ async def orchestrator_loop(
             docs_override = await asyncio.to_thread(
                 dataset_service.build_documentation_markdown, active_ds["id"],
             )
+            # Extract table isolation context from the active dataset
+            dataset_id = active_ds.get("id")
+            org_id = active_ds.get("organization_id")
+            table_name = dataset_service._extract_table_name(ddl_override)
+            if table_name:
+                allowed_tables = {table_name}
 
     effective_ddl = ddl_override or DDL
     effective_docs = docs_override or DOCUMENTATION
@@ -130,6 +139,9 @@ async def orchestrator_loop(
             stats_groups=stats_groups,
             clarification_enabled=effective_clarification,
             rag_retrieval=rag_retrieval,
+            allowed_tables=allowed_tables,
+            dataset_id=dataset_id,
+            org_id=org_id,
         ):
             yield chunk
         return
@@ -152,6 +164,9 @@ async def orchestrator_loop(
             stats_groups=stats_groups,
             clarification_enabled=effective_clarification,
             rag_retrieval=rag_retrieval,
+            allowed_tables=allowed_tables,
+            dataset_id=dataset_id,
+            org_id=org_id,
         ):
             yield chunk
         return
@@ -176,6 +191,9 @@ async def orchestrator_loop(
         stats_groups=stats_groups,
         clarification_enabled=effective_clarification,
         rag_retrieval=rag_retrieval,
+        allowed_tables=allowed_tables,
+        dataset_id=dataset_id,
+        org_id=org_id,
     ):
         yield chunk
         collector.process_chunk(chunk)
@@ -200,7 +218,7 @@ async def orchestrator_loop(
     rag_context: list[dict] = []
     if rag_retrieval:
         try:
-            similar = rag.search_qa(question, n=3)
+            similar = rag.search_qa(question, n=3, dataset_id=dataset_id, org_id=org_id)
             rag_context = [
                 {"question": doc.get("question", ""), "sql": doc.get("sql", "")}
                 for doc in similar
@@ -266,6 +284,9 @@ async def orchestrator_loop(
                 docs_override=docs_override,
                 stats_context=stats_context,
                 stats_groups=stats_groups,
+                allowed_tables=allowed_tables,
+                dataset_id=dataset_id,
+                org_id=org_id,
             )
         elif task.agent == "quant_analyst":
             return await _run_quant_analyst(
@@ -278,6 +299,9 @@ async def orchestrator_loop(
                 conversation_id=cid,
                 ddl=effective_ddl,
                 documentation=effective_docs,
+                allowed_tables=allowed_tables,
+                dataset_id=dataset_id,
+                org_id=org_id,
             )
         else:
             return SubTaskResult(
@@ -370,6 +394,9 @@ async def _run_sql_analyst(
     docs_override: str | None,
     stats_context: str | None,
     stats_groups: list[str],
+    allowed_tables: set[str] | None = None,
+    dataset_id: str | None = None,
+    org_id: str | None = None,
 ) -> SubTaskResult:
     """Run analyst_loop for a sub-task and collect results."""
     collected_sql = ""
@@ -392,6 +419,9 @@ async def _run_sql_analyst(
             stats_context=stats_context,
             stats_groups=stats_groups,
             clarification_enabled=False,
+            allowed_tables=allowed_tables,
+            dataset_id=dataset_id,
+            org_id=org_id,
         ):
             step: dict = {
                 "type": chunk.type,
@@ -471,6 +501,9 @@ async def _run_quant_analyst(
     conversation_id: str,
     ddl: str,
     documentation: str,
+    allowed_tables: set[str] | None = None,
+    dataset_id: str | None = None,
+    org_id: str | None = None,
 ) -> SubTaskResult:
     """Run quant_analyst_loop for a sub-task and collect results."""
     collected_answer = ""
@@ -488,6 +521,9 @@ async def _run_quant_analyst(
             conversation_id=conversation_id,
             ddl=ddl,
             documentation=documentation,
+            allowed_tables=allowed_tables,
+            dataset_id=dataset_id,
+            org_id=org_id,
         ):
             step: dict = {
                 "type": chunk.type,

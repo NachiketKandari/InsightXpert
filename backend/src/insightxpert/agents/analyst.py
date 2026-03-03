@@ -95,6 +95,9 @@ async def analyst_loop(
     stats_groups: list[str] | None = None,
     clarification_enabled: bool = False,
     rag_retrieval: bool = True,
+    allowed_tables: set[str] | None = None,
+    dataset_id: str | None = None,
+    org_id: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst agentic loop for a single user question.
 
@@ -133,7 +136,10 @@ async def analyst_loop(
     # Build tool registry and context
     if tool_registry is None:
         tool_registry = default_registry(clarification_enabled=clarification_enabled)
-    tool_context = ToolContext(db=db, rag=rag, row_limit=config.sql_row_limit)
+    tool_context = ToolContext(
+        db=db, rag=rag, row_limit=config.sql_row_limit,
+        allowed_tables=allowed_tables, dataset_id=dataset_id, org_id=org_id,
+    )
 
     logger.info("=" * 60)
     logger.info("NEW QUESTION [%s]: %s", cid, question)
@@ -156,6 +162,7 @@ async def analyst_loop(
         rag_start = time.time()
         similar_qa = await asyncio.to_thread(
             rag.search_qa, question, n=3, max_distance=1.0, sql_valid_only=True,
+            dataset_id=dataset_id, org_id=org_id,
         )
         rag_ms = (time.time() - rag_start) * 1000
 
@@ -436,8 +443,13 @@ async def analyst_loop(
             sql = _extract_sql_from_messages(messages)
             if sql:
                 try:
+                    save_meta: dict = {"sql_valid": True}
+                    if dataset_id:
+                        save_meta["dataset_id"] = dataset_id
+                    if org_id:
+                        save_meta["org_id"] = org_id
                     await asyncio.to_thread(
-                        rag.add_qa_pair, question, sql, {"sql_valid": True},
+                        rag.add_qa_pair, question, sql, save_meta,
                     )
                     logger.debug("Auto-saved QA pair to RAG (sql_valid=True)")
                 except Exception:

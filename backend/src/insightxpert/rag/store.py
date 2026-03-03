@@ -98,18 +98,23 @@ class VectorStore:
         self._qa.upsert(ids=[doc_id], documents=[doc], metadatas=[meta])
         return doc_id
 
-    def add_ddl(self, ddl: str, table_name: str = "") -> str:
+    def add_ddl(self, ddl: str, table_name: str = "", metadata: dict | None = None) -> str:
         """Add a DDL statement to the ``ddl`` collection.
 
         Args:
             ddl: The CREATE TABLE (or similar) DDL string.
             table_name: Optional table name stored as metadata for filtering.
+            metadata: Optional extra metadata (e.g. ``{"dataset_id": "..."}``).
 
         Returns:
             The deterministic document ID.
         """
         doc_id = self._make_id(ddl)
-        meta = {"table_name": table_name} if table_name else None
+        meta: dict = {}
+        if table_name:
+            meta["table_name"] = table_name
+        if metadata:
+            meta.update(metadata)
         self._ddl.upsert(ids=[doc_id], documents=[ddl], metadatas=[meta] if meta else None)
         return doc_id
 
@@ -147,33 +152,57 @@ class VectorStore:
         self._findings.upsert(ids=[doc_id], documents=[finding], metadatas=[meta] if meta else None)
         return doc_id
 
+    @staticmethod
+    def _build_scope_filter(
+        dataset_id: str | None = None,
+        org_id: str | None = None,
+    ) -> dict | None:
+        """Build a ChromaDB ``where`` filter that scopes results to a dataset.
+
+        Returns entries that match the active ``dataset_id`` OR are tagged
+        as system entries (``dataset_id == "__system__"``).  When no
+        ``dataset_id`` is provided, returns ``None`` (no filtering).
+        """
+        if not dataset_id:
+            return None
+        return {"$or": [{"dataset_id": dataset_id}, {"dataset_id": "__system__"}]}
+
+    @staticmethod
+    def _merge_where(base: dict | None, extra: dict | None) -> dict | None:
+        """Merge two ChromaDB ``where`` clauses with ``$and``."""
+        if base and extra:
+            return {"$and": [base, extra]}
+        return base or extra
+
     def search_qa(
         self,
         question: str,
         n: int = 3,
         max_distance: float | None = None,
         sql_valid_only: bool = False,
+        dataset_id: str | None = None,
+        org_id: str | None = None,
     ) -> list[dict]:
         """Search the ``qa_pairs`` collection for similar past queries.
 
-        Uses ChromaDB's embedding-based similarity search.  Results are
-        optionally filtered by metadata (``sql_valid``) and post-filtered
-        by maximum L2 distance to discard weak matches.
+        When ``dataset_id`` is provided, results are scoped to entries
+        matching that dataset or tagged as ``"__system__"`` entries.
 
         Args:
             question: The natural-language question to search for.
             n: Maximum number of results to return (default 3).
             max_distance: If set, discard results with distance > this value.
-                The analyst pipeline uses 1.0 as the threshold.
-            sql_valid_only: If ``True``, only return Q&A pairs whose metadata
-                includes ``sql_valid=True`` (i.e. SQL that was successfully
-                executed).
+            sql_valid_only: If ``True``, only return validated Q&A pairs.
+            dataset_id: If set, scope results to this dataset + system entries.
+            org_id: Reserved for future org-level scoping.
 
         Returns:
-            A list of dicts, each with keys ``"document"``, ``"metadata"``,
-            and ``"distance"``, sorted by ascending distance.
+            A list of dicts with ``"document"``, ``"metadata"``, ``"distance"``.
         """
-        where = {"sql_valid": True} if sql_valid_only else None
+        valid_filter = {"sql_valid": True} if sql_valid_only else None
+        scope_filter = self._build_scope_filter(dataset_id, org_id)
+        where = self._merge_where(valid_filter, scope_filter)
+
         results = self._qa.query(
             query_texts=[question],
             n_results=n,
@@ -184,30 +213,48 @@ class VectorStore:
             items = [it for it in items if it["distance"] <= max_distance]
         return items
 
-    def search_ddl(self, question: str, n: int = 3) -> list[dict]:
+    def search_ddl(
+        self,
+        question: str,
+        n: int = 3,
+        dataset_id: str | None = None,
+        org_id: str | None = None,
+    ) -> list[dict]:
         """Search the ``ddl`` collection for relevant table schemas.
 
         Args:
             question: The natural-language question to search for.
             n: Maximum number of results to return (default 3).
+            dataset_id: If set, scope results to this dataset + system entries.
+            org_id: Reserved for future org-level scoping.
 
         Returns:
             A list of dicts with ``"document"``, ``"metadata"``, ``"distance"``.
         """
-        results = self._ddl.query(query_texts=[question], n_results=n)
+        where = self._build_scope_filter(dataset_id, org_id)
+        results = self._ddl.query(query_texts=[question], n_results=n, where=where)
         return self._unpack(results)
 
-    def search_docs(self, question: str, n: int = 3) -> list[dict]:
+    def search_docs(
+        self,
+        question: str,
+        n: int = 3,
+        dataset_id: str | None = None,
+        org_id: str | None = None,
+    ) -> list[dict]:
         """Search the ``docs`` collection for relevant documentation.
 
         Args:
             question: The natural-language question to search for.
             n: Maximum number of results to return (default 3).
+            dataset_id: If set, scope results to this dataset + system entries.
+            org_id: Reserved for future org-level scoping.
 
         Returns:
             A list of dicts with ``"document"``, ``"metadata"``, ``"distance"``.
         """
-        results = self._docs.query(query_texts=[question], n_results=n)
+        where = self._build_scope_filter(dataset_id, org_id)
+        results = self._docs.query(query_texts=[question], n_results=n, where=where)
         return self._unpack(results)
 
     def search_findings(self, question: str, n: int = 3) -> list[dict]:

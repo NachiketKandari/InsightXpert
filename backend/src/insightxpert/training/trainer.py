@@ -80,7 +80,7 @@ class Trainer:
                 col_parts.append(f"  FOREIGN KEY ({cols}) REFERENCES {fk['references']}")
 
             ddl = f"CREATE TABLE {table} (\n" + ",\n".join(col_parts) + "\n);"
-            self._rag.add_ddl(ddl, table_name=table)
+            self._rag.add_ddl(ddl, table_name=table, metadata={"dataset_id": "__system__", "org_id": "__system__"})
             count += 1
 
         return count
@@ -91,6 +91,9 @@ class Trainer:
         Reads DDL, documentation, and example queries from the DatasetService
         and adds them to the RAG store. Returns the number of items added,
         or 0 if no active dataset is found.
+
+        All entries are tagged with ``dataset_id`` and ``org_id`` so that
+        RAG retrieval can be scoped to the active dataset.
         """
         active = dataset_service.get_active_dataset()
         if not active:
@@ -99,18 +102,20 @@ class Trainer:
 
         count = 0
         dataset_id = active["id"]
+        org_id = active.get("organization_id") or "__system__"
+        scope_meta = {"dataset_id": dataset_id, "org_id": org_id}
 
         # DDL
         ddl = active.get("ddl", "")
         if ddl:
-            self._rag.add_ddl(ddl, table_name=active.get("name", ""))
+            self._rag.add_ddl(ddl, table_name=active.get("name", ""), metadata=scope_meta)
             count += 1
             logger.debug("Added DDL from dataset '%s'", active["name"])
 
         # Documentation (build from columns if available, else use stored docs)
         docs = dataset_service.build_documentation_markdown(dataset_id)
         if docs:
-            self._rag.add_documentation(docs, {"source": "dataset_db"})
+            self._rag.add_documentation(docs, {"source": "dataset_db", **scope_meta})
             count += 1
             logger.debug("Added documentation from dataset '%s'", active["name"])
 
@@ -119,7 +124,7 @@ class Trainer:
         for q in queries:
             self._rag.add_qa_pair(
                 q["question"], q["sql"],
-                {"source": "dataset_db", "sql_valid": True},
+                {"source": "dataset_db", "sql_valid": True, **scope_meta},
             )
             count += 1
         if queries:
@@ -160,19 +165,22 @@ class Trainer:
                 return count
 
         # Fallback: use hardcoded training files
+        # Tagged as __system__ so they are visible to all datasets.
+        sys_meta = {"dataset_id": "__system__", "org_id": "__system__"}
+
         # Step 1: Add the canonical DDL for the transactions table
-        self._rag.add_ddl(DDL, table_name="transactions")
+        self._rag.add_ddl(DDL, table_name="transactions", metadata=sys_meta)
         count += 1
         logger.debug("Added DDL for transactions table")
 
         # Step 2: Add business documentation
-        self._rag.add_documentation(DOCUMENTATION, {"source": "insightxpert_training"})
+        self._rag.add_documentation(DOCUMENTATION, {"source": "insightxpert_training", **sys_meta})
         count += 1
         logger.debug("Added business documentation")
 
         # Step 3: Add example Q&A pairs (curated examples are always valid SQL)
         for qa in EXAMPLE_QUERIES:
-            self._rag.add_qa_pair(qa["question"], qa["sql"], {"source": "insightxpert_training", "sql_valid": True})
+            self._rag.add_qa_pair(qa["question"], qa["sql"], {"source": "insightxpert_training", "sql_valid": True, **sys_meta})
             count += 1
         logger.debug("Added %d example Q&A pairs", len(EXAMPLE_QUERIES))
 

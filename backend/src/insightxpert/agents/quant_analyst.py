@@ -60,6 +60,9 @@ async def quant_analyst_loop(
     conversation_id: str = "",
     ddl: str = "",
     documentation: str = "",
+    allowed_tables: set[str] | None = None,
+    dataset_id: str | None = None,
+    org_id: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the quant analyst agent loop on upstream results."""
     cid = conversation_id
@@ -100,6 +103,9 @@ async def quant_analyst_loop(
         row_limit=config.sql_row_limit,
         analyst_results=merged_results,
         analyst_sql=merged_sql,
+        allowed_tables=allowed_tables,
+        dataset_id=dataset_id,
+        org_id=org_id,
     )
 
     logger.info("=" * 60)

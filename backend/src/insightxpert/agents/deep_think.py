@@ -268,6 +268,9 @@ async def deep_think_loop(
     stats_groups: list[str] | None = None,
     clarification_enabled: bool = False,
     rag_retrieval: bool = True,
+    allowed_tables: set[str] | None = None,
+    dataset_id: str | None = None,
+    org_id: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the Deep Think 5W1H pipeline.
 
@@ -318,6 +321,9 @@ async def deep_think_loop(
         stats_groups=stats_groups,
         clarification_enabled=clarification_enabled,
         rag_retrieval=rag_retrieval,
+        allowed_tables=allowed_tables,
+        dataset_id=dataset_id,
+        org_id=org_id,
     ):
         yield chunk
         collector.process_chunk(chunk)
@@ -406,6 +412,9 @@ async def deep_think_loop(
                 conversation_id=cid,
                 ddl=effective_ddl,
                 documentation=effective_docs,
+                allowed_tables=allowed_tables,
+                dataset_id=dataset_id,
+                org_id=org_id,
             )
         return await _run_sql_analyst(
             task=task,
@@ -418,6 +427,9 @@ async def deep_think_loop(
             docs_override=documentation,
             stats_context=stats_context,
             stats_groups=stats_groups or [],
+            allowed_tables=allowed_tables,
+            dataset_id=dataset_id,
+            org_id=org_id,
         )
 
     results = await execute_dag(
@@ -549,6 +561,9 @@ async def deep_think_loop(
                     docs_override=documentation,
                     stats_context=stats_context,
                     stats_groups=stats_groups or [],
+                    allowed_tables=allowed_tables,
+                    dataset_id=dataset_id,
+                    org_id=org_id,
                 )
 
             inv_results = await execute_dag(
