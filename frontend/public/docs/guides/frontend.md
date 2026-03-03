@@ -29,11 +29,14 @@ Fonts: Inter (body), JetBrains Mono (code). Both loaded via `next/font/google` a
 | `/` | Yes (`AuthGuard`) | Main chat interface |
 | `/login` | No | Email + password login form |
 | `/register` | No | Registration form |
+| `/automations` | Yes (`AuthGuard`) | Automation list + workflow builder (standalone page, not under `/admin`) |
 | `/admin` | Yes + `is_admin` | Admin dashboard |
 | `/admin/automations` | Yes + `is_admin` | Automation workflow builder (mounts `WorkflowBuilder` dialog immediately on load) |
 | `/admin/notifications` | Yes + `is_admin` | Notification management |
 
 `AuthGuard` (`components/auth/auth-guard.tsx`) calls `checkAuth()` on mount. If the user is not authenticated it redirects to `/login`; if the user lacks `is_admin` it redirects from admin routes to `/`.
+
+The `/automations` route has its own layout (`app/automations/layout.tsx`) that wraps children in `AuthGuard`. The page renders a sticky header with a back-link to `/`, an `AutomationList`, a `WorkflowBuilder` dialog, and a `ConfirmDialog` for delete confirmation.
 
 ---
 
@@ -47,8 +50,9 @@ Located at the top of `AppShell`. Contains:
 
 - Left sidebar toggle button
 - `AppLogo`
-- Dataset selector (opens `DatasetViewer`)
+- Dataset selector (`DatasetSelector` dropdown; see Dataset Components below)
 - Model switcher (reads from `settings-store`, calls `POST /api/config/switch`)
+- Documentation button (`DocsDialog`; see Layout Components below)
 - Insight bell (`InsightBell`) with unread badge
 - Notification bell (`NotificationBell`) with unread badge
 - User menu (theme toggle, admin link if `is_admin`, logout)
@@ -106,8 +110,12 @@ Both sidebars collapse to overlays on viewports below the `md` breakpoint (768px
 
 Sits below `MessageInput`. Contains:
 
-- **Agent mode selector** — Basic / Agentic / Deep tabs, persisted in `settings-store`
-- **Clarification controls** — "Just answer" skip button, visible when `pendingClarification` is set in `chat-store`
+- **Plus menu** (`+` button) — dropdown with "Upload CSV" (opens `CsvUploadDialog`), "Upload Document" (opens `PdfUploadDialog`), "SQL Executor" (if feature-enabled), and analysis mode selection
+- **Agent mode selector** — Basic / Agentic / Deep Think pill tag, persisted in `settings-store`. During streaming the pill switches to show the current agent phase (e.g. "Orchestrating", "Analyzing", "Deep Thinking") as a static label
+- **Model switcher** — provider/model dropdown (shown when `model_switching` feature is enabled)
+- **Voice input button** — microphone icon that toggles voice recording (see `useVoiceInput` hook below). While recording, displays an animated 5-bar waveform button (`VoiceWaveButton`); while requesting mic permission, shows a spinner
+- **Send / Stop button** — send arrow when idle, stop square during streaming
+- **Voice error** — inline red error text shown below the toolbar when `voiceError` is set
 
 ### `MessageList`
 
@@ -257,12 +265,35 @@ Holds automation workflows (`automations[]`), run history, and workflow builder 
 | Hook | File | Purpose |
 |---|---|---|
 | `useSSEChat()` | `hooks/use-sse-chat.ts` | Manages SSE streaming, chunk dispatch, agent steps |
+| `useVoiceInput(onTranscript?)` | `hooks/use-voice-input.ts` | Streams mic audio to backend for real-time speech-to-text (see below) |
 | `useClientConfig()` | `hooks/use-client-config.ts` | Reads feature toggles from `client-config-store` |
 | `useTheme()` | `hooks/use-theme.ts` | Dark/light mode toggle (localStorage + system preference) |
 | `useAutoScroll(ref, deps)` | `hooks/use-auto-scroll.ts` | Auto-scrolls a container to bottom when deps change |
 | `useMediaQuery(query)` | `hooks/use-media-query.ts` | Responsive breakpoint detection |
 | `useSyntaxTheme()` | `hooks/use-syntax-theme.ts` | Returns correct syntax-highlighter theme for dark/light mode |
 | `useHealthCheck()` | `hooks/use-health-check.ts` | Polls `/api/health` until backend is ready |
+
+### `useVoiceInput`
+
+`hooks/use-voice-input.ts` provides real-time speech-to-text via a WebSocket connection to the backend (`/api/transcribe`), which proxies audio to Deepgram Nova-3.
+
+**State machine** (`VoiceState`): `"idle"` -> `"requesting"` (awaiting mic permission) -> `"listening"` (recording + transcribing).
+
+**How it works:**
+
+1. `start()` requests mic access via `getUserMedia({ audio: true })`, then opens a WebSocket to `{wsBaseUrl}/api/transcribe?token=...`.
+2. A `MediaRecorder` (WebM/Opus, 250ms timeslice) sends audio binary frames over the WebSocket.
+3. Incoming Deepgram JSON messages update two buffers: `committedRef` (finalized phrases) and `interimRef` (in-progress text). After each update, `emit()` pushes the full accumulated transcript (`prefix + committed + interim`) to the `onTranscript` callback.
+4. On `speech_final` from Deepgram (end-of-utterance), `stop()` is called automatically.
+5. A 10-second silence timer auto-stops if no speech is detected.
+6. `prefixRef` accumulates text across multiple voice sessions so the user can dictate, stop, type, then dictate again without losing earlier text.
+7. `clearVoiceText()` resets all buffers -- called by `MessageInput` after sending a message.
+
+**WebSocket URL resolution:** Uses `SSE_BASE_URL` (direct to backend, bypassing CDN proxy which does not support WebSockets). Falls back to `window.location` for local development.
+
+**Error handling:** Displays inline error text for mic denial (`"Microphone access denied"`), WebSocket failure (`"Voice connection failed"`), auth errors (WS close code 4001), and unconfigured STT (WS close code 4002).
+
+**Returns:** `{ voiceState, voiceError, toggleVoice, clearVoiceText }`.
 
 ---
 
@@ -320,16 +351,69 @@ Located in `components/notifications/`.
 
 Located in `components/dataset/`.
 
-**`DatasetViewer`** — full-screen dialog for browsing raw data. Features:
+### `DatasetViewer`
 
-- Tabs: **Data** (paginated rows) and **Schema** (column metadata)
-- 100 rows per page with Previous / Next pagination
-- Sticky opaque column headers (do not disappear on scroll)
-- Click a row to open a row-detail preview panel
-- Download button for CSV export
-- Calls `GET /api/datasets/:id/data?offset=&limit=` and `GET /api/datasets/:id/schema`
+`dataset-viewer.tsx` — near-full-screen dialog for browsing raw dataset data. Props: `open`, `onOpenChange`, `tableName`, `datasetName`, `description`, `datasetId`.
 
-**`DatasetSelector`** — dropdown in the header to switch the active dataset context.
+Features:
+
+- **Tabs:** **Data** (paginated rows) and **Columns** (column metadata, lazy-loaded on first tab switch)
+- **Data tab:** 100 rows per page via `POST /api/sql/execute` with `SELECT * FROM <table> LIMIT 100 OFFSET <n>`. Sticky opaque column headers. Alternating row stripe colors. Row number column with offset-aware numbering. Auto-scrolls to top on page change.
+- **Columns tab:** fetches `GET /api/datasets/public/:id/columns` and renders a grid with column name, type badge (color-coded by SQLite type), domain values (chip pills for low-cardinality columns), description, and domain rules. Only loads when the user switches to the tab.
+- **Pagination footer:** shows "Page X of Y", Previous / Next buttons, row range indicator, and a CSV download button that opens `GET /api/sql/export-csv?table=<table>` in a new tab.
+- **Header:** dataset name, "Read-only" badge, and total row count.
+
+### `DatasetSelector`
+
+`components/layout/dataset-selector.tsx` — dropdown in the header to switch the active dataset context. Fetches `GET /api/datasets/public` on mount.
+
+Features:
+
+- Lists all datasets with a checkmark on the active one
+- Click a dataset to activate it (`POST /api/datasets/:id/activate`) with optimistic local state update
+- **Eye icon** per dataset opens `DatasetViewer` for preview
+- **Delete icon** per dataset (visible only if the user owns the dataset or is admin; seeded datasets with no `created_by` cannot be deleted). Calls `DELETE /api/datasets/:id` with a `window.confirm` prompt.
+- **"Upload CSV" action** at the bottom opens `CsvUploadDialog`
+- Listens for `dataset-changed` `CustomEvent` on `window` to immediately reflect datasets uploaded from other components (e.g. the `InputToolbar` upload dialog) without requiring a full refetch
+
+### `CsvUploadDialog`
+
+`csv-upload-dialog.tsx` — two-step dialog for uploading CSV datasets.
+
+**Step 1 -- Upload:** file picker (drag-to-click zone, `.csv` only, 50 MB max), dataset name input (auto-filled from file name via `formatFileName`), optional description textarea. Submits as `multipart/form-data` to `POST /api/datasets/upload`.
+
+**Step 2 -- Profile Review:** after upload, the server returns a `DatasetProfile` with per-column stats. The dialog expands to a wide layout showing a summary bar (row count, column count) and a scrollable table of columns with:
+- Column name (with null percentage)
+- Type badge (color-coded: blue for TEXT, emerald for INTEGER/REAL, orange for BOOLEAN, purple for DATETIME)
+- Distinct count (with "unique" indicator)
+- Details (chip pills for low-cardinality values, range for numeric columns)
+- Editable description input (pre-filled with smart defaults via `defaultDescription()`)
+
+Clicking **Confirm** calls `POST /api/datasets/:id/confirm` with the column descriptions and profile, dispatches a `dataset-changed` `CustomEvent` on `window`, and calls `onUploadSuccess`.
+
+### `PdfUploadDialog`
+
+`pdf-upload-dialog.tsx` — dialog for uploading PDF documents as analysis context.
+
+**Upload form:** file picker (`.pdf` only, 20 MB max), document name input (auto-filled from file name), optional description. Submits as `multipart/form-data` to `POST /api/documents/upload`.
+
+**Result view:** after successful upload, shows document name, original file name, page count, and a scrollable preview of the extracted text. Clicking **Done** closes the dialog and calls `onUploadSuccess`.
+
+---
+
+## Layout Components
+
+Located in `components/layout/`.
+
+### `DocsDialog`
+
+`docs-dialog.tsx` — full documentation browser accessible from the header via a book icon button with tooltip.
+
+**Structure:** opens a wide dialog (95vw, max 5xl, 80vh) with a two-panel layout:
+- **Left sidebar** (224px): scrollable nav with grouped document links organized into "Overview" (README, Architecture, Walkthrough, Design Patterns) and "Guides" (Agent Pipeline, Agent Tools, Agents & Modes, API Reference, Architecture Detail, Automations, Configuration, Contributing, Dataset, Frontend). Active item is highlighted with primary color and a chevron indicator.
+- **Right content area:** fetches the selected markdown file from the `/docs/` public path, renders it with `ReactMarkdown` + `remark-gfm` using custom styled components for headings, paragraphs, lists, code blocks, tables, links, and blockquotes.
+
+**Behavior:** lazily fetches document content when the dialog opens or the active path changes. Shows a loading indicator while fetching.
 
 ---
 
@@ -360,6 +444,39 @@ Steps are added in real time by `useSSEChat` as chunks arrive.
 
 ---
 
+## Utility Libraries
+
+### `lib/file-utils.ts`
+
+Shared helpers used by the CSV and PDF upload dialogs:
+
+- `formatFileName(fileName)` -- strips the last file extension and converts underscores/hyphens to spaces with title case (e.g. `"q4_sales-data.csv"` becomes `"Q4 Sales Data"`)
+- `formatFileSize(bytes)` -- human-readable file size string (B, KB, or MB with one decimal)
+
+### `lib/model-utils.ts`
+
+- `PROVIDER_LABELS` -- display names for LLM providers
+- `formatModelName(model, provider)` -- prettifies model identifiers for the UI
+
+### `lib/chart-detector.ts`
+
+Auto-detects chart type from SQL result columns and rows (see Chart Detection section above).
+
+### `lib/sql-utils.ts`
+
+SQL formatting and basic validation helpers used by the SQL executor and automation tools.
+
+---
+
+## Types
+
+### `types/dataset.ts`
+
+- `DatasetInfo` -- shape of a dataset object from the API: `{ id, name, description, is_active, table_name, organization_id?, created_by }`
+- `DocumentInfo` -- shape of an uploaded document: `{ id, name, description, file_name, file_type, file_size_bytes, page_count, extracted_text_preview, dataset_id, created_by, created_at }`
+
+---
+
 ## Key Conventions
 
 - All pages that require authentication are wrapped in `AuthGuard`.
@@ -367,3 +484,6 @@ Steps are added in real time by `useSSEChat` as chunks arrive.
 - `auth-store` is not persisted — it always re-validates with the server via `checkAuth()` on mount.
 - SSE chunks are queued via `queueMicrotask` before delivery, exploiting React 18 batching to keep renders efficient.
 - `AnswerChunk` and `InsightChunk` are wrapped with `React.memo` to avoid re-parsing markdown on unrelated state updates.
+- Voice input uses WebSocket (`/api/transcribe`) for real-time audio streaming, bypassing the CDN proxy. Auth is passed via query parameter (`?token=...`) since cookies may not reach Cloud Run directly.
+- Dataset change events are coordinated across components via `window.dispatchEvent(new CustomEvent("dataset-changed", { detail }))`, allowing the `DatasetSelector` in the header to stay in sync with uploads triggered from `InputToolbar` or other components without prop drilling.
+- File upload dialogs (`CsvUploadDialog`, `PdfUploadDialog`) share common UX patterns: drag-to-click file zone, auto-fill name from filename via `formatFileName`, file size validation, and two-phase workflows (upload then review/confirm).

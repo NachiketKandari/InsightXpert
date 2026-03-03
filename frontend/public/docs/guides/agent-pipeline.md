@@ -2,6 +2,8 @@
 
 InsightXpert's AI pipeline converts a natural-language question into an evidence-backed answer by orchestrating LLM calls, SQL execution, vector store retrieval, and optional statistical sub-agents. This document covers every phase of the pipeline from the initial request to the final SSE chunk.
 
+> **Visual diagram:** Open [`docs/diagrams/agentic-loop.excalidraw`](diagrams/agentic-loop.excalidraw) in [Excalidraw](https://excalidraw.com) for an interactive diagram of the full agentic processing pipeline — from user question through `_prepare_chat()`, the tool-calling loop, enrichment evaluation, DAG execution, and final response synthesis.
+
 ---
 
 ## Overview

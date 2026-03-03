@@ -34,6 +34,8 @@ This document describes every agent, analysis mode, and orchestration pipeline i
 
 InsightXpert is a **multi-agent, analyst-first** system. Every question always starts with the SQL Analyst — the user gets a direct answer fast. Depending on the selected mode, additional agents may kick in to enrich, contextualize, and synthesize a deeper insight.
 
+> **Visual diagram:** Open [`docs/diagrams/agentic-loop.excalidraw`](diagrams/agentic-loop.excalidraw) in [Excalidraw](https://excalidraw.com) for an interactive diagram of the agentic processing pipeline, showing Phase 1 (tool-calling loop), Phase 2 (enrichment evaluation and DAG execution), and Phase 3 (response synthesis and quality gate).
+
 ```
 User Question
   │
