@@ -47,7 +47,7 @@ def _migrate_schema(engine) -> None:
             cols = {c["name"] for c in insp.get_columns(table)}
             if column in cols:
                 return
-            sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_def}"
+            sql = f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
             try:
                 conn.execute(text(sql))
                 logger.info("Migration: added %s.%s", table, column)
@@ -358,7 +358,7 @@ def _ensure_transactions_loaded(engine) -> None:
     from insightxpert.db.data_loader import load_data
     db_url = str(engine.url)
     logger.info("Loading transactions from %s into PostgreSQL...", csv_path)
-    count = load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="replace")
+    count = load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="append")
     logger.info("Loaded %d transactions from CSV", count)
 
 
