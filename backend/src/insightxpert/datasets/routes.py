@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
@@ -157,9 +159,12 @@ async def upload_dataset(
     """Upload a CSV file to create a new dataset.
 
     Any authenticated user can upload. The dataset is created inactive
-    and owned by the uploading user.
+    and owned by the uploading user.  The file is streamed to a temp
+    file on disk so that large CSVs (up to 500 MB) never need to be
+    held entirely in memory.
     """
-    MAX_CSV_SIZE = 50 * 1024 * 1024  # 50 MB
+    MAX_CSV_SIZE = 500 * 1024 * 1024  # 500 MB
+    CHUNK_SIZE = 256 * 1024  # 256 KB read chunks
 
     # Validate file extension
     if not file.filename or not file.filename.lower().endswith(".csv"):
@@ -168,57 +173,83 @@ async def upload_dataset(
             detail="Only CSV files are supported. Please upload a .csv file.",
         )
 
-    # Check file size hint before reading
+    # Check file size hint before streaming (Content-Length may be set)
     if file.size and file.size > MAX_CSV_SIZE:
         raise HTTPException(
             status_code=413,
             detail=f"File too large. Maximum size is {MAX_CSV_SIZE // (1024 * 1024)} MB.",
         )
 
-    # Read file content
-    csv_content = await file.read()
-    if not csv_content:
-        raise HTTPException(status_code=400, detail="Uploaded file is empty")
-
-    if len(csv_content) > MAX_CSV_SIZE:
-        raise HTTPException(
-            status_code=413,
-            detail=f"File too large. Maximum size is {MAX_CSV_SIZE // (1024 * 1024)} MB.",
-        )
-
-    svc = _get_dataset_service(request)
-
+    # Stream upload to a temp file — keeps memory bounded at ~256 KB
+    tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".csv")
+    csv_path = Path(tmp.name)
     try:
-        result = await asyncio.to_thread(
-            svc.create_dataset_from_csv,
-            name=name,
-            description=description,
-            created_by=user.id,
-            org_id=user.org_id,
-            csv_content=csv_content,
-            file_name=file.filename,
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        bytes_written = 0
+        try:
+            while True:
+                chunk = await file.read(CHUNK_SIZE)
+                if not chunk:
+                    break
+                bytes_written += len(chunk)
+                if bytes_written > MAX_CSV_SIZE:
+                    raise HTTPException(
+                        status_code=413,
+                        detail=f"File too large. Maximum size is {MAX_CSV_SIZE // (1024 * 1024)} MB.",
+                    )
+                tmp.write(chunk)
+        finally:
+            tmp.close()  # always close before unlink or further work
 
-    logger.info("User %s uploaded dataset '%s' (%s)", user.id, name, file.filename)
+        if bytes_written == 0:
+            raise HTTPException(status_code=400, detail="Uploaded file is empty")
 
-    # Fire-and-forget R2 backup
-    r2 = getattr(request.app.state, "r2_storage", None)
-    if r2 is not None:
-        r2_key = f"uploads/{user.id}/{result['id']}/{file.filename}"
-        async def _r2_upload():
-            try:
-                ok = await asyncio.to_thread(r2.upload_file, r2_key, csv_content, "text/csv")
-                if ok:
-                    await asyncio.to_thread(svc.update_dataset, result["id"], r2_key=r2_key)
-                    logger.info("R2 backup stored: %s", r2_key)
-            except Exception as e:
-                logger.warning("R2 backup failed for dataset %s: %s", result["id"], e)
-        task = asyncio.create_task(_r2_upload())
-        task.add_done_callback(lambda t: None if t.cancelled() else t.exception())
+        svc = _get_dataset_service(request)
 
-    return result
+        try:
+            result = await asyncio.to_thread(
+                svc.create_dataset_from_csv_file,
+                name=name,
+                description=description,
+                created_by=user.id,
+                org_id=user.org_id,
+                csv_path=csv_path,
+                file_name=file.filename,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
+
+        logger.info("User %s uploaded dataset '%s' (%s, %d bytes)", user.id, name, file.filename, bytes_written)
+
+        # Fire-and-forget R2 backup (streams from disk, no memory spike)
+        r2 = getattr(request.app.state, "r2_storage", None)
+        if r2 is not None:
+            r2_key = f"uploads/{user.id}/{result['id']}/{file.filename}"
+            # Keep csv_path alive until R2 upload completes
+            r2_csv_path = str(csv_path)
+            async def _r2_upload():
+                try:
+                    ok = await asyncio.to_thread(
+                        r2.upload_file_from_path, r2_key, r2_csv_path, "text/csv",
+                    )
+                    if ok:
+                        await asyncio.to_thread(svc.update_dataset, result["id"], r2_key=r2_key)
+                        logger.info("R2 backup stored: %s", r2_key)
+                finally:
+                    Path(r2_csv_path).unlink(missing_ok=True)
+            task = asyncio.create_task(_r2_upload())
+            def _log_r2_failure(t: asyncio.Task) -> None:
+                if not t.cancelled() and t.exception():
+                    logger.error("R2 background upload failed: %s", t.exception())
+            task.add_done_callback(_log_r2_failure)
+        else:
+            # No R2 configured — clean up the temp file now
+            csv_path.unlink(missing_ok=True)
+
+        return result
+    except Exception:
+        # Ensure temp file is cleaned up on any error path
+        csv_path.unlink(missing_ok=True)
+        raise
 
 
 @router.delete("/{dataset_id}")

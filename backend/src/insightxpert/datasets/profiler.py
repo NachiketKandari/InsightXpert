@@ -19,11 +19,42 @@ import pandas as pd
 # Helpers
 # ---------------------------------------------------------------------------
 
+# SQLite reserved keywords that cannot be used as unquoted column names.
+# This is the subset most likely to appear as CSV column headers.
+_SQLITE_RESERVED: set[str] = {
+    "abort", "action", "add", "after", "all", "alter", "always", "analyze",
+    "and", "as", "asc", "attach", "autoincrement", "before", "begin",
+    "between", "by", "cascade", "case", "cast", "check", "collate", "column",
+    "commit", "conflict", "constraint", "create", "cross", "current",
+    "current_date", "current_time", "current_timestamp", "database", "default",
+    "deferrable", "deferred", "delete", "desc", "detach", "distinct", "do",
+    "drop", "each", "else", "end", "escape", "except", "exclude", "exclusive",
+    "exists", "explain", "fail", "filter", "first", "following", "for",
+    "foreign", "from", "full", "glob", "group", "groups", "having", "if",
+    "ignore", "immediate", "in", "index", "indexed", "initially", "inner",
+    "insert", "instead", "intersect", "into", "is", "isnull", "join", "key",
+    "last", "left", "like", "limit", "match", "materialized", "natural", "no",
+    "not", "nothing", "notnull", "null", "nulls", "of", "offset", "on", "or",
+    "order", "others", "outer", "over", "partition", "plan", "pragma",
+    "preceding", "primary", "query", "raise", "range", "recursive",
+    "references", "regexp", "reindex", "release", "rename", "replace",
+    "restrict", "returning", "right", "rollback", "row", "rows", "savepoint",
+    "select", "set", "table", "temp", "temporary", "then", "ties", "to",
+    "transaction", "trigger", "unbounded", "union", "unique", "update",
+    "using", "vacuum", "values", "view", "virtual", "when", "where", "window",
+    "with", "without",
+}
+
+
 def _sanitize_column_name(name: str) -> str:
     """Generate a safe SQLite column name from a raw CSV header."""
     safe = re.sub(r"[^a-z0-9_]", "_", name.strip().lower())
     safe = re.sub(r"_+", "_", safe).strip("_")
-    return safe or "col"
+    safe = safe or "col"
+    # Prefix reserved keywords so they don't clash with SQLite syntax
+    if safe in _SQLITE_RESERVED:
+        safe = f"col_{safe}"
+    return safe
 
 
 _BOOLEAN_PAIRS: list[set[str]] = [
@@ -195,3 +226,23 @@ def profile_dataframe(df: pd.DataFrame) -> dict:
         "column_count": column_count,
         "columns": columns,
     }
+
+
+def infer_schema(df: pd.DataFrame) -> list[dict[str, str]]:
+    """Infer column names and SQLite types from a DataFrame sample.
+
+    Returns a list of ``{"name": ..., "original_name": ..., "inferred_type": ...}``
+    dicts.  No stats are computed — this is meant for a small sample used only
+    to determine the table schema before a chunked load.
+    """
+    result: list[dict[str, str]] = []
+    for col in df.columns:
+        original_name = str(col)
+        sanitized_name = _sanitize_column_name(original_name)
+        inferred_type = _infer_type(df[col])
+        result.append({
+            "name": sanitized_name,
+            "original_name": original_name,
+            "inferred_type": inferred_type,
+        })
+    return result

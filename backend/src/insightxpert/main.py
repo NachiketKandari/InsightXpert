@@ -500,10 +500,28 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("RAG training error: %s", e, exc_info=True)
 
+    # Periodic cleanup of unconfirmed (orphan) uploaded datasets
+    async def _orphan_cleanup_loop():
+        # Run once shortly after startup, then every 15 minutes
+        await asyncio.sleep(60)
+        while True:
+            try:
+                cleaned = await asyncio.to_thread(
+                    dataset_service.cleanup_stale_unconfirmed, 30,
+                )
+                if cleaned:
+                    logger.info("Orphan cleanup: removed %d stale datasets", cleaned)
+            except Exception as e:
+                logger.warning("Orphan cleanup error: %s", e, exc_info=True)
+            await asyncio.sleep(15 * 60)
+
+    orphan_cleanup_task = asyncio.create_task(_orphan_cleanup_loop())
+
     logger.info("InsightXpert ready")
     yield
 
     # Shutdown
+    orphan_cleanup_task.cancel()
     if hasattr(app.state, 'automation_scheduler'):
         await app.state.automation_scheduler.shutdown()
     if not rag_task.done():

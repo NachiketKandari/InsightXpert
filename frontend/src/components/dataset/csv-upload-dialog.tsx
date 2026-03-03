@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import {
   Upload,
   FileSpreadsheet,
@@ -26,6 +26,8 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { apiFetch } from "@/lib/api";
+import { SSE_BASE_URL } from "@/lib/constants";
+import { useAuthStore } from "@/stores/auth-store";
 import { formatFileName, formatFileSize } from "@/lib/file-utils";
 
 // ---------------------------------------------------------------------------
@@ -86,7 +88,7 @@ interface CsvUploadDialogProps {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB — must match server
+const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB — must match server
 
 function formatNumber(n: number): string {
   return n.toLocaleString("en-US");
@@ -162,6 +164,18 @@ function columnDetailText(col: ColumnProfile): string {
   return `${formatNumber(col.distinct_count)} distinct values`;
 }
 
+/** Best-effort DELETE to roll back an unconfirmed upload. */
+function rollbackUpload(datasetId: string, token: string | null) {
+  const headers: Record<string, string> = {};
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  // Fire-and-forget — we don't want to block the UI on cleanup
+  fetch(`${SSE_BASE_URL}/api/datasets/${datasetId}`, {
+    method: "DELETE",
+    credentials: "include",
+    headers,
+  }).catch(() => {});
+}
+
 // ---------------------------------------------------------------------------
 // Step Components
 // ---------------------------------------------------------------------------
@@ -177,6 +191,8 @@ export function CsvUploadDialog({
   onOpenChange,
   onUploadSuccess,
 }: CsvUploadDialogProps) {
+  const token = useAuthStore((s) => s.token);
+
   // Step state
   const [step, setStep] = useState<Step>("upload");
   const [uploadResult, setUploadResult] = useState<UploadResult | null>(null);
@@ -190,8 +206,13 @@ export function CsvUploadDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
+
+  // Track whether confirm has been completed (to avoid rollback after confirm)
+  const confirmedRef = useRef(false);
 
   const reset = useCallback(() => {
     setStep("upload");
@@ -203,15 +224,50 @@ export function CsvUploadDialog({
     setDescription("");
     setError(null);
     setUploading(false);
+    setUploadProgress(0);
+    confirmedRef.current = false;
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+      xhrRef.current = null;
+    }
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   }, []);
 
-  const handleOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen) reset();
-    onOpenChange(nextOpen);
-  };
+  // Roll back unconfirmed upload when closing the dialog on the review step
+  const handleOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (!nextOpen && uploadResult && !confirmedRef.current) {
+        rollbackUpload(uploadResult.id, token);
+      }
+      if (!nextOpen) reset();
+      onOpenChange(nextOpen);
+    },
+    [uploadResult, token, reset, onOpenChange],
+  );
+
+  // Cancel in-flight XHR on unmount
+  useEffect(() => {
+    return () => {
+      if (xhrRef.current) {
+        xhrRef.current.abort();
+        xhrRef.current = null;
+      }
+    };
+  }, []);
+
+  // Best-effort cleanup on browser close / navigation
+  useEffect(() => {
+    if (step !== "review" || !uploadResult || confirmedRef.current) return;
+
+    const id = uploadResult.id;
+    const handleBeforeUnload = () => {
+      rollbackUpload(id, token);
+    };
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [step, uploadResult, token]);
 
   // ---- Upload step handlers ----
 
@@ -262,47 +318,74 @@ export function CsvUploadDialog({
     }
 
     setUploading(true);
+    setUploadProgress(0);
     setError(null);
 
-    try {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("name", name.trim());
-      if (description.trim()) {
-        formData.append("description", description.trim());
-      }
-
-      const res = await apiFetch("/api/datasets/upload", {
-        method: "POST",
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const body = await res
-          .json()
-          .catch(() => ({ detail: `Upload failed (HTTP ${res.status})` }));
-        setError(body.detail || `Upload failed (HTTP ${res.status})`);
-        setUploading(false);
-        return;
-      }
-
-      const data: UploadResult = await res.json();
-      setUploadResult(data);
-
-      // Initialize descriptions with smart defaults
-      const descs: Record<string, string> = {};
-      for (const col of data.profile.columns) {
-        descs[col.name] = defaultDescription(col);
-      }
-      setColumnDescriptions(descs);
-
-      // Transition to review step
-      setStep("review");
-    } catch (err) {
-      setError((err as Error).message || "Network error during upload.");
-    } finally {
-      setUploading(false);
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("name", name.trim());
+    if (description.trim()) {
+      formData.append("description", description.trim());
     }
+
+    // Use XHR for upload progress tracking.
+    // Send directly to SSE_BASE_URL (bypasses Next.js proxy body size limit)
+    // with Bearer token auth (same pattern as SSE streaming).
+    const xhr = new XMLHttpRequest();
+    xhrRef.current = xhr;
+
+    xhr.upload.onprogress = (evt) => {
+      if (evt.lengthComputable) {
+        setUploadProgress(Math.round((evt.loaded / evt.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      xhrRef.current = null;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          const data: UploadResult = JSON.parse(xhr.responseText);
+          setUploadResult(data);
+
+          // Initialize descriptions with smart defaults
+          const descs: Record<string, string> = {};
+          for (const col of data.profile.columns) {
+            descs[col.name] = defaultDescription(col);
+          }
+          setColumnDescriptions(descs);
+
+          setStep("review");
+        } catch {
+          setError("Invalid response from server.");
+        }
+      } else {
+        try {
+          const body = JSON.parse(xhr.responseText);
+          setError(body.detail || `Upload failed (HTTP ${xhr.status})`);
+        } catch {
+          setError(`Upload failed (HTTP ${xhr.status})`);
+        }
+      }
+      setUploading(false);
+    };
+
+    xhr.onerror = () => {
+      xhrRef.current = null;
+      setError("Network error during upload.");
+      setUploading(false);
+    };
+
+    xhr.onabort = () => {
+      xhrRef.current = null;
+      setUploading(false);
+    };
+
+    xhr.open("POST", `${SSE_BASE_URL}/api/datasets/upload`);
+    xhr.withCredentials = true;
+    if (token) {
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    }
+    xhr.send(formData);
   };
 
   // ---- Review step handlers ----
@@ -312,7 +395,12 @@ export function CsvUploadDialog({
   };
 
   const handleBack = () => {
+    // Roll back the unconfirmed upload before going back
+    if (uploadResult && !confirmedRef.current) {
+      rollbackUpload(uploadResult.id, token);
+    }
     setStep("upload");
+    setUploadResult(null);
     setError(null);
   };
 
@@ -342,6 +430,8 @@ export function CsvUploadDialog({
         setConfirming(false);
         return;
       }
+
+      confirmedRef.current = true;
 
       const confirmed: ConfirmedDataset = await res.json();
       toast.success("Dataset confirmed and ready to query");
@@ -403,7 +493,7 @@ export function CsvUploadDialog({
                       Click to select a CSV file
                     </p>
                     <p className="text-xs text-muted-foreground/60">
-                      .csv files only
+                      .csv files up to {formatFileSize(MAX_FILE_SIZE)}
                     </p>
                   </div>
                 ) : (
@@ -495,7 +585,7 @@ export function CsvUploadDialog({
                 {uploading ? (
                   <>
                     <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                    Uploading...
+                    Uploading{uploadProgress > 0 ? ` ${uploadProgress}%` : "..."}
                   </>
                 ) : (
                   <>

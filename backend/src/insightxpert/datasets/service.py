@@ -6,17 +6,38 @@ import io
 import logging
 import re
 import time
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import or_, text
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.models import Dataset, DatasetColumn, ExampleQuery, _uuid, _utcnow
-from insightxpert.datasets.profiler import profile_dataframe
+from insightxpert.datasets.profiler import infer_schema, profile_dataframe
 
 logger = logging.getLogger("insightxpert.datasets")
 
 _ACTIVE_DS_TTL = 60.0
+
+# System / internal tables that must never be overwritten by user uploads.
+RESERVED_TABLE_NAMES: set[str] = {
+    "transactions",
+    "users",
+    "sessions",
+    "datasets",
+    "dataset_columns",
+    "example_queries",
+    "conversations",
+    "conversation_messages",
+    "feedback",
+    "_sync_deletes",
+    "automations",
+    "automation_triggers",
+    "trigger_templates",
+    "prompt_templates",
+    "organizations",
+    "dataset_stats",
+}
 
 
 class DatasetService:
@@ -345,6 +366,17 @@ class DatasetService:
             safe = "ds_" + safe
         return safe
 
+    def _check_reserved_name(self, table_name: str) -> None:
+        """Raise ValueError if *table_name* collides with an internal table."""
+        if table_name in RESERVED_TABLE_NAMES:
+            raise ValueError(
+                "This name conflicts with a system table. Please choose a different name."
+            )
+
+    # ------------------------------------------------------------------
+    # CSV upload — in-memory (legacy, kept for small files / compat)
+    # ------------------------------------------------------------------
+
     def create_dataset_from_csv(
         self,
         *,
@@ -362,12 +394,6 @@ class DatasetService:
         field is left empty until the user confirms via ``confirm_dataset``.
         Raises ValueError on parse / validation errors.
         """
-        # Parse the CSV.
-        # Note: pd.read_csv loads the entire file into memory. At 50 MB the
-        # resulting DataFrame can be 3–5x the raw CSV size (~150–250 MB). Two
-        # concurrent uploads can therefore spike memory by 300–500 MB.
-        # Keep MAX_CSV_SIZE in the route at ≤50 MB and monitor memory usage
-        # in production.
         try:
             df = pd.read_csv(io.BytesIO(csv_content))
         except Exception as exc:
@@ -379,8 +405,9 @@ class DatasetService:
         if len(df.columns) == 0:
             raise ValueError("CSV file has no columns")
 
-        # Generate safe table name and check uniqueness
+        # Generate safe table name and check uniqueness + reserved names
         table_name = self._sanitize_table_name(name)
+        self._check_reserved_name(table_name)
 
         with Session(self._engine) as session:
             existing = session.query(Dataset).filter(Dataset.name == name).first()
@@ -391,7 +418,6 @@ class DatasetService:
         profile = profile_dataframe(df)
 
         # Build col_defs from the profiler output (better type detection than pandas dtype)
-        # Also build a lookup for quick access by sanitized name
         profile_by_name: dict[str, dict] = {}
         col_defs: list[tuple[str, str]] = []
         for col_profile in profile["columns"]:
@@ -408,13 +434,11 @@ class DatasetService:
         df = df.rename(columns=rename_map)
 
         # Build DDL
-        col_ddl_parts = [f"    {cname} {ctype}" for cname, ctype in col_defs]
+        col_ddl_parts = [f'    "{cname}" {ctype}' for cname, ctype in col_defs]
         ddl = f'CREATE TABLE "{table_name}" (\n' + ",\n".join(col_ddl_parts) + "\n);"
 
-        # Documentation is left empty — will be compiled on confirm
         documentation = ""
 
-        # Create the SQLite table and load data
         logger.info(
             "Creating table '%s' with %d columns, loading %d rows from '%s'",
             table_name, len(col_defs), len(df), file_name,
@@ -460,6 +484,298 @@ class DatasetService:
         if dataset_dict is None:
             raise RuntimeError("Dataset was just created but not found")
         return {**dataset_dict, "profile": profile}
+
+    # ------------------------------------------------------------------
+    # CSV upload — file-based streaming (supports large files up to 500MB)
+    # ------------------------------------------------------------------
+
+    def create_dataset_from_csv_file(
+        self,
+        *,
+        name: str,
+        description: str | None,
+        created_by: str,
+        org_id: str | None,
+        csv_path: Path,
+        file_name: str,
+    ) -> dict:
+        """Create a new dataset from a CSV file on disk.
+
+        Unlike ``create_dataset_from_csv`` this reads the file in chunks,
+        keeping memory usage bounded regardless of file size.
+
+        1. Read a small sample for type inference (schema only).
+        2. Create the SQLite table from the inferred schema.
+        3. Insert data in 10K-row chunks (each its own transaction).
+        4. Profile column stats from the actual loaded table via SQL.
+        5. On failure, drop the partial table before re-raising.
+
+        Returns the created dataset dict with a ``profile`` key.
+        Raises ``ValueError`` on validation errors.
+        """
+        # -- Validate name uniqueness & reserved names ----------------------
+        table_name = self._sanitize_table_name(name)
+        self._check_reserved_name(table_name)
+
+        with Session(self._engine) as session:
+            existing = session.query(Dataset).filter(Dataset.name == name).first()
+            if existing:
+                raise ValueError(f"A dataset named '{name}' already exists")
+
+        # -- 1. Read a small sample for type inference ----------------------
+        # Only need ~1000 rows to reliably detect column types; the actual
+        # stats (distinct counts, min/max, unique values) are computed from
+        # the full loaded table in step 4.
+        try:
+            sample_df = pd.read_csv(csv_path, nrows=1_000)
+        except Exception as exc:
+            raise ValueError(f"Failed to parse CSV file '{file_name}': {exc}") from exc
+
+        if sample_df.empty:
+            raise ValueError("CSV file is empty — no rows found")
+        if len(sample_df.columns) == 0:
+            raise ValueError("CSV file has no columns")
+
+        # infer_schema only detects names + types — no stats work
+        schema = infer_schema(sample_df)
+
+        col_defs: list[tuple[str, str]] = []
+        for col_info in schema:
+            col_defs.append((col_info["name"], col_info["inferred_type"]))
+
+        # Build rename map (original CSV header -> sanitized name)
+        rename_map = {
+            ci["original_name"]: ci["name"] for ci in schema
+        }
+
+        # Build DDL
+        col_ddl_parts = [f'    "{cname}" {ctype}' for cname, ctype in col_defs]
+        ddl = f'CREATE TABLE "{table_name}" (\n' + ",\n".join(col_ddl_parts) + "\n);"
+
+        # Free sample DataFrame memory
+        del sample_df
+
+        # -- 2. Create the empty table from DDL ----------------------------
+        try:
+            with self._engine.begin() as conn:
+                conn.execute(text(ddl))
+        except Exception as exc:
+            raise ValueError(
+                f"Failed to create table '{table_name}': {exc}"
+            ) from exc
+        logger.info("Created table '%s' with %d columns", table_name, len(col_defs))
+
+        # -- 3. Chunked insert (10K rows per batch) ------------------------
+        total_rows = 0
+        try:
+            for chunk in pd.read_csv(csv_path, chunksize=10_000):
+                chunk = chunk.rename(columns=rename_map)
+                chunk.to_sql(
+                    table_name,
+                    self._engine,
+                    if_exists="append",
+                    index=False,
+                )
+                total_rows += len(chunk)
+
+            logger.info("Loaded %d rows into '%s'", total_rows, table_name)
+        except Exception as exc:
+            logger.error(
+                "Chunked insert failed for '%s' after %d rows: %s",
+                table_name, total_rows, exc,
+            )
+            try:
+                with self._engine.begin() as conn:
+                    conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
+                logger.info("Rolled back partial table '%s'", table_name)
+            except Exception:
+                logger.warning("Failed to drop partial table '%s'", table_name, exc_info=True)
+            raise ValueError(
+                f"Failed to load CSV data into table '{table_name}': {exc}"
+            ) from exc
+
+        # -- 4. Profile from the full loaded table --------------------------
+        # Build accurate stats via SQL queries on the actual data — fast
+        # even for large tables since SQLite scans are efficient.
+        profile = {
+            "row_count": total_rows,
+            "column_count": len(col_defs),
+            "columns": [
+                {
+                    "name": ci["name"],
+                    "original_name": ci["original_name"],
+                    "inferred_type": ci["inferred_type"],
+                    "distinct_count": 0,
+                    "null_count": 0,
+                    "null_percent": 0.0,
+                    "is_unique": False,
+                    "cardinality": "low",
+                    "unique_values": None,
+                    "min": None,
+                    "max": None,
+                    "mean": None,
+                }
+                for ci in schema
+            ],
+        }
+        try:
+            self._update_profile_from_table(profile, table_name, total_rows)
+        except Exception:
+            logger.warning("Post-load profiling failed for '%s'; basic stats will be used", table_name, exc_info=True)
+
+        # -- 5. Persist Dataset + DatasetColumn records --------------------
+        self._active_ds_cache = None
+        dataset_id = _uuid()
+        now = _utcnow()
+
+        with Session(self._engine) as session:
+            ds = Dataset(
+                id=dataset_id,
+                name=name,
+                description=description,
+                ddl=ddl,
+                documentation="",
+                is_active=False,
+                organization_id=org_id,
+                created_by=created_by,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(ds)
+
+            for idx, (cname, ctype) in enumerate(col_defs):
+                col = DatasetColumn(
+                    id=_uuid(),
+                    dataset_id=dataset_id,
+                    column_name=cname,
+                    column_type=ctype,
+                    description=cname.replace("_", " ").title(),
+                    ordinal_position=idx,
+                    created_at=now,
+                )
+                session.add(col)
+
+            session.commit()
+
+        dataset_dict = self.get_dataset_by_id(dataset_id)
+        if dataset_dict is None:
+            raise RuntimeError("Dataset was just created but not found")
+        return {**dataset_dict, "profile": profile}
+
+    # ------------------------------------------------------------------
+    # Post-load re-profiling from actual table
+    # ------------------------------------------------------------------
+
+    def _update_profile_from_table(
+        self, profile: dict, table_name: str, total_rows: int,
+    ) -> None:
+        """Update profile column stats with actual values from the loaded table.
+
+        Runs one SQL query per column to get accurate distinct counts, nulls,
+        uniqueness, and numeric min/max/mean.  The ``unique_values`` list is
+        also refreshed for low-cardinality columns (≤50 distinct values).
+        """
+        from insightxpert.datasets.profiler import _classify_cardinality
+
+        with self._engine.connect() as conn:
+            for cp in profile["columns"]:
+                col_name = cp["name"]
+                quoted = f'"{col_name}"'
+
+                # Distinct count and null count in one pass
+                row = conn.execute(text(
+                    f"SELECT COUNT(DISTINCT {quoted}) AS dc, "
+                    f"SUM(CASE WHEN {quoted} IS NULL THEN 1 ELSE 0 END) AS nc "
+                    f'FROM "{table_name}"'
+                )).fetchone()
+
+                distinct_count = row[0] if row else cp["distinct_count"]
+                null_count = row[1] if row else cp["null_count"]
+                non_null_count = total_rows - null_count
+
+                cp["distinct_count"] = distinct_count
+                cp["null_count"] = null_count
+                cp["null_percent"] = round((null_count / total_rows) * 100, 2) if total_rows > 0 else 0.0
+                cp["is_unique"] = (distinct_count == non_null_count) and (non_null_count > 0)
+                cp["cardinality"] = _classify_cardinality(distinct_count, total_rows)
+
+                # Numeric stats
+                if cp["inferred_type"] in ("INTEGER", "REAL"):
+                    stats_row = conn.execute(text(
+                        f"SELECT MIN({quoted}), MAX({quoted}), AVG({quoted}) "
+                        f'FROM "{table_name}" WHERE {quoted} IS NOT NULL'
+                    )).fetchone()
+                    if stats_row:
+                        cp["min"] = stats_row[0]
+                        cp["max"] = stats_row[1]
+                        cp["mean"] = round(stats_row[2], 2) if stats_row[2] is not None else None
+
+                # Refresh unique_values for low-cardinality columns
+                if distinct_count <= 50:
+                    uv_rows = conn.execute(text(
+                        f"SELECT DISTINCT CAST({quoted} AS TEXT) AS v "
+                        f'FROM "{table_name}" WHERE {quoted} IS NOT NULL ORDER BY v'
+                    )).fetchall()
+                    cp["unique_values"] = [r[0] for r in uv_rows]
+                else:
+                    cp["unique_values"] = None
+
+    # ------------------------------------------------------------------
+    # Orphan cleanup
+    # ------------------------------------------------------------------
+
+    def cleanup_stale_unconfirmed(self, max_age_minutes: int = 30) -> int:
+        """Delete unconfirmed datasets older than *max_age_minutes*.
+
+        An "unconfirmed" dataset is one where ``is_active = False``,
+        ``documentation`` is empty, and ``created_by IS NOT NULL``
+        (i.e. user-uploaded, never confirmed).
+
+        Returns the number of cleaned-up datasets.
+        """
+        from datetime import datetime, timedelta, timezone
+
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=max_age_minutes)
+        cleaned = 0
+
+        with Session(self._engine) as session:
+            stale = (
+                session.query(Dataset)
+                .filter(
+                    Dataset.is_active.is_(False),
+                    Dataset.documentation == "",
+                    Dataset.created_by.isnot(None),
+                    Dataset.created_at < cutoff,
+                )
+                .all()
+            )
+
+            for ds in stale:
+                # Drop the data table in a separate transaction (DDL)
+                table_name = self._extract_table_name(ds.ddl)
+                if table_name and re.fullmatch(r"[a-z0-9_]+", table_name):
+                    try:
+                        with self._engine.begin() as conn:
+                            conn.execute(text(f'DROP TABLE IF EXISTS "{table_name}"'))
+                        logger.info("Orphan cleanup: dropped table '%s'", table_name)
+                    except Exception:
+                        logger.warning("Orphan cleanup: failed to drop '%s'", table_name, exc_info=True)
+
+                # Delete metadata (DML) in the session
+                session.query(DatasetColumn).filter(
+                    DatasetColumn.dataset_id == ds.id
+                ).delete()
+                session.query(ExampleQuery).filter(
+                    ExampleQuery.dataset_id == ds.id
+                ).delete()
+                session.delete(ds)
+                cleaned += 1
+                logger.info("Orphan cleanup: removed dataset '%s' (id=%s)", ds.name, ds.id)
+
+            if cleaned:
+                session.commit()
+
+        return cleaned
 
     def confirm_dataset(
         self,

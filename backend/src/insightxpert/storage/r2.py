@@ -50,6 +50,25 @@ class R2StorageService:
             logger.error("R2 upload failed for key=%s: %s", key, exc)
             return False
 
+    def upload_file_from_path(
+        self, key: str, file_path: str, content_type: str = "application/octet-stream"
+    ) -> bool:
+        """Upload a file from disk to R2. Uses multipart for large files automatically.
+
+        Returns True on success, False on failure.
+        """
+        try:
+            self._client.upload_file(
+                file_path,
+                self._bucket,
+                key,
+                ExtraArgs={"ContentType": content_type},
+            )
+            return True
+        except (ClientError, Exception) as exc:
+            logger.error("R2 upload_file failed for key=%s path=%s: %s", key, file_path, exc)
+            return False
+
     def delete_file(self, key: str) -> bool:
         """Delete an object from R2. Returns True on success, False on failure."""
         try:
