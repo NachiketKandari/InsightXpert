@@ -422,8 +422,8 @@ class DatasetService:
         col_defs: list[tuple[str, str]] = []
         for col_profile in profile["columns"]:
             safe_col = col_profile["name"]
-            sqlite_type = col_profile["inferred_type"]
-            col_defs.append((safe_col, sqlite_type))
+            pg_type = col_profile["inferred_type"]
+            col_defs.append((safe_col, pg_type))
             profile_by_name[safe_col] = col_profile
 
         # Build rename map (original -> sanitized) using profiler's mapping

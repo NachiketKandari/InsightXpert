@@ -5,7 +5,7 @@
 - [x] Phase 2: Dependencies & Config
   - [x] `pyproject.toml` — psycopg2-binary → main deps
   - [x] `config.py` — Default DATABASE_URL, add CLOUD_SQL_CONNECTION_NAME
-  - [ ] `docker-compose.yml` — New local PostgreSQL service
+  - [x] `docker-compose.yml` — New local PostgreSQL service
 - [x] Phase 3: Database Connector
   - [x] `db/connector.py` — Remove SQLite PRAGMAs, add PG pool config
 - [x] Phase 4: Schema & Models

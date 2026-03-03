@@ -674,33 +674,27 @@ async def export_csv(request: Request, table: str = "transactions"):
         from sqlalchemy import text as sa_text
 
         with db.engine.connect() as conn:
-            if db.dialect == "sqlite":
-                conn.execute(sa_text("PRAGMA query_only = ON"))
-            try:
-                result = conn.execute(sa_text(f"SELECT * FROM {table}"))
-                columns = list(result.keys())
+            result = conn.execute(sa_text(f"SELECT * FROM {table}"))
+            columns = list(result.keys())
 
-                # Write header
-                output = io.StringIO()
-                writer = csv.writer(output)
-                writer.writerow(columns)
-                yield output.getvalue()
-                output.seek(0)
-                output.truncate(0)
+            # Write header
+            output = io.StringIO()
+            writer = csv.writer(output)
+            writer.writerow(columns)
+            yield output.getvalue()
+            output.seek(0)
+            output.truncate(0)
 
-                # Stream rows in batches
-                while True:
-                    rows = result.fetchmany(5000)
-                    if not rows:
-                        break
-                    for row in rows:
-                        output.seek(0)
-                        output.truncate(0)
-                        writer.writerow(row)
-                        yield output.getvalue()
-            finally:
-                if db.dialect == "sqlite":
-                    conn.execute(sa_text("PRAGMA query_only = OFF"))
+            # Stream rows in batches
+            while True:
+                rows = result.fetchmany(5000)
+                if not rows:
+                    break
+                for row in rows:
+                    output.seek(0)
+                    output.truncate(0)
+                    writer.writerow(row)
+                    yield output.getvalue()
 
     return StreamingResponse(
         generate(),
