@@ -4,23 +4,15 @@ import logging
 import re
 import time
 
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 logger = logging.getLogger("insightxpert.db")
 
 FORBIDDEN_SQL_RE = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE|ATTACH|DETACH|PRAGMA\s+\w+\s*=)\b",
+    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE)\b",
     re.IGNORECASE,
 )
-
-
-def _enable_sqlite_pragmas(dbapi_conn, connection_record):
-    """Enable foreign key enforcement and WAL mode for every new SQLite connection."""
-    cursor = dbapi_conn.cursor()
-    cursor.execute("PRAGMA foreign_keys = ON")
-    cursor.execute("PRAGMA journal_mode = WAL")
-    cursor.close()
 
 
 class DatabaseConnector:
@@ -37,9 +29,24 @@ class DatabaseConnector:
     def dialect(self) -> str:
         return self.engine.dialect.name
 
-    def connect(self, url: str) -> None:
-        self._engine = create_engine(url, pool_pre_ping=True)
-        event.listen(self._engine, "connect", _enable_sqlite_pragmas)
+    def connect(self, url: str, *, cloud_sql_connection_name: str = "") -> None:
+        if cloud_sql_connection_name:
+            # Cloud SQL Unix socket: override host portion of the URL
+            # Expected format: postgresql://user:pass@/dbname?host=/cloudsql/<connection-name>
+            from urllib.parse import urlparse, urlunparse, urlencode, parse_qs
+
+            parsed = urlparse(url)
+            qs = parse_qs(parsed.query)
+            qs["host"] = [f"/cloudsql/{cloud_sql_connection_name}"]
+            new_query = urlencode(qs, doseq=True)
+            url = urlunparse(parsed._replace(query=new_query, netloc=f"{parsed.username}:{parsed.password}@"))
+
+        self._engine = create_engine(
+            url,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+        )
 
         safe_url = self._engine.url.render_as_string(hide_password=True)
         logger.debug("Engine created for %s (dialect=%s)", safe_url, self._engine.dialect.name)
@@ -54,29 +61,18 @@ class DatabaseConnector:
         self, sql: str, *, row_limit: int = 1000, timeout: int = 30, read_only: bool = False
     ) -> list[dict]:
         start = time.time()
-        _sqlite_local = self.dialect == "sqlite"
         with self.engine.connect() as conn:
-            if read_only and _sqlite_local:
-                conn.execute(text("PRAGMA query_only = ON"))
-            try:
-                result = conn.execute(text(sql))
-                if result.returns_rows:
-                    columns = list(result.keys())
-                    rows = [dict(zip(columns, row)) for row in result.fetchmany(row_limit)]
-                    ms = (time.time() - start) * 1000
-                    logger.debug("SQL (%.0fms, %d rows): %s", ms, len(rows), sql[:200])
-                    return rows
-                conn.commit()
+            result = conn.execute(text(sql))
+            if result.returns_rows:
+                columns = list(result.keys())
+                rows = [dict(zip(columns, row)) for row in result.fetchmany(row_limit)]
                 ms = (time.time() - start) * 1000
-                logger.debug("SQL (%.0fms, %d affected): %s", ms, result.rowcount, sql[:200])
-                return [{"affected_rows": result.rowcount}]
-            finally:
-                # Reset query_only so the connection isn't returned to the pool in
-                # read-only state, which would cause writes from other callers sharing
-                # the same engine (e.g. PersistentConversationStore) to fail with
-                # "attempt to write a readonly database".
-                if read_only and _sqlite_local:
-                    conn.execute(text("PRAGMA query_only = OFF"))
+                logger.debug("SQL (%.0fms, %d rows): %s", ms, len(rows), sql[:200])
+                return rows
+            conn.commit()
+            ms = (time.time() - start) * 1000
+            logger.debug("SQL (%.0fms, %d affected): %s", ms, result.rowcount, sql[:200])
+            return [{"affected_rows": result.rowcount}]
 
     def get_tables(self) -> list[str]:
         from sqlalchemy import inspect

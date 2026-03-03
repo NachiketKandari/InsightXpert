@@ -2,11 +2,11 @@
 
 # Migration columns: (table, column, column_def).
 MIGRATION_COLUMNS = [
-    ("users", "is_admin", "BOOLEAN DEFAULT 0 NOT NULL"),
+    ("users", "is_admin", "BOOLEAN DEFAULT FALSE NOT NULL"),
     ("users", "last_active", "DATETIME"),
     ("users", "org_id", "VARCHAR(100)"),
     ("users", "updated_at", "DATETIME"),
-    ("conversations", "is_starred", "BOOLEAN DEFAULT 0 NOT NULL"),
+    ("conversations", "is_starred", "BOOLEAN DEFAULT FALSE NOT NULL"),
     ("conversations", "org_id", "VARCHAR(100)"),
     ("messages", "feedback", "BOOLEAN"),
     ("messages", "feedback_comment", "TEXT"),

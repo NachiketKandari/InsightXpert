@@ -30,14 +30,17 @@ class Settings(BaseSettings):
     vertex_ai_region: str = "global"
     vertex_ai_model: str = "zai-org/glm-5-maas"
 
-    # Local SQLite (primary runtime DB — sub-ms queries)
-    database_url: str = "sqlite:///./insightxpert.db"
+    # PostgreSQL (primary runtime DB)
+    database_url: str = "postgresql://insightxpert:insightxpert@localhost:5432/insightxpert"
 
     @field_validator("database_url", mode="before")
     @classmethod
     def _default_database_url(cls, v: str) -> str:
         """Treat empty DATABASE_URL env var as unset (use default)."""
-        return v if v else "sqlite:///./insightxpert.db"
+        return v if v else "postgresql://insightxpert:insightxpert@localhost:5432/insightxpert"
+
+    # Cloud SQL (production)
+    cloud_sql_connection_name: str = ""
 
     # ChromaDB
     chroma_persist_dir: str = "./chroma_data"
