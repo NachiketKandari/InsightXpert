@@ -6,8 +6,8 @@ from insightxpert.auth.models import Base as AuthBase, PromptTemplate
 from insightxpert.main import _migrate_schema, _seed_prompts
 
 
-def _sqlite_engine(db_path):
-    """Create a SQLite engine with FK enforcement (matches production connector)."""
+def _test_engine(db_path):
+    """Create a test engine with FK enforcement."""
     engine = create_engine(f"sqlite:///{db_path}")
     event.listen(engine, "connect", lambda conn, _: conn.execute("PRAGMA foreign_keys = ON"))
     return engine
@@ -15,9 +15,9 @@ def _sqlite_engine(db_path):
 
 @pytest.fixture
 def migration_engine(tmp_path):
-    """Create a SQLite engine with minimal base tables (no new columns)."""
+    """Create a test engine with minimal base tables (no new columns)."""
     db_path = tmp_path / "migrate.db"
-    engine = _sqlite_engine(db_path)
+    engine = _test_engine(db_path)
     with engine.begin() as conn:
         conn.execute(text("""
             CREATE TABLE organizations (
@@ -169,7 +169,7 @@ def migration_engine(tmp_path):
 
 @pytest.fixture
 def seed_engine(tmp_path):
-    """Create a SQLite engine with full AuthBase schema (including prompt_templates)."""
+    """Create a test engine with full AuthBase schema (including prompt_templates)."""
     db_path = tmp_path / "seed.db"
     engine = create_engine(f"sqlite:///{db_path}")
     AuthBase.metadata.create_all(engine)
