@@ -51,6 +51,15 @@ class DatabaseConnector:
         safe_url = self._engine.url.render_as_string(hide_password=True)
         logger.debug("Engine created for %s (dialect=%s)", safe_url, self._engine.dialect.name)
 
+        # Verify the connection is reachable
+        try:
+            with self._engine.connect() as conn:
+                conn.execute(text("SELECT 1"))
+            logger.info("Connected to database: %s", safe_url)
+        except Exception as exc:
+            logger.error("Failed to connect to database %s: %s", safe_url, exc)
+            raise
+
     def disconnect(self) -> None:
         if self._engine is not None:
             self._engine.dispose()
