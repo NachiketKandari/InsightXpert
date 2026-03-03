@@ -1,4 +1,0 @@
-dbs:
-  - path: /app/insightxpert.db
-    replicas:
-      - url: ${LITESTREAM_REPLICA_URL}

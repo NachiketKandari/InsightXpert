@@ -38,8 +38,6 @@ def _migrate_schema(engine) -> None:
     from insightxpert.db.migrations import MIGRATION_COLUMNS, SCHEMA_INDEXES
 
     insp = inspect(engine)
-    dialect = engine.dialect.name
-
     existing_tables = set(insp.get_table_names())
 
     with engine.begin() as conn:
@@ -49,25 +47,14 @@ def _migrate_schema(engine) -> None:
             cols = {c["name"] for c in insp.get_columns(table)}
             if column in cols:
                 return
-            if dialect == "postgresql":
-                sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_def}"
-            else:
-                sql = f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
+            sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_def}"
             try:
                 conn.execute(text(sql))
                 logger.info("Migration: added %s.%s", table, column)
             except Exception:
-                logger.debug("Column %s.%s already exists (dialect=%s)", table, column, dialect)
-
-        # PostgreSQL uses different boolean syntax
-        pg_overrides = {
-            ("users", "is_admin"): "BOOLEAN DEFAULT FALSE NOT NULL",
-            ("conversations", "is_starred"): "BOOLEAN DEFAULT FALSE NOT NULL",
-        }
+                logger.debug("Column %s.%s already exists", table, column)
 
         for table, column, col_def in MIGRATION_COLUMNS:
-            if dialect == "postgresql" and (table, column) in pg_overrides:
-                col_def = pg_overrides[(table, column)]
             _add_column(table, column, col_def)
 
         # Backfill updated_at = created_at for existing rows that don't have it
@@ -340,7 +327,7 @@ def _run_rag_training(rag: VectorStore, db: DatabaseConnector, dataset_service=N
 
 
 def _ensure_transactions_loaded(engine) -> None:
-    """Load transactions from CSV into local SQLite if table is empty or missing."""
+    """Load transactions from CSV into PostgreSQL if table is empty or missing."""
     from sqlalchemy import inspect as sa_inspect
     insp = sa_inspect(engine)
 
@@ -370,7 +357,7 @@ def _ensure_transactions_loaded(engine) -> None:
 
     from insightxpert.db.data_loader import load_data
     db_url = str(engine.url)
-    logger.info("Loading transactions from %s into local SQLite...", csv_path)
+    logger.info("Loading transactions from %s into PostgreSQL...", csv_path)
     count = load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="replace")
     logger.info("Loaded %d transactions from CSV", count)
 
@@ -382,12 +369,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting InsightXpert (log_level=%s)", settings.log_level)
 
-    # 1. Connect to local SQLite (sub-ms queries)
+    # 1. Connect to PostgreSQL
     db = DatabaseConnector()
     try:
-        db.connect(settings.database_url)
+        db.connect(settings.database_url, cloud_sql_connection_name=settings.cloud_sql_connection_name)
         safe_url = db.engine.url.render_as_string(hide_password=True)
-        logger.info("Local database connected: %s", safe_url)
+        logger.info("Database connected: %s", safe_url)
     except Exception as e:
         logger.error("Database connection failed: %s", e, exc_info=True)
         raise
@@ -453,7 +440,7 @@ async def lifespan(app: FastAPI):
         asyncio.to_thread(_run_rag_training, rag, db, dataset_service)
     )
 
-    # Persistent conversation store (SQLite-backed)
+    # Persistent conversation store (PostgreSQL-backed)
     persistent_conv_store = PersistentConversationStore(auth_engine)
     logger.info("Persistent conversation store initialized")
 

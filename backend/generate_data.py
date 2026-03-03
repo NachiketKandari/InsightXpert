@@ -1,16 +1,18 @@
 """
-Load UPI transaction data from CSV into local SQLite.
+Load UPI transaction data from CSV into PostgreSQL.
 
-Reads upi_transactions_2024.csv (250K rows) and inserts into insightxpert.db.
+Reads upi_transactions_2024.csv (250K rows) and inserts into the database.
 Column mapping: CSV headers with spaces/parens are normalized to snake_case.
 """
 
 import csv
-import sqlite3
+import os
 from pathlib import Path
 
+from sqlalchemy import create_engine, text
+
 CSV_PATH = Path(__file__).parent / "upi_transactions_2024.csv"
-DB_PATH = Path(__file__).parent / "insightxpert.db"
+DEFAULT_DB_URL = "postgresql://insightxpert:insightxpert@localhost:5432/insightxpert"
 
 # Map CSV column names → DB column names
 COLUMN_MAP = {
@@ -36,11 +38,11 @@ COLUMN_MAP = {
 DB_COLUMNS = list(COLUMN_MAP.values())
 
 CREATE_TABLE = """
-    CREATE TABLE transactions (
+    CREATE TABLE IF NOT EXISTS transactions (
         transaction_id    TEXT PRIMARY KEY,
         timestamp         TEXT NOT NULL,
         transaction_type  TEXT NOT NULL,
-        amount_inr        REAL NOT NULL,
+        amount_inr        DOUBLE PRECISION NOT NULL,
         transaction_status TEXT NOT NULL,
         merchant_category TEXT,
         sender_bank       TEXT NOT NULL,
@@ -58,15 +60,15 @@ CREATE_TABLE = """
 """
 
 INDICES = [
-    "CREATE INDEX idx_txn_type ON transactions(transaction_type)",
-    "CREATE INDEX idx_status ON transactions(transaction_status)",
-    "CREATE INDEX idx_merchant ON transactions(merchant_category)",
-    "CREATE INDEX idx_sender_bank ON transactions(sender_bank)",
-    "CREATE INDEX idx_device ON transactions(device_type)",
-    "CREATE INDEX idx_fraud ON transactions(fraud_flag)",
-    "CREATE INDEX idx_hour ON transactions(hour_of_day)",
-    "CREATE INDEX idx_weekend ON transactions(is_weekend)",
-    "CREATE INDEX idx_state ON transactions(sender_state)",
+    "CREATE INDEX IF NOT EXISTS idx_txn_type ON transactions(transaction_type)",
+    "CREATE INDEX IF NOT EXISTS idx_status ON transactions(transaction_status)",
+    "CREATE INDEX IF NOT EXISTS idx_merchant ON transactions(merchant_category)",
+    "CREATE INDEX IF NOT EXISTS idx_sender_bank ON transactions(sender_bank)",
+    "CREATE INDEX IF NOT EXISTS idx_device ON transactions(device_type)",
+    "CREATE INDEX IF NOT EXISTS idx_fraud ON transactions(fraud_flag)",
+    "CREATE INDEX IF NOT EXISTS idx_hour ON transactions(hour_of_day)",
+    "CREATE INDEX IF NOT EXISTS idx_weekend ON transactions(is_weekend)",
+    "CREATE INDEX IF NOT EXISTS idx_state ON transactions(sender_state)",
 ]
 
 
@@ -108,58 +110,56 @@ def main() -> None:
     if not CSV_PATH.exists():
         raise FileNotFoundError(f"CSV not found: {CSV_PATH}")
 
-    conn = sqlite3.connect(str(DB_PATH))
-    cur = conn.cursor()
+    db_url = os.environ.get("DATABASE_URL", DEFAULT_DB_URL)
+    engine = create_engine(db_url)
 
-    # Drop only the transactions table (preserve other tables like users, conversations)
-    cur.execute("DROP TABLE IF EXISTS transactions")
-    cur.execute(CREATE_TABLE)
-    for idx_sql in INDICES:
-        cur.execute(idx_sql)
-    conn.commit()
+    with engine.begin() as conn:
+        conn.execute(text("DROP TABLE IF EXISTS transactions"))
+        conn.execute(text(CREATE_TABLE))
+        for idx_sql in INDICES:
+            conn.execute(text(idx_sql))
     print("Transactions table recreated (other tables preserved).")
 
     print(f"Loading data from {CSV_PATH}...")
     batch_size = 10_000
-    batch: list[tuple] = []
     total = 0
+
+    placeholders = ", ".join(f":p{i}" for i in range(17))
+    insert_sql = f"INSERT INTO transactions VALUES ({placeholders})"
 
     with open(CSV_PATH, newline="") as f:
         reader = csv.DictReader(f)
+        batch: list[dict] = []
+
         for row in reader:
-            batch.append(csv_row_to_tuple(row))
+            values = csv_row_to_tuple(row)
+            params = {f"p{i}": v for i, v in enumerate(values)}
+            batch.append(params)
+
             if len(batch) >= batch_size:
-                cur.executemany(
-                    "INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                    batch,
-                )
-                conn.commit()
+                with engine.begin() as conn:
+                    conn.execute(text(insert_sql), batch)
                 total += len(batch)
                 print(f"  {total:>7,} rows loaded")
                 batch.clear()
 
         if batch:
-            cur.executemany(
-                "INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                batch,
-            )
-            conn.commit()
+            with engine.begin() as conn:
+                conn.execute(text(insert_sql), batch)
             total += len(batch)
             print(f"  {total:>7,} rows loaded")
 
     # Summary
-    cur.execute("SELECT COUNT(*) FROM transactions")
-    count = cur.fetchone()[0]
-    cur.execute("SELECT ROUND(AVG(amount_inr), 2) FROM transactions")
-    avg_amt = cur.fetchone()[0]
-    cur.execute("SELECT SUM(fraud_flag) FROM transactions")
-    fraud_count = cur.fetchone()[0]
+    with engine.connect() as conn:
+        count = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar()
+        avg_amt = conn.execute(text("SELECT ROUND(AVG(amount_inr)::numeric, 2) FROM transactions")).scalar()
+        fraud_count = conn.execute(text("SELECT SUM(fraud_flag) FROM transactions")).scalar()
 
-    print(f"\nDone! {count:,} rows in {DB_PATH}")
+    print(f"\nDone! {count:,} rows loaded")
     print(f"  Average amount: INR {avg_amt:,.2f}")
     print(f"  Fraud-flagged:  {fraud_count:,} ({fraud_count/count*100:.1f}%)")
 
-    conn.close()
+    engine.dispose()
 
 
 if __name__ == "__main__":
