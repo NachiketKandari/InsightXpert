@@ -2,6 +2,8 @@
 
 InsightXpert is an AI data analyst that converts natural-language questions into SQL queries against 250,000 Indian UPI payment transactions from 2024. This document covers the full system architecture — deployment topology, backend internals, storage, LLM integration, RAG pipeline, tool system, streaming, auth, admin, and frontend subsystems.
 
+> **Visual diagram:** Open [`docs/diagrams/system-architecture.excalidraw`](diagrams/system-architecture.excalidraw) in [Excalidraw](https://excalidraw.com) for an interactive system architecture diagram covering the frontend, dual-path auth, backend services, agentic orchestrator, LLM layer, and database/storage topology.
+
 ---
 
 ## System Architecture

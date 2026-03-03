@@ -159,7 +159,7 @@ Default: `admin123` (**must be changed for production**)
 **`MAX_AGENT_ITERATIONS`**
 Maximum number of LLM tool-call iterations for the analyst agent loop per request. Prevents runaway loops.
 
-Default: `10`
+Default: `25`
 
 Must be greater than 0.
 
@@ -168,7 +168,7 @@ Must be greater than 0.
 **`MAX_QUANT_ANALYST_ITERATIONS`**
 Maximum iterations for the quantitative analyst agent sub-loop (Python execution path).
 
-Default: `5`
+Default: `15`
 
 Must be greater than 0.
 
@@ -177,7 +177,7 @@ Must be greater than 0.
 **`MAX_ORCHESTRATOR_TASKS`**
 Maximum number of parallel sub-tasks the orchestrator planner can spawn per question in agentic mode.
 
-Default: `5`
+Default: `10`
 
 Must be greater than 0.
 
@@ -236,6 +236,41 @@ How long an in-memory conversation history entry is kept before being evicted. T
 Default: `7200` (2 hours)
 
 Must be greater than 0.
+
+---
+
+### Voice / Speech-to-Text
+
+**`DEEPGRAM_API_KEY`**
+API key for the Deepgram speech-to-text service. When set, the voice transcription feature is enabled via a WebSocket endpoint at `WS /api/transcribe`. The backend proxies browser audio to Deepgram's Nova-3 model and streams transcripts back in real time.
+
+Obtain at: https://console.deepgram.com/
+
+Default: `""` (empty — voice feature is disabled)
+
+If a client connects to the `/api/transcribe` WebSocket and this key is not configured, the connection is closed with code `4002` and reason `"Speech-to-text is not configured"`.
+
+---
+
+### Cloudflare R2 Object Storage
+
+R2 is used as optional backup storage for uploaded files (CSV datasets and PDF documents). It is not managed via the `Settings` class; instead, an `R2StorageService` instance is attached to `app.state.r2_storage` at startup when the required environment variables are present. If R2 is not configured, uploads are stored in the local SQLite database only and the R2 backup is silently skipped.
+
+The following environment variables configure R2 (all four are required to enable R2):
+
+**`R2_ACCESS_KEY_ID`**
+Cloudflare R2 access key ID (S3-compatible).
+
+**`R2_SECRET_ACCESS_KEY`**
+Cloudflare R2 secret access key (S3-compatible).
+
+**`R2_ENDPOINT_URL`**
+Cloudflare R2 S3-compatible endpoint URL. Typically `https://<account-id>.r2.cloudflarestorage.com`.
+
+**`R2_BUCKET`**
+Name of the R2 bucket to store objects in.
+
+All R2 operations (upload, delete, presigned URL generation) are synchronous and wrapped with `asyncio.to_thread()` in route handlers. Failures are logged but do not block the API response -- R2 is a best-effort backup layer.
 
 ---
 
@@ -394,9 +429,9 @@ class Settings(BaseSettings):
     chroma_persist_dir: str = "./chroma_data"
 
     # Agent
-    max_agent_iterations: int = 10                          # > 0
-    max_quant_analyst_iterations: int = 5                   # > 0
-    max_orchestrator_tasks: int = 5                         # > 0
+    max_agent_iterations: int = 25                          # > 0
+    max_quant_analyst_iterations: int = 15                  # > 0
+    max_orchestrator_tasks: int = 10                        # > 0
     python_exec_timeout_seconds: int = 10                   # > 0
     sql_row_limit: int = 10000                              # > 0
     sql_timeout_seconds: int = 30                           # > 0
@@ -417,6 +452,9 @@ class Settings(BaseSettings):
     # Stats context
     enable_stats_context: bool = True
 
+    # Voice / Speech-to-text (Deepgram)
+    deepgram_api_key: str = ""
+
     # Logging
     log_level: str = "INFO"                                 # DEBUG | INFO | WARNING | ERROR | CRITICAL
 ```
@@ -424,7 +462,7 @@ class Settings(BaseSettings):
 **Validators:**
 - `database_url`: Empty string is treated as unset (falls back to default).
 - `log_level`: Normalized to uppercase; invalid values raise `ValueError`.
-- Model validator at startup logs warnings for insecure `secret_key`, weak `admin_seed_password`, and missing `gemini_api_key` when provider is Gemini.
+- Model validator at startup logs warnings for insecure `secret_key`, weak `admin_seed_password`, missing `gemini_api_key` when provider is Gemini, and missing `gcp_project_id` when provider is Vertex AI.
 
 ---
 
@@ -498,6 +536,12 @@ LOG_LEVEL=DEBUG
 ```
 
 Everything else uses defaults (SQLite at `./insightxpert.db`, ChromaDB at `./chroma_data`, Gemini 2.5 Flash, CORS allowing `localhost:3000`).
+
+To also enable voice input during local development, add:
+
+```dotenv
+DEEPGRAM_API_KEY=your-deepgram-api-key-here
+```
 
 Minimal `frontend/.env.local`:
 
