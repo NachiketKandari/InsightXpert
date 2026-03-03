@@ -19,15 +19,15 @@
 - [x] Phase 7: LLM Prompts & Training Data
   - [x] `prompts/analyst_system.j2` — "SQLite" → "PostgreSQL"
   - [x] `training/schema.py` — PostgreSQL DDL types
-- [ ] Phase 8: Data Loading
-  - [ ] `generate_data.py` — sqlite3 → SQLAlchemy
-- [ ] Phase 9: Startup
-  - [ ] `main.py` — Remove pg_overrides, update comments
-- [ ] Phase 10: Docker & Deployment
-  - [ ] `Dockerfile` — Remove Litestream
-  - [ ] `entrypoint.sh` — Remove Litestream logic
-  - [ ] `litestream.yml` — Delete
-  - [ ] `deploy.yml` — Cloud SQL connection, env vars
-  - [ ] `preview.yml` — PostgreSQL test DB
-- [ ] Phase 11: Cleanup
-  - [ ] `CLAUDE.md` — Update references
+- [x] Phase 8: Data Loading
+  - [x] `generate_data.py` — sqlite3 → SQLAlchemy
+- [x] Phase 9: Startup
+  - [x] `main.py` — Remove pg_overrides, update comments
+- [x] Phase 10: Docker & Deployment
+  - [x] `Dockerfile` — Remove Litestream
+  - [x] `entrypoint.sh` — Remove Litestream logic
+  - [x] `litestream.yml` — Delete
+  - [x] `deploy.yml` — Cloud SQL connection, env vars
+  - [x] `preview.yml` — PostgreSQL test DB
+- [x] Phase 11: Cleanup
+  - [x] `CLAUDE.md` — Update references
