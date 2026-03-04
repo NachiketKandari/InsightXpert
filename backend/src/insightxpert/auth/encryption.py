@@ -1,7 +1,6 @@
-from cryptography.fernet import Fernet
-import base64
-import hashlib
 import os
+
+from cryptography.fernet import Fernet
 
 _fernet: Fernet | None = None
 
@@ -11,7 +10,6 @@ def _get_fernet() -> Fernet:
     if _fernet is None:
         key = os.environ.get("ENCRYPTION_KEY")
         if not key:
-            key = Fernet.generate_key().decode()
             raise RuntimeError(
                 "ENCRYPTION_KEY not set. Set a 32-byte base64-encoded key "
                 "(e.g., export ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'))"

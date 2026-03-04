@@ -4,6 +4,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 
+from insightxpert.admin.dependencies import require_admin_user
 from insightxpert.auth.dependencies import get_current_user
 from insightxpert.auth.models import User
 from insightxpert.external_databases.schemas import (
@@ -37,7 +38,7 @@ class RefreshSchemaResponse(BaseModel):
 async def create_external_database(
     request: Request,
     body: CreateExternalDatabase,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
     svc = _get_service(request)
     result = await asyncio.to_thread(
@@ -89,7 +90,7 @@ async def update_external_database(
     request: Request,
     db_id: str,
     body: UpdateExternalDatabase,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
     svc = _get_service(request)
     fields = {k: v for k, v in body.model_dump().items() if v is not None}
@@ -111,7 +112,7 @@ async def update_external_database(
 async def delete_external_database(
     request: Request,
     db_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
     svc = _get_service(request)
     deleted = await asyncio.to_thread(
@@ -128,7 +129,7 @@ async def delete_external_database(
 async def test_external_database_connection(
     request: Request,
     db_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
     svc = _get_service(request)
     result = await svc.test_connection(
@@ -144,7 +145,7 @@ async def test_external_database_connection(
 async def refresh_external_database_schema(
     request: Request,
     db_id: str,
-    user: User = Depends(get_current_user),
+    user: User = Depends(require_admin_user),
 ):
     svc = _get_service(request)
     rag = getattr(request.app.state, "rag", None)

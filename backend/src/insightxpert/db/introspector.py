@@ -5,7 +5,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import List
 
-from sqlalchemy import create_engine, inspect, text
+from sqlalchemy import URL, create_engine, inspect, text
 from sqlalchemy.engine import Engine
 
 logger = logging.getLogger("insightxpert.db.introspector")
@@ -158,18 +158,26 @@ class SchemaIntrospector:
 
 
 class PostgresIntrospector(SchemaIntrospector):
-    def _build_url(self) -> str:
-        return (
-            f"postgresql+psycopg2://{self.username}:{self.password}"
-            f"@{self.host}:{self.port}/{self.database}"
+    def _build_url(self) -> URL:
+        return URL.create(
+            drivername="postgresql+psycopg2",
+            username=self.username,
+            password=self.password,
+            host=self.host,
+            port=self.port,
+            database=self.database,
         )
 
 
 class MySQLIntrospector(SchemaIntrospector):
-    def _build_url(self) -> str:
-        return (
-            f"mysql+pymysql://{self.username}:{self.password}"
-            f"@{self.host}:{self.port}/{self.database}"
+    def _build_url(self) -> URL:
+        return URL.create(
+            drivername="mysql+pymysql",
+            username=self.username,
+            password=self.password,
+            host=self.host,
+            port=self.port,
+            database=self.database,
         )
 
 

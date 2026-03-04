@@ -6,9 +6,25 @@ import logging
 
 from insightxpert.agents.sql_guard import FORBIDDEN_SQL_RE, validate_tables
 from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
-from insightxpert.db.connector import ExternalDatabaseConnector
+from insightxpert.db.connector import ExternalDatabaseConnector, ExternalDatabasePoolManager
 
 logger = logging.getLogger("insightxpert.tools")
+
+
+def _get_external_connector(context: ToolContext) -> ExternalDatabaseConnector:
+    """Return a pooled ExternalDatabaseConnector for the active external DB.
+
+    Uses the singleton ``ExternalDatabasePoolManager`` so that connection
+    pools are reused across tool invocations rather than creating (and
+    immediately disposing) a fresh engine on every call.
+    """
+    assert context.external_db_config is not None
+    pool_mgr = ExternalDatabasePoolManager.get_instance()
+
+    # Ensure the config is registered (idempotent if already present).
+    pool_mgr.register(context.external_db_config)
+
+    return pool_mgr.get(context.external_db_config.id)
 
 
 class RunSqlTool(Tool):
@@ -73,19 +89,11 @@ class RunSqlTool(Tool):
 
     async def _execute_external(self, context: ToolContext, args: dict) -> str:
         sql = args["sql"]
-        assert context.external_db_config is not None
-
-        ext_connector = ExternalDatabaseConnector(
-            context.external_db_config,
-            timeout=30,
-            row_limit=context.row_limit,
-            pool_size=2,
-        )
+        connector = _get_external_connector(context)
 
         try:
-            ext_connector.connect()
             rows = await asyncio.to_thread(
-                ext_connector.execute,
+                connector.execute,
                 sql,
                 row_limit=context.row_limit,
             )
@@ -94,8 +102,6 @@ class RunSqlTool(Tool):
         except Exception as e:
             logger.error("External DB query failed: %s", e, exc_info=True)
             return json.dumps({"error": str(e)})
-        finally:
-            ext_connector.disconnect()
 
 
 class GetSchemaTool(Tool):
@@ -158,25 +164,16 @@ class GetSchemaTool(Tool):
 
     async def _execute_external(self, context: ToolContext, args: dict) -> str:
         tables = args.get("tables", [])
-        assert context.external_db_config is not None
-
-        ext_connector = ExternalDatabaseConnector(
-            context.external_db_config,
-            timeout=30,
-            row_limit=1000,
-            pool_size=2,
-        )
+        connector = _get_external_connector(context)
 
         try:
-            ext_connector.connect()
-
             if not tables:
-                tables = ext_connector.get_tables()
+                tables = connector.get_tables()
                 logger.debug("get_schema returned tables: %s", tables)
 
             results = []
             for table in tables:
-                info = ext_connector.get_columns(table)
+                info = connector.get_columns(table)
                 ddl_parts = [f'    "{col["name"]}" {col["type"]}' for col in info]
                 ddl = f'CREATE TABLE "{table}" (\n' + ",\n".join(ddl_parts) + "\n);"
                 results.append(ddl)
@@ -185,8 +182,6 @@ class GetSchemaTool(Tool):
         except Exception as e:
             logger.error("External DB get_schema failed: %s", e, exc_info=True)
             return json.dumps({"error": str(e)})
-        finally:
-            ext_connector.disconnect()
 
 
 class ClarifyTool(Tool):

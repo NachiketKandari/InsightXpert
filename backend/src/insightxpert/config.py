@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # Stats context injection
     enable_stats_context: bool = True  # Set ENABLE_STATS_CONTEXT=false to disable
 
+    # Encryption (required for external database connections feature)
+    encryption_key: str = ""
+
     # Voice / Speech-to-text (Deepgram)
     deepgram_api_key: str = ""
 

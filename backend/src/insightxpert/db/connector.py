@@ -7,16 +7,18 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Generator, Protocol
 
-from sqlalchemy import create_engine, text
+from sqlalchemy import URL, create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.pool import QueuePool
 
-logger = logging.getLogger("insightxpert.db")
-
+# Duplicated from agents.sql_guard to avoid circular import
+# (agents/__init__.py -> orchestrator -> analyst -> db.connector)
 FORBIDDEN_SQL_RE = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|MERGE|GRANT|REVOKE)\b",
+    r"^\s*(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|REPLACE|ATTACH|DETACH)\b",
     re.IGNORECASE,
 )
+
+logger = logging.getLogger("insightxpert.db")
 
 
 class ExternalDatabaseConnection(Protocol):
@@ -132,16 +134,17 @@ class ExternalDatabaseConfig:
 
 def build_external_db_url(
     config: ExternalDatabaseConnection | ExternalDatabaseConfig,
-) -> str:
+) -> URL:
     dialect = getattr(config, "dialect", "postgresql")
-    if dialect == "postgresql":
-        return f"postgresql://{config.username}:{config.password}@{config.host}:{config.port}/{config.database}"
-    elif dialect == "mysql":
-        return f"mysql+pymysql://{config.username}:{config.password}@{config.host}:{config.port}/{config.database}"
-    elif dialect == "sqlite":
-        return f"sqlite:///{config.database}"
-    else:
-        return f"{dialect}://{config.username}:{config.password}@{config.host}:{config.port}/{config.database}"
+    driver_map = {"postgresql": "postgresql+psycopg2", "mysql": "mysql+pymysql"}
+    return URL.create(
+        drivername=driver_map.get(dialect, dialect),
+        username=config.username,
+        password=config.password,
+        host=config.host,
+        port=config.port,
+        database=config.database,
+    )
 
 
 class ExternalDatabaseConnector:
@@ -180,7 +183,7 @@ class ExternalDatabaseConnector:
             pool_recycle=3600,
             connect_args={
                 "connect_timeout": self._timeout,
-                "command_timeout": self._timeout,
+                "options": f"-c statement_timeout={self._timeout * 1000}",
             },
         )
         safe_url = self._engine.url.render_as_string(hide_password=True)

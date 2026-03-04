@@ -14,9 +14,9 @@ MIGRATION_TABLES = [
         password VARCHAR(255) NOT NULL,
         is_active BOOLEAN DEFAULT FALSE NOT NULL,
         is_verified BOOLEAN DEFAULT FALSE NOT NULL,
-        last_verified_at DATETIME,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        last_verified_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
     )""",
 ]
@@ -24,9 +24,9 @@ MIGRATION_TABLES = [
 # Migration columns: (table, column, column_def).
 MIGRATION_COLUMNS = [
     ("users", "is_admin", "BOOLEAN DEFAULT FALSE NOT NULL"),
-    ("users", "last_active", "DATETIME"),
+    ("users", "last_active", "TIMESTAMP"),
     ("users", "org_id", "VARCHAR(100)"),
-    ("users", "updated_at", "DATETIME"),
+    ("users", "updated_at", "TIMESTAMP"),
     ("conversations", "is_starred", "BOOLEAN DEFAULT FALSE NOT NULL"),
     ("conversations", "org_id", "VARCHAR(100)"),
     ("messages", "feedback", "BOOLEAN"),

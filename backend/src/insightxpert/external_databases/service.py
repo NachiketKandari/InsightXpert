@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -7,6 +8,8 @@ from sqlalchemy.orm import Session
 from insightxpert.auth.encryption import decrypt_credentials, encrypt_credentials
 from insightxpert.auth.models import ExternalDatabaseConnection, _uuid, _utcnow
 from insightxpert.db.introspector import SchemaIntrospector, get_introspector
+
+_logger = logging.getLogger(__name__)
 
 
 class ExternalDatabaseService:
@@ -17,7 +20,8 @@ class ExternalDatabaseService:
         try:
             return decrypt_credentials(encrypted_password)
         except Exception:
-            return encrypted_password
+            _logger.error("Failed to decrypt external database password — is ENCRYPTION_KEY set correctly?")
+            raise
 
     def _to_response(self, db: ExternalDatabaseConnection) -> dict:
         return {
