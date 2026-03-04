@@ -5,7 +5,7 @@ import json
 import logging
 
 from insightxpert.agents.sql_guard import FORBIDDEN_SQL_RE
-from insightxpert.agents.tool_base import Tool, ToolContext
+from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
 from insightxpert.db.connector import ExternalDatabaseConnector
 
 logger = logging.getLogger("insightxpert.external_db_tools")
@@ -143,7 +143,7 @@ class ExternalDbGetSchemaTool(Tool):
             ext_connector.disconnect()
 
 
-def external_db_registry() -> "ExternalDbToolRegistry":
+def external_db_registry() -> "ToolRegistry":
     """Create and return a ToolRegistry configured for external database access."""
     from insightxpert.agents.tool_base import ToolRegistry
 

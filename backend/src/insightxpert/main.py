@@ -35,12 +35,23 @@ logger = logging.getLogger("insightxpert")
 
 def _migrate_schema(engine) -> None:
     """Add new columns to existing tables (idempotent, no Alembic needed)."""
-    from insightxpert.db.migrations import MIGRATION_COLUMNS, SCHEMA_INDEXES
+    from insightxpert.db.migrations import (
+        MIGRATION_COLUMNS,
+        MIGRATION_TABLES,
+        SCHEMA_INDEXES,
+    )
 
     insp = inspect(engine)
     existing_tables = set(insp.get_table_names())
 
     with engine.begin() as conn:
+        # Create new tables if they don't exist
+        for table_sql in MIGRATION_TABLES:
+            try:
+                conn.execute(text(table_sql))
+                logger.info("Migration: created table external_database_connections")
+            except Exception as e:
+                logger.debug("Table creation skipped: %s", e)
 
         def _add_column(table: str, column: str, col_def: str) -> None:
             if table not in existing_tables:

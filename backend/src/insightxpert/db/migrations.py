@@ -1,5 +1,26 @@
 """Schema migration constants: columns and indexes applied idempotently at startup."""
 
+# New tables to create if they don't exist
+MIGRATION_TABLES = [
+    """CREATE TABLE IF NOT EXISTS external_database_connections (
+        id VARCHAR(36) PRIMARY KEY,
+        organization_id VARCHAR(100),
+        name VARCHAR(255) NOT NULL,
+        connection_type VARCHAR(20) NOT NULL,
+        host VARCHAR(255) NOT NULL,
+        port INTEGER NOT NULL,
+        database VARCHAR(255) NOT NULL,
+        username VARCHAR(255) NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        is_active BOOLEAN DEFAULT FALSE NOT NULL,
+        is_verified BOOLEAN DEFAULT FALSE NOT NULL,
+        last_verified_at DATETIME,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
+    )""",
+]
+
 # Migration columns: (table, column, column_def).
 MIGRATION_COLUMNS = [
     ("users", "is_admin", "BOOLEAN DEFAULT FALSE NOT NULL"),
@@ -53,4 +74,6 @@ SCHEMA_INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_insights_user_created ON insights (user_id, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_insights_org_created ON insights (org_id, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_insights_created_at ON insights (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_external_db_org_id ON external_database_connections (organization_id)",
+    "CREATE INDEX IF NOT EXISTS ix_external_db_active ON external_database_connections (organization_id, is_active)",
 ]
