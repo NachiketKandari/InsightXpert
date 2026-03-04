@@ -63,12 +63,16 @@ async def quant_analyst_loop(
     allowed_tables: set[str] | None = None,
     dataset_id: str | None = None,
     org_id: str | None = None,
+    external_db_config=None,
+    use_external_db: bool = False,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the quant analyst agent loop on upstream results."""
     cid = conversation_id
     loop_start = time.time()
 
-    tool_registry = _quant_registry(python_exec_timeout=config.python_exec_timeout_seconds)
+    tool_registry = _quant_registry(
+        python_exec_timeout=config.python_exec_timeout_seconds
+    )
 
     # Merge upstream analyst results into a single dataset for the tool context
     merged_results: list[dict] = []
@@ -106,11 +110,17 @@ async def quant_analyst_loop(
         allowed_tables=allowed_tables,
         dataset_id=dataset_id,
         org_id=org_id,
+        external_db_config=external_db_config,
+        use_external_db=use_external_db,
     )
 
     logger.info("=" * 60)
-    logger.info("QUANT ANALYST [%s]: processing %d rows from %d upstream tasks",
-                cid, len(merged_results), len(upstream_results))
+    logger.info(
+        "QUANT ANALYST [%s]: processing %d rows from %d upstream tasks",
+        cid,
+        len(merged_results),
+        len(upstream_results),
+    )
     logger.info("=" * 60)
 
     yield ChatChunk(
@@ -122,7 +132,11 @@ async def quant_analyst_loop(
     )
 
     results_summary = summarize_results(merged_results)
-    upstream_context = "\n\n".join(upstream_summary_lines) if upstream_summary_lines else "(no upstream data)"
+    upstream_context = (
+        "\n\n".join(upstream_summary_lines)
+        if upstream_summary_lines
+        else "(no upstream data)"
+    )
 
     system_prompt = render_prompt(
         "quant_analyst_system.j2",
