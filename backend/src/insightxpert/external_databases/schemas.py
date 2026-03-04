@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class CreateExternalDatabase(BaseModel):
@@ -26,6 +26,8 @@ class UpdateExternalDatabase(BaseModel):
 
 
 class ExternalDatabaseResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
     name: str
     connection_type: str
@@ -38,9 +40,6 @@ class ExternalDatabaseResponse(BaseModel):
     last_verified_at: Optional[datetime]
     created_at: datetime
     updated_at: datetime
-
-    class Config:
-        from_attributes = True
 
 
 class TestConnectionResponse(BaseModel):
