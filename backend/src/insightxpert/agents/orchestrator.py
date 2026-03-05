@@ -67,6 +67,8 @@ async def orchestrator_loop(
     rag_retrieval: bool = True,
     external_db_service=None,
     user_org_id: str | None = None,
+    user_db_service=None,
+    user_id: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the orchestrator pipeline.
 
@@ -108,8 +110,31 @@ async def orchestrator_loop(
             if table_name:
                 allowed_tables = {table_name}
 
+    # Resolve active user-scoped database (highest priority)
+    if user_db_service is not None and user_id is not None:
+        active_user_db = await asyncio.to_thread(
+            user_db_service.get_active_connection, user_id
+        )
+        if active_user_db:
+            from insightxpert.db.connector import ExternalDatabaseConfig
+
+            external_db_config = ExternalDatabaseConfig(
+                id=int(active_user_db["id"].replace("-", "")[:8], 16),
+                host=active_user_db["host"],
+                port=active_user_db["port"],
+                database=active_user_db["database"],
+                username=active_user_db["username"],
+                password=active_user_db["password"],
+                dialect=active_user_db.get("connection_type", "postgresql"),
+            )
+            use_external_db = True
+            allowed_tables = None
+            ddl_override = None
+            docs_override = None
+            logger.info("Using user database: %s", active_user_db["name"])
+
     # Resolve active external database (takes precedence over internal datasets)
-    if external_db_service is not None:
+    if not use_external_db and external_db_service is not None:
         effective_org_id = org_id or user_org_id
         active_ext_db = await asyncio.to_thread(
             external_db_service.get_active_external_database,

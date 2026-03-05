@@ -19,6 +19,18 @@ MIGRATION_TABLES = [
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
     )""",
+    """CREATE TABLE IF NOT EXISTS user_database_connections (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        connection_string TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT FALSE NOT NULL,
+        is_verified BOOLEAN DEFAULT FALSE NOT NULL,
+        last_verified_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )""",
 ]
 
 # Migration columns: (table, column, column_def).
@@ -76,4 +88,6 @@ SCHEMA_INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_insights_created_at ON insights (created_at)",
     "CREATE INDEX IF NOT EXISTS ix_external_db_org_id ON external_database_connections (organization_id)",
     "CREATE INDEX IF NOT EXISTS ix_external_db_active ON external_database_connections (organization_id, is_active)",
+    "CREATE INDEX IF NOT EXISTS ix_user_db_conn_user_id ON user_database_connections (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_user_db_conn_user_active ON user_database_connections (user_id, is_active)",
 ]

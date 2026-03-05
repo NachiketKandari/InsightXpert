@@ -435,6 +435,8 @@ async def chat_sse(
             rag_retrieval=features.rag_retrieval,
             external_db_service=external_db_service,
             user_org_id=user.org_id,
+            user_db_service=getattr(request.app.state, "user_db_service", None),
+            user_id=user.id,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -531,6 +533,8 @@ async def _run_orchestrator_to_completion(
         rag_retrieval=features.rag_retrieval,
         external_db_service=external_db_service,
         user_org_id=user.org_id,
+        user_db_service=getattr(request.app.state, "user_db_service", None),
+        user_id=user.id,
     ):
         all_chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:

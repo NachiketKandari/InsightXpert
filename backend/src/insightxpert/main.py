@@ -431,10 +431,7 @@ async def lifespan(app: FastAPI):
     # 1. Connect to PostgreSQL
     db = DatabaseConnector()
     try:
-        db.connect(
-            settings.database_url,
-            cloud_sql_connection_name=settings.cloud_sql_connection_name,
-        )
+        db.connect(settings.database_url)
         safe_url = db.engine.url.render_as_string(hide_password=True)
         logger.info("Database connected: %s", safe_url)
     except Exception as e:
@@ -500,9 +497,10 @@ async def lifespan(app: FastAPI):
     dataset_service = DatasetService(auth_engine)
 
     # External database service
-    from insightxpert.external_databases.service import ExternalDatabaseService
+    from insightxpert.external_databases.service import ExternalDatabaseService, UserDatabaseService
 
     external_db_service = ExternalDatabaseService(auth_engine)
+    user_db_service = UserDatabaseService(auth_engine)
 
     # Bootstrap RAG in a background thread (after dataset tables are seeded)
     rag_task = asyncio.create_task(
@@ -529,6 +527,7 @@ async def lifespan(app: FastAPI):
     app.state.persistent_conv_store = persistent_conv_store
     app.state.dataset_service = dataset_service
     app.state.external_db_service = external_db_service
+    app.state.user_db_service = user_db_service
 
     # Automation service + scheduler
     from insightxpert.automations.service import AutomationService
@@ -696,6 +695,7 @@ from insightxpert.automations.routes import (
 from insightxpert.insights.routes import router as insights_router
 from insightxpert.voice.routes import router as voice_router
 from insightxpert.external_databases.routes import router as external_db_router
+from insightxpert.external_databases.routes import user_connections_router
 
 app.include_router(router)
 app.include_router(auth_router)
@@ -707,6 +707,7 @@ app.include_router(templates_router)
 app.include_router(insights_router)
 app.include_router(voice_router)
 app.include_router(external_db_router)
+app.include_router(user_connections_router)
 
 if __name__ == "__main__":
     import os

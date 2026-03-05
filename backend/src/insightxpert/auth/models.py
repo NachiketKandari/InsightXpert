@@ -496,6 +496,30 @@ class DatasetStat(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class UserDatabaseConnection(Base):
+    __tablename__ = "user_database_connections"
+    __table_args__ = (
+        Index("ix_user_db_conn_user_id", "user_id"),
+        Index("ix_user_db_conn_user_active", "user_id", "is_active"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    connection_string: Mapped[str] = mapped_column(Text, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=_utcnow, onupdate=_utcnow
+    )
+
+
 class ExternalDatabaseConnection(Base):
     __tablename__ = "external_database_connections"
     __table_args__ = (

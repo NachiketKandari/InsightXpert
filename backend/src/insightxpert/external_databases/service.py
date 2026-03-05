@@ -2,12 +2,13 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+from urllib.parse import urlparse
 
 from sqlalchemy.orm import Session
 
 from insightxpert.auth.encryption import decrypt_credentials, encrypt_credentials
-from insightxpert.auth.models import ExternalDatabaseConnection, _uuid, _utcnow
-from insightxpert.db.introspector import SchemaIntrospector, get_introspector
+from insightxpert.auth.models import ExternalDatabaseConnection, UserDatabaseConnection, _uuid, _utcnow
+from insightxpert.db.introspector import get_introspector
 
 _logger = logging.getLogger(__name__)
 
@@ -302,4 +303,180 @@ class ExternalDatabaseService:
             "success": True,
             "message": f"Schema refreshed: {len(ddl_statements)} tables",
             "table_count": len(ddl_statements),
+        }
+
+
+class UserDatabaseService:
+    """Service for user-scoped database connections.
+
+    Stores the full connection string (encrypted). Display fields are parsed
+    from the DSN on read — the raw connection string is never returned.
+    """
+
+    def __init__(self, engine):
+        self._engine = engine
+
+    @staticmethod
+    def _parse_dsn(dsn: str) -> dict:
+        """Extract display fields from a PostgreSQL DSN."""
+        parsed = urlparse(dsn)
+        return {
+            "host": parsed.hostname or "",
+            "port": parsed.port or 5432,
+            "database": (parsed.path or "").lstrip("/"),
+            "username": parsed.username or "",
+            "password": parsed.password or "",
+        }
+
+    def _to_response(self, conn: UserDatabaseConnection) -> dict:
+        """Build a response dict — never includes the raw connection string."""
+        try:
+            dsn = decrypt_credentials(conn.connection_string)
+            parts = self._parse_dsn(dsn)
+        except Exception:
+            parts = {"host": None, "port": None, "database": None, "username": None}
+
+        return {
+            "id": conn.id,
+            "name": conn.name,
+            "host": parts.get("host"),
+            "port": parts.get("port"),
+            "database": parts.get("database"),
+            "username": parts.get("username"),
+            "is_active": conn.is_active,
+            "is_verified": conn.is_verified,
+            "last_verified_at": conn.last_verified_at,
+            "created_at": conn.created_at,
+            "updated_at": conn.updated_at,
+        }
+
+    def create_connection(self, user_id: str, name: str, connection_string: str) -> dict:
+        encrypted = encrypt_credentials(connection_string)
+        now = _utcnow()
+
+        with Session(self._engine) as session:
+            conn = UserDatabaseConnection(
+                id=_uuid(),
+                user_id=user_id,
+                name=name,
+                connection_string=encrypted,
+                is_active=False,
+                is_verified=False,
+                last_verified_at=None,
+                created_at=now,
+                updated_at=now,
+            )
+            session.add(conn)
+            session.commit()
+            session.refresh(conn)
+            return self._to_response(conn)
+
+    def list_connections(self, user_id: str) -> list[dict]:
+        with Session(self._engine) as session:
+            conns = (
+                session.query(UserDatabaseConnection)
+                .filter(UserDatabaseConnection.user_id == user_id)
+                .order_by(UserDatabaseConnection.created_at.desc())
+                .all()
+            )
+            return [self._to_response(c) for c in conns]
+
+    def delete_connection(self, conn_id: str, user_id: str) -> bool:
+        with Session(self._engine) as session:
+            conn = session.get(UserDatabaseConnection, conn_id)
+            if not conn or conn.user_id != user_id:
+                return False
+            session.delete(conn)
+            session.commit()
+            return True
+
+    def set_active(self, conn_id: str, user_id: str, active: bool) -> Optional[dict]:
+        with Session(self._engine) as session:
+            conn = session.get(UserDatabaseConnection, conn_id)
+            if not conn or conn.user_id != user_id:
+                return None
+
+            if active:
+                # Deactivate all other connections for this user atomically
+                session.query(UserDatabaseConnection).filter(
+                    UserDatabaseConnection.user_id == user_id,
+                    UserDatabaseConnection.id != conn_id,
+                ).update({"is_active": False})
+
+            conn.is_active = active
+            conn.updated_at = _utcnow()
+            session.commit()
+            session.refresh(conn)
+            return self._to_response(conn)
+
+    def get_active_connection(self, user_id: str) -> Optional[dict]:
+        """Return the active connection for agent use (includes decrypted parsed fields)."""
+        with Session(self._engine) as session:
+            conn = (
+                session.query(UserDatabaseConnection)
+                .filter(
+                    UserDatabaseConnection.user_id == user_id,
+                    UserDatabaseConnection.is_active.is_(True),
+                    UserDatabaseConnection.is_verified.is_(True),
+                )
+                .first()
+            )
+            if not conn:
+                return None
+
+            dsn = decrypt_credentials(conn.connection_string)
+            parts = self._parse_dsn(dsn)
+            return {
+                "id": conn.id,
+                "name": conn.name,
+                "host": parts["host"],
+                "port": parts["port"],
+                "database": parts["database"],
+                "username": parts["username"],
+                "password": parts["password"],
+                "connection_type": "postgresql",
+            }
+
+    async def test_connection(self, conn_id: str, user_id: str) -> Optional[dict]:
+        with Session(self._engine) as session:
+            conn = session.get(UserDatabaseConnection, conn_id)
+            if not conn or conn.user_id != user_id:
+                return None
+            dsn = decrypt_credentials(conn.connection_string)
+            parts = self._parse_dsn(dsn)
+            db_data = {
+                "host": parts["host"],
+                "port": parts["port"],
+                "database": parts["database"],
+                "username": parts["username"],
+                "password": parts["password"],
+                "connection_type": "postgresql",
+            }
+
+        introspector = await get_introspector(**db_data)
+        success = await asyncio.to_thread(introspector.test_connection)
+        table_count = None
+
+        if success:
+            try:
+                tables = await asyncio.to_thread(introspector.get_tables)
+                table_count = len(tables)
+            except Exception:
+                pass
+
+            now = datetime.now(timezone.utc)
+            with Session(self._engine) as session:
+                conn = session.get(UserDatabaseConnection, conn_id)
+                if conn:
+                    conn.is_verified = True
+                    conn.last_verified_at = now
+                    conn.updated_at = now
+                    session.commit()
+
+        await asyncio.to_thread(introspector.disconnect)
+
+        return {
+            "success": success,
+            "message": "Connection successful" if success else "Connection failed",
+            "table_count": table_count,
         }

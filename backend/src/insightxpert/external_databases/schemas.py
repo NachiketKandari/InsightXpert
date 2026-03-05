@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CreateExternalDatabase(BaseModel):
@@ -46,3 +46,51 @@ class TestConnectionResponse(BaseModel):
     success: bool
     message: str
     table_count: Optional[int] = None
+
+
+# --- User-scoped database connection schemas ---
+
+
+class CreateUserDatabaseConnection(BaseModel):
+    name: str = Field(..., min_length=1, max_length=255)
+    connection_string: str = Field(..., min_length=1)
+
+    @field_validator("connection_string")
+    @classmethod
+    def validate_connection_string(cls, v: str) -> str:
+        if not v.startswith(("postgresql://", "postgres://")):
+            raise ValueError("connection_string must start with postgresql:// or postgres://")
+        return v
+
+
+class UpdateUserDatabaseConnection(BaseModel):
+    name: Optional[str] = Field(None, min_length=1, max_length=255)
+    connection_string: Optional[str] = Field(None, min_length=1)
+    is_active: Optional[bool] = None
+
+    @field_validator("connection_string")
+    @classmethod
+    def validate_connection_string(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.startswith(("postgresql://", "postgres://")):
+            raise ValueError("connection_string must start with postgresql:// or postgres://")
+        return v
+
+
+class UserDatabaseConnectionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    host: Optional[str] = None
+    port: Optional[int] = None
+    database: Optional[str] = None
+    username: Optional[str] = None
+    is_active: bool
+    is_verified: bool
+    last_verified_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SetActiveRequest(BaseModel):
+    active: bool
