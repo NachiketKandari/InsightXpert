@@ -358,7 +358,7 @@ class DatasetService:
 
     @staticmethod
     def _sanitize_table_name(name: str) -> str:
-        """Generate a safe SQLite table name from a dataset name."""
+        """Generate a safe PostgreSQL table name from a dataset name."""
         safe = name.lower().replace(" ", "_").replace("-", "_")
         safe = re.sub(r"[^a-z0-9_]", "", safe)
         safe = re.sub(r"_+", "_", safe).strip("_")
@@ -387,7 +387,7 @@ class DatasetService:
         csv_content: bytes,
         file_name: str,
     ) -> dict:
-        """Create a new dataset by parsing a CSV and loading it into SQLite.
+        """Create a new dataset by parsing a CSV and loading it into PostgreSQL.
 
         Returns the created dataset dict with a ``profile`` key containing
         the column-level profiling results.  The dataset's ``documentation``
@@ -422,8 +422,8 @@ class DatasetService:
         col_defs: list[tuple[str, str]] = []
         for col_profile in profile["columns"]:
             safe_col = col_profile["name"]
-            sqlite_type = col_profile["inferred_type"]
-            col_defs.append((safe_col, sqlite_type))
+            pg_type = col_profile["inferred_type"]
+            col_defs.append((safe_col, pg_type))
             profile_by_name[safe_col] = col_profile
 
         # Build rename map (original -> sanitized) using profiler's mapping
@@ -505,7 +505,7 @@ class DatasetService:
         keeping memory usage bounded regardless of file size.
 
         1. Read a small sample for type inference (schema only).
-        2. Create the SQLite table from the inferred schema.
+        2. Create the PostgreSQL table from the inferred schema.
         3. Insert data in 10K-row chunks (each its own transaction).
         4. Profile column stats from the actual loaded table via SQL.
         5. On failure, drop the partial table before re-raising.
@@ -595,8 +595,7 @@ class DatasetService:
             ) from exc
 
         # -- 4. Profile from the full loaded table --------------------------
-        # Build accurate stats via SQL queries on the actual data — fast
-        # even for large tables since SQLite scans are efficient.
+        # Build accurate stats via SQL queries on the actual data.
         profile = {
             "row_count": total_rows,
             "column_count": len(col_defs),
@@ -700,7 +699,7 @@ class DatasetService:
                 cp["cardinality"] = _classify_cardinality(distinct_count, total_rows)
 
                 # Numeric stats
-                if cp["inferred_type"] in ("INTEGER", "REAL"):
+                if cp["inferred_type"] in ("INTEGER", "DOUBLE PRECISION"):
                     stats_row = conn.execute(text(
                         f"SELECT MIN({quoted}), MAX({quoted}), AVG({quoted}) "
                         f'FROM "{table_name}" WHERE {quoted} IS NOT NULL'

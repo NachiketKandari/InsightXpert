@@ -1,12 +1,45 @@
 """Schema migration constants: columns and indexes applied idempotently at startup."""
 
+# New tables to create if they don't exist
+MIGRATION_TABLES = [
+    """CREATE TABLE IF NOT EXISTS external_database_connections (
+        id VARCHAR(36) PRIMARY KEY,
+        organization_id VARCHAR(100),
+        name VARCHAR(255) NOT NULL,
+        connection_type VARCHAR(20) NOT NULL,
+        host VARCHAR(255) NOT NULL,
+        port INTEGER NOT NULL,
+        database VARCHAR(255) NOT NULL,
+        username VARCHAR(255) NOT NULL,
+        password VARCHAR(255) NOT NULL,
+        is_active BOOLEAN DEFAULT FALSE NOT NULL,
+        is_verified BOOLEAN DEFAULT FALSE NOT NULL,
+        last_verified_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (organization_id) REFERENCES organizations(id) ON DELETE SET NULL
+    )""",
+    """CREATE TABLE IF NOT EXISTS user_database_connections (
+        id VARCHAR(36) PRIMARY KEY,
+        user_id VARCHAR(36) NOT NULL,
+        name VARCHAR(255) NOT NULL,
+        connection_string TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT FALSE NOT NULL,
+        is_verified BOOLEAN DEFAULT FALSE NOT NULL,
+        last_verified_at TIMESTAMP,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    )""",
+]
+
 # Migration columns: (table, column, column_def).
 MIGRATION_COLUMNS = [
-    ("users", "is_admin", "BOOLEAN DEFAULT 0 NOT NULL"),
-    ("users", "last_active", "DATETIME"),
+    ("users", "is_admin", "BOOLEAN DEFAULT FALSE NOT NULL"),
+    ("users", "last_active", "TIMESTAMP"),
     ("users", "org_id", "VARCHAR(100)"),
-    ("users", "updated_at", "DATETIME"),
-    ("conversations", "is_starred", "BOOLEAN DEFAULT 0 NOT NULL"),
+    ("users", "updated_at", "TIMESTAMP"),
+    ("conversations", "is_starred", "BOOLEAN DEFAULT FALSE NOT NULL"),
     ("conversations", "org_id", "VARCHAR(100)"),
     ("messages", "feedback", "BOOLEAN"),
     ("messages", "feedback_comment", "TEXT"),
@@ -53,4 +86,8 @@ SCHEMA_INDEXES = [
     "CREATE INDEX IF NOT EXISTS ix_insights_user_created ON insights (user_id, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_insights_org_created ON insights (org_id, created_at)",
     "CREATE INDEX IF NOT EXISTS ix_insights_created_at ON insights (created_at)",
+    "CREATE INDEX IF NOT EXISTS ix_external_db_org_id ON external_database_connections (organization_id)",
+    "CREATE INDEX IF NOT EXISTS ix_external_db_active ON external_database_connections (organization_id, is_active)",
+    "CREATE INDEX IF NOT EXISTS ix_user_db_conn_user_id ON user_database_connections (user_id)",
+    "CREATE INDEX IF NOT EXISTS ix_user_db_conn_user_active ON user_database_connections (user_id, is_active)",
 ]

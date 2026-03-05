@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from insightxpert.db.connector import DatabaseConnector
+from insightxpert.db.connector import DatabaseConnector, ExternalDatabaseConfig
 
 if TYPE_CHECKING:
     from insightxpert.rag.base import VectorStoreBackend
@@ -24,6 +24,8 @@ class ToolContext:
     allowed_tables: set[str] | None = None
     dataset_id: str | None = None
     org_id: str | None = None
+    external_db_config: ExternalDatabaseConfig | None = None
+    use_external_db: bool = False
 
 
 class Tool(ABC):

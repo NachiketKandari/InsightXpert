@@ -56,8 +56,9 @@ def _make_admin_user() -> User:
 def auth_engine():
     """In-memory SQLAlchemy engine with auth tables created.
 
-    Uses StaticPool + check_same_thread=False so that sync endpoints
-    (which FastAPI runs in a thread pool) share the same connection.
+    Uses SQLite in-memory with StaticPool for fast isolated ORM tests.
+    SQLAlchemy ORM is dialect-agnostic so this works for testing
+    application logic even though production uses PostgreSQL.
     """
     engine = create_engine(
         "sqlite://",

@@ -5,317 +5,145 @@
 # InsightXpert
 
 AI data analyst for the Techfest IIT Bombay Leadership Analytics Challenge.
-Queries 250K synthetic Indian digital payment transactions via natural language using Vanna 2.0 + Gemini + SQLite.
+Converts natural-language questions into SQL queries against 250K Indian UPI payment transactions using a custom multi-agent pipeline + Gemini + PostgreSQL.
 
 ## Project Structure
 
-- `app/main.py` — FastAPI entry point, creates Agent and runs VannaFastAPIServer
-- `app/agent.py` — Agent factory: wires LLM, tools, memory, system prompt
-- `app/config.py` — Pydantic Settings (env vars / .env.local)
-- `app/training/schema.py` — DDL for the `transactions` table
-- `app/training/documentation.py` — Business context & column descriptions
-- `app/training/queries.py` — Example question→SQL pairs
-- `app/db/loader.py` — CSV→SQLite loader utility
-- `data/` — CSV data files
-- `prd/` — Problem statement & question bank
+```
+backend/
+  src/insightxpert/
+    main.py           # FastAPI entry point, lifespan startup/shutdown
+    config.py         # Pydantic Settings (env vars / .env.local)
+    agents/           # analyst, orchestrator, quant_analyst, clarifier, deep_think,
+                      #   response_generator, dag_executor, stats_resolver, tools,
+                      #   stat_tools, advanced_tools, common, tool_base
+    api/              # SSE chat endpoint, request/response models
+    auth/             # JWT auth, user/org models, conversation store, permissions
+    admin/            # feature toggles, org branding, config store
+    automations/      # service, scheduler (APScheduler), evaluator, nl_trigger, routes
+    datasets/         # dataset service (CRUD, CSV upload, profiling), profiler, routes
+    db/               # SQLAlchemy connector, data loader, schema, stats_computer, migrations
+    insights/         # insights routes
+    llm/              # LLMProvider protocol, Gemini/Ollama/VertexAI providers, factory
+    memory/           # in-memory conversation store (LRU+TTL)
+    prompts/          # Jinja2 templates (.j2) for all agent personas
+    rag/              # ChromaDB vector store and VectorStoreBackend protocol
+    storage/          # R2 file storage, PDF extraction, document service
+    training/         # DDL, documentation, example queries, trainer bootstrap
+    voice/            # Deepgram speech-to-text WebSocket proxy
+  tests/
+  pyproject.toml
 
-## Running
+frontend/
+  src/
+    app/              # Next.js 16 App Router pages (login, register, admin, automations)
+    components/       # chat, chunks, dataset, admin, automations, insights, layout, sidebar, sql, ui
+    hooks/            # use-sse-chat, use-voice-input, use-client-config, etc.
+    lib/              # api client, sse-client, chart-detector, constants, utils
+    stores/           # Zustand: auth, chat, settings, client-config, automation, insight, notification
+    types/            # TypeScript type definitions
+  package.json
+
+docs/                 # Detailed documentation (architecture, api-reference, agent-pipeline, etc.)
+```
+
+## Running Locally
 
 ```bash
-# Load data
-python -m app.db.loader data/transactions.csv
+# Start local PostgreSQL
+cd backend
+docker compose up -d             # PostgreSQL on :5432
 
-# Start server
-python -m app.main
+# Backend
+python generate_data.py          # load 250K rows into PostgreSQL
+uv run python -m insightxpert    # start FastAPI on :8000
+
+# Frontend
+cd frontend
+npm install
+npm run dev                      # Next.js dev server on :3000
 ```
 
-## Key Config (env vars)
+## Key Config (backend/.env.local)
 
-- `GOOGLE_API_KEY` — Gemini API key
-- `GEMINI_MODEL` — model name (default: gemini-2.5-flash)
-- `DATABASE_PATH` — SQLite DB path (default: ./insightxpert.db)
-- `CHROMA_PERSIST_DIR` — ChromaDB persistence (default: ./chroma_data)
+| Variable | Default | Description |
+|---|---|---|
+| `GEMINI_API_KEY` | — | Google Gemini API key (required) |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Model name |
+| `LLM_PROVIDER` | `gemini` | `gemini`, `ollama`, or `vertex_ai` |
+| `DATABASE_URL` | `postgresql://insightxpert:insightxpert@localhost:5432/insightxpert` | PostgreSQL connection URL |
+| `CLOUD_SQL_CONNECTION_NAME` | `""` | Cloud SQL instance connection name (production) |
+| `CHROMA_PERSIST_DIR` | `./chroma_data` | ChromaDB persistence directory |
+| `SECRET_KEY` | (insecure default) | JWT signing key (32+ chars for prod) |
+| `DEEPGRAM_API_KEY` | `""` | Deepgram key for voice input (optional) |
+| `LOG_LEVEL` | `INFO` | Logging level |
 
----
+See `docs/configuration.md` for the full list of env vars.
 
-# Vanna 2.0 Reference
+## Architecture Overview
 
-This project uses Vanna >= 2.0 (agent-based architecture). Below is a reference for the key APIs.
+**Two-service deployment:** Firebase Hosting (Next.js static export) + Cloud Run (FastAPI backend) + Cloud SQL PostgreSQL.
 
-## Core Architecture
+**Agent pipeline modes** (`POST /api/chat`):
+- `basic` — Single analyst loop: question -> SQL -> answer
+- `agentic` — Analyst-first, then evaluator decides if enrichment is needed; DAG executes sub-tasks; synthesizer produces cited insight
+- `deep` — 5W1H dimensional analysis with targeted enrichment
 
-Vanna 2.0 is an agent framework for text-to-SQL. The main components are:
+**Key subsystems:**
+- **LLM layer** — `LLMProvider` protocol in `llm/base.py`; Gemini/Ollama/VertexAI providers; runtime model switching via `POST /api/config/switch`
+- **RAG** — ChromaDB with 4 collections (qa_pairs, ddl, docs, findings); auto-save flywheel persists successful Q->SQL pairs
+- **Tool system** — Custom `Tool` ABC in `agents/tool_base.py`; `ToolRegistry` dispatches tools; analyst tools (run_sql, get_schema, search_similar, clarify) + quant analyst tools (run_python, hypothesis tests, correlation, descriptive stats)
+- **Auth** — JWT + HttpOnly `__session` cookie; dual-path (cookie for CDN-proxied routes, Bearer token for direct SSE)
+- **SSE streaming** — `EventSourceResponse` yields `ChatChunk` objects; `[DONE]` sent before persistence (fire-and-forget)
+- **Conversations** — Two-layer: in-memory LRU+TTL store for fast context injection; PostgreSQL for persistence
+- **Datasets** — Multi-dataset support with CSV upload, automatic profiling, column metadata; active dataset's DDL/docs override training data
+- **Automations** — APScheduler cron-based automation with trigger conditions (threshold, trend, etc.)
 
-1. **Agent** — Main orchestrator for LLM interactions, tool execution, and conversation management
-2. **ToolRegistry** — Manages and executes tools with permission validation
-3. **LLM Service** — Interface to LLM providers (Anthropic, OpenAI, Google Gemini, Ollama, etc.)
-4. **SQL Runner** — Executes SQL queries against databases
-5. **Agent Memory** — Stores and retrieves tool usage patterns (ChromaDB, in-memory, etc.)
-6. **UserResolver** — Extracts user identity from requests
-7. **SystemPromptBuilder** — Builds the system prompt injected into every LLM call
+## Critical Patterns
 
-## Key Imports Used in This Project
+### asyncio.to_thread for DB calls
+
+The psycopg2 driver is synchronous C code. All DB calls in async handlers MUST be wrapped:
 
 ```python
-from vanna import Agent, AgentConfig
-from vanna.core.registry import ToolRegistry
-from vanna.core.system_prompt import DefaultSystemPromptBuilder
-from vanna.core.user import RequestContext, User, UserResolver
-from vanna.integrations.chromadb import ChromaAgentMemory
-from vanna.integrations.google.gemini import GeminiLlmService
-from vanna.integrations.sqlite import SqliteRunner
-from vanna.tools import LocalFileSystem, RunSqlTool, VisualizeDataTool
-from vanna.servers.fastapi import VannaFastAPIServer
+# WRONG — blocks event loop
+result = store.get_conversations(user_id)
+
+# CORRECT
+result = await asyncio.to_thread(store.get_conversations, user_id)
 ```
 
-## Agent Class
+### Tool execute() returns JSON strings
 
-`vanna.Agent` — Main agent that orchestrates LLM interactions, tool execution, and conversation management.
+Tool `execute()` must return `json.dumps(...)`. Errors are caught by `ToolRegistry` and returned as `{"error": str(e)}` — tracebacks never reach the LLM.
 
-```python
-class Agent:
-    def __init__(
-        self,
-        llm_service: LlmService,
-        tool_registry: ToolRegistry,
-        user_resolver: UserResolver,
-        agent_memory: AgentMemory,
-        conversation_store: Optional[ConversationStore] = None,
-        config: AgentConfig = AgentConfig(),
-        system_prompt_builder: SystemPromptBuilder = DefaultSystemPromptBuilder(),
-        lifecycle_hooks: List[LifecycleHook] = [],
-        llm_middlewares: List[LlmMiddleware] = [],
-        workflow_handler: Optional[WorkflowHandler] = None,
-        error_recovery_strategy: Optional[ErrorRecoveryStrategy] = None,
-        context_enrichers: List[ToolContextEnricher] = [],
-        llm_context_enhancer: Optional[LlmContextEnhancer] = None,
-        conversation_filters: List[ConversationFilter] = [],
-        observability_provider: Optional[ObservabilityProvider] = None,
-        audit_logger: Optional[AuditLogger] = None,
-    )
+### Adding new tools
 
-    async def send_message(
-        self,
-        request_context: RequestContext,
-        message: str,
-        *,
-        conversation_id: Optional[str] = None,
-    ) -> AsyncGenerator[UiComponent, None]:
-        """Process a user message and yield UI components."""
-```
+1. Create class in `agents/tools.py` (or `stat_tools.py`, `advanced_tools.py`) extending `Tool` from `agents/tool_base.py`
+2. Implement `name`, `description`, `get_args_schema()` (returns JSON Schema dict), `execute(context, args)` (returns JSON string)
+3. Register in `default_registry()` in `tools.py`
 
-Seven extensibility points: `lifecycle_hooks`, `llm_middlewares`, `error_recovery_strategy`, `context_enrichers`, `llm_context_enhancer`, `conversation_filters`, `observability_provider`.
+### Adding new LLM providers
 
-## AgentConfig
+1. Implement `LLMProvider` protocol from `llm/base.py` (just needs `model` property + `async chat()` method)
+2. Register in `llm/factory.py`
+3. Add config fields to `config.py` Settings class
 
-```python
-class AgentConfig(BaseModel):
-    max_tool_iterations: int = 10
-    stream_responses: bool = True
-    auto_save_conversations: bool = True
-    include_thinking_indicators: bool = True
-    temperature: float = 0.7
-    max_tokens: Optional[int] = None
-    ui_features: UiFeatures = UiFeatures()
-    audit_config: AuditConfig = AuditConfig()
-```
-
-## ToolRegistry
-
-```python
-class ToolRegistry:
-    def register_local_tool(self, tool: Tool[Any], access_groups: List[str]) -> None: ...
-    async def get_tool(self, name: str) -> Optional[Tool[Any]]: ...
-    async def get_schemas(self, user: Optional[User] = None) -> List[ToolSchema]: ...
-    async def execute(self, tool_call: ToolCall, context: ToolContext) -> ToolResult: ...
-    async def transform_args(self, tool, args, user, context) -> Union[T, ToolRejection]: ...
-```
-
-## Tool Base Class
-
-```python
-class Tool(ABC, Generic[T]):
-    @property
-    @abstractmethod
-    def name(self) -> str: ...
-
-    @property
-    @abstractmethod
-    def description(self) -> str: ...
-
-    @property
-    def access_groups(self) -> List[str]:
-        return []
-
-    @abstractmethod
-    def get_args_schema(self) -> Type[T]: ...
-
-    @abstractmethod
-    async def execute(self, context: ToolContext, args: T) -> ToolResult: ...
-```
-
-Built-in tools: `RunSqlTool`, `VisualizeDataTool`, `RunPythonFileTool`, `PipInstallTool`, `SearchFilesTool`, `ListFilesTool`, `ReadFileTool`, `WriteFileTool`.
-
-## User & UserResolver
-
-```python
-class User(BaseModel):
-    id: str
-    username: Optional[str] = None
-    email: Optional[str] = None
-    metadata: Dict[str, Any] = {}
-    group_memberships: List[str] = []
-
-class UserResolver(ABC):
-    @abstractmethod
-    async def resolve_user(self, request_context: RequestContext) -> User: ...
-```
-
-## SystemPromptBuilder
-
-```python
-from vanna.core.system_prompt import DefaultSystemPromptBuilder
-
-# Pass a custom base prompt:
-builder = DefaultSystemPromptBuilder(base_prompt="Your system prompt here")
-```
-
-## LLM Services
-
-```python
-# Google Gemini (used in this project)
-from vanna.integrations.google.gemini import GeminiLlmService
-llm = GeminiLlmService(model="gemini-2.5-flash", api_key="...")
-
-# Other providers:
-from vanna.integrations.anthropic import AnthropicLlmService
-from vanna.integrations.openai import OpenAILlmService
-from vanna.integrations.azureopenai import AzureOpenAILlmService
-from vanna.integrations.ollama import OllamaLlmService
-```
-
-## SQL Runners
-
-```python
-from vanna.integrations.sqlite import SqliteRunner       # used in this project
-from vanna.integrations.postgres import PostgresRunner
-from vanna.integrations.mysql import MysqlRunner
-from vanna.integrations.snowflake import SnowflakeRunner
-from vanna.integrations.bigquery import BigQueryRunner
-from vanna.integrations.clickhouse import ClickHouseRunner
-from vanna.integrations.duckdb import DuckDBRunner
-```
-
-## Agent Memory
-
-```python
-from vanna.integrations.chromadb import ChromaAgentMemory  # used in this project
-
-memory = ChromaAgentMemory(
-    persist_directory="./chroma_data",
-    collection_name="insightxpert_memory",
-)
-
-# Other backends:
-from vanna.integrations.local import MemoryAgentMemory     # in-memory
-from vanna.integrations.faiss import FaissAgentMemory
-from vanna.integrations.milvus import MilvusAgentMemory
-```
-
-Memory is automatic — when the agent successfully generates SQL, the question-SQL pair is saved. On new questions, similar past queries are retrieved and added to LLM context.
-
-## FastAPI Server
-
-```python
-from vanna.servers.fastapi import VannaFastAPIServer
-
-server = VannaFastAPIServer(agent)
-server.run(host="0.0.0.0", port=8000)
-
-# Provides:
-# - POST /api/vanna/v2/chat_sse  (streaming chat endpoint)
-# - GET /  (built-in web UI)
-```
-
-## Streaming UI Components
-
-`agent.send_message()` yields UI components:
-- `StatusBarUpdateComponent` — progress indicator
-- `DataFrameComponent` — table results
-- `PlotlyChartComponent` — visualizations
-- `CodeBlockComponent` — SQL code
-- `RichTextComponent` — AI summary
-- `NotificationComponent` — success/error messages
-
-## Custom Tool Example
-
-```python
-from vanna.core.tool import Tool, ToolContext, ToolResult
-from pydantic import BaseModel, Field
-
-class MyArgs(BaseModel):
-    query: str = Field(description="The search query")
-
-class MyTool(Tool[MyArgs]):
-    @property
-    def name(self) -> str:
-        return "my_tool"
-
-    @property
-    def description(self) -> str:
-        return "Does something useful"
-
-    def get_args_schema(self) -> Type[MyArgs]:
-        return MyArgs
-
-    async def execute(self, context: ToolContext, args: MyArgs) -> ToolResult:
-        result = do_something(args.query)
-        return ToolResult(
-            success=True,
-            result_for_llm=f"Result: {result}",
-            ui_component=NotificationComponent(level="success", message="Done")
-        )
-
-# Register:
-tool_registry.register_local_tool(MyTool(), access_groups=[])
-```
-
-## Row-Level Security
-
-Override `transform_args` on `ToolRegistry` to modify SQL based on user identity:
-
-```python
-class RLSToolRegistry(ToolRegistry):
-    async def transform_args(self, tool, args, user, context):
-        if tool.name == "run_sql":
-            # Add WHERE clause based on user.metadata
-            ...
-        return args
-```
-
-## Lifecycle Hooks
-
-```python
-from vanna.core.lifecycle import LifecycleHook
-
-class MyHook(LifecycleHook):
-    async def before_message(self, user, message, context): ...
-    async def after_tool_execution(self, user, tool_name, result, context): ...
-```
-
-## Frontend Web Component
-
-```html
-<script src="https://img.vanna.ai/vanna-components.js"></script>
-<vanna-chat
-  sse-endpoint="https://your-api.com/api/vanna/v2/chat_sse"
-  theme="dark">
-</vanna-chat>
-```
-
-## Installation
+### Tests
 
 ```bash
-pip install 'vanna[google,chromadb,fastapi]'  # what this project uses
-pip install 'vanna[anthropic,postgres,visualization,chromadb]'  # full stack example
+cd backend
+uv run pytest tests/ -v
+uv run pytest tests/ --cov=insightxpert --cov-report=term-missing
 ```
+
+## Documentation
+
+Detailed docs live in `docs/`:
+- `architecture.md` — Full system architecture
+- `agent-pipeline.md` — Agent processing pipeline (analyst loop, enrichment, DAG execution)
+- `agent-tools.md` — All tool definitions and schemas
+- `api-reference.md` — REST API endpoints
+- `configuration.md` — All env vars and admin config
+- `frontend.md` — Frontend stack, components, stores, hooks
+- `contributing.md` — Repo layout, how to add tools/providers/collections, conventions
