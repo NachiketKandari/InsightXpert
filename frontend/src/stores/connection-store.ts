@@ -61,7 +61,12 @@ export const useConnectionStore = create<ConnectionState>((set) => ({
     );
     if (data) {
       set((s) => ({
-        connections: s.connections.map((c) => (c.id === id ? data : c)),
+        connections: s.connections.map((c) => {
+          if (c.id === id) return data;
+          // When activating one, deactivate siblings
+          if (active && c.is_active) return { ...c, is_active: false };
+          return c;
+        }),
       }));
     }
   },

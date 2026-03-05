@@ -34,7 +34,7 @@ export function AddConnectionDialog({
 
   const canSubmit = name.trim() && isValidConnectionString && !isSubmitting;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!canSubmit) return;
 

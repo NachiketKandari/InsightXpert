@@ -66,7 +66,6 @@ export function ConnectionCard({ connection, onDelete }: ConnectionCardProps) {
           <Switch
             checked={connection.is_active}
             onCheckedChange={handleToggleActive}
-            size="sm"
           />
           <Button
             variant="ghost"
