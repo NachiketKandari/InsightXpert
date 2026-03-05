@@ -2,11 +2,14 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install system dependencies (libpq for psycopg2, curl for health checks)
-RUN apt-get update && apt-get install -y --no-install-recommends curl libpq-dev && rm -rf /var/lib/apt/lists/*
+# Install curl (needed by entrypoint to download seed DB from GCS)
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 
 # Install uv for fast dependency resolution
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
+# Install Litestream for continuous SQLite replication to GCS
+COPY --from=litestream/litestream:0.3.13 /usr/local/bin/litestream /usr/local/bin/litestream
 
 # Copy dependency files first (cache layer)
 COPY pyproject.toml uv.lock ./
@@ -17,6 +20,7 @@ RUN uv sync --frozen --no-dev
 # Copy application source and transaction data
 COPY src/ src/
 COPY upi_transactions_2024.csv .
+COPY litestream.yml .
 COPY entrypoint.sh .
 
 # Pre-download ChromaDB's ONNX embedding model and warm the embedding function

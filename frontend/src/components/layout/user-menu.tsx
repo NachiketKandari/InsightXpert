@@ -3,7 +3,7 @@
 import React from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown, Zap, Database } from "lucide-react";
+import { LogOut, Activity, Sun, Moon, Settings, ListChecks, ChevronsUpDown, Zap } from "lucide-react";
 import { useAuthStore } from "@/stores/auth-store";
 import { useClientConfig } from "@/hooks/use-client-config";
 import { useChatStore } from "@/stores/chat-store";
@@ -123,11 +123,6 @@ export const UserMenu = React.memo(function UserMenu() {
 <DropdownMenuItem onClick={() => setSampleQuestionsOpen(true)}>
             <ListChecks className="size-4" />
             Sample Questions
-          </DropdownMenuItem>
-          <DropdownMenuItem disabled className="opacity-50">
-              <Database className="size-4" />
-              My Connections
-              <span className="ml-auto text-[10px] font-medium text-muted-foreground">Soon</span>
           </DropdownMenuItem>
           {!config?.branding?.color_mode && (
             <DropdownMenuItem onClick={toggleTheme}>

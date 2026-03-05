@@ -6,7 +6,7 @@ CREATE TABLE transactions (
     timestamp TEXT,
     transaction_type TEXT,
     merchant_category TEXT,
-    amount_inr DOUBLE PRECISION,
+    amount_inr REAL,
     transaction_status TEXT,
     sender_age_group TEXT,
     receiver_age_group TEXT,

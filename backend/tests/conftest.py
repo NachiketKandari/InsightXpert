@@ -52,12 +52,8 @@ class MockLLM:
 
 
 @pytest.fixture
-def test_db(tmp_path):
-    """Create a test DB with users + orders tables.
-
-    Uses a file-based SQLite database for unit tests (dialect-agnostic SQL).
-    CI and integration tests use PostgreSQL via DATABASE_URL env var.
-    """
+def sqlite_db(tmp_path):
+    """Create a test SQLite DB with users + orders tables."""
     db_path = tmp_path / "test.db"
     url = f"sqlite:///{db_path}"
     engine = create_engine(url)
@@ -89,10 +85,10 @@ def test_db(tmp_path):
 
 
 @pytest.fixture
-def db_connector(test_db):
+def db_connector(sqlite_db):
     """Return a connected DatabaseConnector."""
     db = DatabaseConnector()
-    db.connect(test_db)
+    db.connect(sqlite_db)
     yield db
     db.disconnect()
 
@@ -105,7 +101,7 @@ def rag_store(tmp_path):
 
 @pytest.fixture
 def settings():
-    return Settings(database_url="postgresql://insightxpert:insightxpert@localhost:5432/insightxpert_test", chroma_persist_dir="./test_chroma")
+    return Settings(database_url="sqlite:///test.db", chroma_persist_dir="./test_chroma")
 
 
 # ---------------------------------------------------------------------------
@@ -119,9 +115,8 @@ TEST_USER_ID = str(uuid.uuid4())
 def auth_engine():
     """In-memory SQLAlchemy engine with auth tables created.
 
-    Uses SQLite in-memory with StaticPool for fast isolated ORM tests.
-    SQLAlchemy ORM is dialect-agnostic so this works for testing
-    application logic even though production uses PostgreSQL.
+    Uses StaticPool + check_same_thread=False so that sync endpoints
+    (which FastAPI runs in a thread pool) share the same connection.
     """
     engine = create_engine(
         "sqlite://",

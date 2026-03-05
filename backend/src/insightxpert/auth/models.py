@@ -3,17 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import (
-    Boolean,
-    DateTime,
-    Float,
-    ForeignKey,
-    Index,
-    Integer,
-    String,
-    Text,
-    UniqueConstraint,
-)
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Index, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -46,9 +36,7 @@ class Organization(Base):
     features_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     branding_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class AppSetting(Base):
@@ -62,18 +50,14 @@ class AppSetting(Base):
 
     key: Mapped[str] = mapped_column(String(100), primary_key=True)
     value_json: Mapped[str] = mapped_column(Text, nullable=False)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    email: Mapped[str] = mapped_column(
-        String(255), unique=True, index=True, nullable=False
-    )
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     hashed_password: Mapped[str] = mapped_column(String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_admin: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -86,12 +70,8 @@ class User(Base):
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
-    last_active: Mapped[datetime | None] = mapped_column(
-        DateTime, default=_utcnow, nullable=True
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
+    last_active: Mapped[datetime | None] = mapped_column(DateTime, default=_utcnow, nullable=True)
 
 
 class ConversationRecord(Base):
@@ -99,10 +79,7 @@ class ConversationRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     org_id: Mapped[str | None] = mapped_column(
         String(100),
@@ -113,9 +90,7 @@ class ConversationRecord(Base):
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     is_starred: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow, index=True
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow, index=True)
 
 
 class MessageRecord(Base):
@@ -147,9 +122,7 @@ class EnrichmentTraceRecord(Base):
     __table_args__ = (Index("ix_enrichment_traces_message", "message_id"),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    message_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False
-    )
+    message_id: Mapped[str] = mapped_column(String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False)
     source_index: Mapped[int] = mapped_column(Integer, nullable=False)
     category: Mapped[str] = mapped_column(String(50), nullable=False)
     question: Mapped[str] = mapped_column(Text, nullable=False)
@@ -168,9 +141,7 @@ class OrchestratorPlanRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     message_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("messages.id", ondelete="CASCADE"),
-        nullable=False,
+        String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False,
     )
     reasoning: Mapped[str] = mapped_column(Text, nullable=False)
     plan_json: Mapped[str] = mapped_column(Text, nullable=False)
@@ -188,14 +159,10 @@ class AgentExecutionRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     plan_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("orchestrator_plans.id", ondelete="CASCADE"),
-        nullable=False,
+        String(36), ForeignKey("orchestrator_plans.id", ondelete="CASCADE"), nullable=False,
     )
     message_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("messages.id", ondelete="CASCADE"),
-        nullable=False,
+        String(36), ForeignKey("messages.id", ondelete="CASCADE"), nullable=False,
     )
     task_id: Mapped[str] = mapped_column(String(10), nullable=False)
     agent_type: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -214,25 +181,19 @@ class PromptTemplate(Base):
     __tablename__ = "prompt_templates"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(
-        String(100), unique=True, index=True, nullable=False
-    )
+    name: Mapped[str] = mapped_column(String(100), unique=True, index=True, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class Dataset(Base):
     __tablename__ = "datasets"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    name: Mapped[str] = mapped_column(
-        String(255), unique=True, index=True, nullable=False
-    )
+    name: Mapped[str] = mapped_column(String(255), unique=True, index=True, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     ddl: Mapped[str] = mapped_column(Text, nullable=False)
     documentation: Mapped[str] = mapped_column(Text, nullable=False)
@@ -251,9 +212,7 @@ class Dataset(Base):
     )
     r2_key: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class DatasetColumn(Base):
@@ -280,9 +239,7 @@ class DatasetColumn(Base):
 class ExampleQuery(Base):
     __tablename__ = "example_queries"
     __table_args__ = (
-        UniqueConstraint(
-            "dataset_id", "question", name="uq_example_queries_ds_question"
-        ),
+        UniqueConstraint("dataset_id", "question", name="uq_example_queries_ds_question"),
     )
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
@@ -315,9 +272,7 @@ class Automation(Base):
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     next_run_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_by: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
     )
     org_id: Mapped[str | None] = mapped_column(
         String(100),
@@ -325,15 +280,11 @@ class Automation(Base):
         nullable=True,
         index=True,
     )
-    source_conversation_id: Mapped[str | None] = mapped_column(
-        String(36), nullable=True
-    )
+    source_conversation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     source_message_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
     workflow_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class AutomationRun(Base):
@@ -380,9 +331,7 @@ class AutomationTrigger(Base):
     slope_window: Mapped[int | None] = mapped_column(Integer, nullable=True)
     nl_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class TriggerTemplate(Base):
@@ -407,9 +356,7 @@ class TriggerTemplate(Base):
         index=True,
     )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow, onupdate=_utcnow)
 
 
 class Notification(Base):
@@ -420,10 +367,7 @@ class Notification(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     automation_id: Mapped[str | None] = mapped_column(
         String(36),
@@ -451,26 +395,16 @@ class InsightRecord(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-        index=True,
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True,
     )
     org_id: Mapped[str | None] = mapped_column(
-        String(100),
-        ForeignKey("organizations.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
+        String(100), ForeignKey("organizations.id", ondelete="SET NULL"), nullable=True, index=True,
     )
     conversation_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("conversations.id", ondelete="CASCADE"),
-        nullable=False,
+        String(36), ForeignKey("conversations.id", ondelete="CASCADE"), nullable=False,
     )
     message_id: Mapped[str | None] = mapped_column(
-        String(36),
-        ForeignKey("messages.id", ondelete="SET NULL"),
-        nullable=True,
+        String(36), ForeignKey("messages.id", ondelete="SET NULL"), nullable=True,
     )
     title: Mapped[str] = mapped_column(String(500), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
@@ -485,7 +419,9 @@ class InsightRecord(Base):
 
 class DatasetStat(Base):
     __tablename__ = "dataset_stats"
-    __table_args__ = (Index("ix_dataset_stats_group_dim", "stat_group", "dimension"),)
+    __table_args__ = (
+        Index("ix_dataset_stats_group_dim", "stat_group", "dimension"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     stat_group: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
@@ -494,56 +430,3 @@ class DatasetStat(Base):
     value: Mapped[float | None] = mapped_column(Float, nullable=True)
     string_value: Mapped[str | None] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-
-
-class UserDatabaseConnection(Base):
-    __tablename__ = "user_database_connections"
-    __table_args__ = (
-        Index("ix_user_db_conn_user_id", "user_id"),
-        Index("ix_user_db_conn_user_active", "user_id", "is_active"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    user_id: Mapped[str] = mapped_column(
-        String(36),
-        ForeignKey("users.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    connection_string: Mapped[str] = mapped_column(Text, nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )
-
-
-class ExternalDatabaseConnection(Base):
-    __tablename__ = "external_database_connections"
-    __table_args__ = (
-        Index("ix_ext_db_connections_org_active", "organization_id", "is_active"),
-    )
-
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
-    organization_id: Mapped[str | None] = mapped_column(
-        String(100),
-        ForeignKey("organizations.id", ondelete="SET NULL"),
-        nullable=True,
-        index=True,
-    )
-    name: Mapped[str] = mapped_column(String(255), nullable=False)
-    connection_type: Mapped[str] = mapped_column(String(20), nullable=False)
-    host: Mapped[str] = mapped_column(String(255), nullable=False)
-    port: Mapped[int] = mapped_column(Integer, nullable=False)
-    database: Mapped[str] = mapped_column(String(255), nullable=False)
-    username: Mapped[str] = mapped_column(String(255), nullable=False)
-    password: Mapped[str] = mapped_column(String(255), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
-    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=_utcnow, onupdate=_utcnow
-    )

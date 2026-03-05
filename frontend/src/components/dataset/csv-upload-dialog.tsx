@@ -207,10 +207,6 @@ export function CsvUploadDialog({
   const [description, setDescription] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
-  // Tracks what the server is doing after bytes are fully sent
-  const [uploadPhase, setUploadPhase] = useState<
-    "sending" | "processing" | null
-  >(null);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
@@ -229,7 +225,6 @@ export function CsvUploadDialog({
     setError(null);
     setUploading(false);
     setUploadProgress(0);
-    setUploadPhase(null);
     confirmedRef.current = false;
     if (xhrRef.current) {
       xhrRef.current.abort();
@@ -324,7 +319,6 @@ export function CsvUploadDialog({
 
     setUploading(true);
     setUploadProgress(0);
-    setUploadPhase("sending");
     setError(null);
 
     const formData = new FormData();
@@ -342,17 +336,8 @@ export function CsvUploadDialog({
 
     xhr.upload.onprogress = (evt) => {
       if (evt.lengthComputable) {
-        const pct = Math.round((evt.loaded / evt.total) * 100);
-        setUploadProgress(pct);
-        if (pct >= 100) {
-          setUploadPhase("processing");
-        }
+        setUploadProgress(Math.round((evt.loaded / evt.total) * 100));
       }
-    };
-
-    // All bytes sent — server is now working
-    xhr.upload.onload = () => {
-      setUploadPhase("processing");
     };
 
     xhr.onload = () => {
@@ -382,20 +367,17 @@ export function CsvUploadDialog({
         }
       }
       setUploading(false);
-      setUploadPhase(null);
     };
 
     xhr.onerror = () => {
       xhrRef.current = null;
       setError("Network error during upload.");
       setUploading(false);
-      setUploadPhase(null);
     };
 
     xhr.onabort = () => {
       xhrRef.current = null;
       setUploading(false);
-      setUploadPhase(null);
     };
 
     xhr.open("POST", `${SSE_BASE_URL}/api/datasets/upload`);
@@ -582,29 +564,6 @@ export function CsvUploadDialog({
 
               {/* Error message */}
               {error && <p className="text-sm text-destructive">{error}</p>}
-
-              {/* Upload progress indicator */}
-              {uploading && (
-                <div className="space-y-2">
-                  <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
-                    {uploadPhase === "processing" ? (
-                      <div className="h-full bg-primary dark:bg-cyan-accent rounded-full animate-pulse w-full" />
-                    ) : (
-                      <div
-                        className="h-full bg-primary dark:bg-cyan-accent rounded-full transition-all duration-300"
-                        style={{ width: `${uploadProgress}%` }}
-                      />
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground text-center">
-                    {uploadPhase === "processing"
-                      ? "File uploaded. Analyzing schema, loading data, and profiling columns..."
-                      : uploadProgress > 0
-                        ? `Sending file... ${uploadProgress}%`
-                        : "Starting upload..."}
-                  </p>
-                </div>
-              )}
             </form>
 
             <DialogFooter>
@@ -626,9 +585,7 @@ export function CsvUploadDialog({
                 {uploading ? (
                   <>
                     <Loader2 className="size-3.5 animate-spin mr-1.5" />
-                    {uploadPhase === "processing"
-                      ? "Processing data..."
-                      : `Uploading${uploadProgress > 0 ? ` ${uploadProgress}%` : "..."}`}
+                    Uploading{uploadProgress > 0 ? ` ${uploadProgress}%` : "..."}
                   </>
                 ) : (
                   <>

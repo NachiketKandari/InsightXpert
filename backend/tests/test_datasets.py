@@ -23,10 +23,7 @@ from sqlalchemy import event as sa_event
 
 @pytest.fixture()
 def ds_engine():
-    """In-memory engine with all auth tables including dataset tables.
-
-    Uses SQLite in-memory for fast isolated ORM tests (dialect-agnostic).
-    """
+    """In-memory engine with all auth tables including dataset tables."""
     engine = create_engine(
         "sqlite://",
         echo=False,
@@ -34,9 +31,9 @@ def ds_engine():
         poolclass=StaticPool,
     )
 
-    # Enable foreign key enforcement for CASCADE deletes
+    # Enable foreign key enforcement for SQLite
     @sa_event.listens_for(engine, "connect")
-    def _enable_fk(dbapi_conn, connection_record):
+    def _set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()

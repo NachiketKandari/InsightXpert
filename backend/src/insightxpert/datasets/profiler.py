@@ -19,34 +19,40 @@ import pandas as pd
 # Helpers
 # ---------------------------------------------------------------------------
 
-# PostgreSQL reserved keywords that cannot be used as unquoted column names.
+# SQLite reserved keywords that cannot be used as unquoted column names.
 # This is the subset most likely to appear as CSV column headers.
-_RESERVED_KEYWORDS: set[str] = {
-    "all", "alter", "and", "any", "array", "as", "asc", "between", "by",
-    "case", "cast", "check", "collate", "column", "constraint", "create",
-    "cross", "current", "current_date", "current_time", "current_timestamp",
-    "current_user", "default", "delete", "desc", "distinct", "do", "drop",
-    "else", "end", "except", "exists", "false", "fetch", "filter", "for",
-    "foreign", "from", "full", "grant", "group", "having", "if", "ilike",
-    "in", "index", "initially", "inner", "insert", "intersect", "into",
-    "is", "isnull", "join", "key", "lateral", "leading", "left", "like",
-    "limit", "natural", "new", "no", "not", "null", "offset", "old", "on",
-    "only", "or", "order", "outer", "over", "overlaps", "partition",
-    "placing", "primary", "references", "returning", "right", "row", "rows",
-    "select", "session_user", "set", "similar", "some", "symmetric", "table",
-    "then", "to", "trailing", "true", "union", "unique", "update", "user",
-    "using", "values", "variadic", "verbose", "when", "where", "window",
-    "with",
+_SQLITE_RESERVED: set[str] = {
+    "abort", "action", "add", "after", "all", "alter", "always", "analyze",
+    "and", "as", "asc", "attach", "autoincrement", "before", "begin",
+    "between", "by", "cascade", "case", "cast", "check", "collate", "column",
+    "commit", "conflict", "constraint", "create", "cross", "current",
+    "current_date", "current_time", "current_timestamp", "database", "default",
+    "deferrable", "deferred", "delete", "desc", "detach", "distinct", "do",
+    "drop", "each", "else", "end", "escape", "except", "exclude", "exclusive",
+    "exists", "explain", "fail", "filter", "first", "following", "for",
+    "foreign", "from", "full", "glob", "group", "groups", "having", "if",
+    "ignore", "immediate", "in", "index", "indexed", "initially", "inner",
+    "insert", "instead", "intersect", "into", "is", "isnull", "join", "key",
+    "last", "left", "like", "limit", "match", "materialized", "natural", "no",
+    "not", "nothing", "notnull", "null", "nulls", "of", "offset", "on", "or",
+    "order", "others", "outer", "over", "partition", "plan", "pragma",
+    "preceding", "primary", "query", "raise", "range", "recursive",
+    "references", "regexp", "reindex", "release", "rename", "replace",
+    "restrict", "returning", "right", "rollback", "row", "rows", "savepoint",
+    "select", "set", "table", "temp", "temporary", "then", "ties", "to",
+    "transaction", "trigger", "unbounded", "union", "unique", "update",
+    "using", "vacuum", "values", "view", "virtual", "when", "where", "window",
+    "with", "without",
 }
 
 
 def _sanitize_column_name(name: str) -> str:
-    """Generate a safe PostgreSQL column name from a raw CSV header."""
+    """Generate a safe SQLite column name from a raw CSV header."""
     safe = re.sub(r"[^a-z0-9_]", "_", name.strip().lower())
     safe = re.sub(r"_+", "_", safe).strip("_")
     safe = safe or "col"
-    # Prefix reserved keywords so they don't clash with PostgreSQL syntax
-    if safe in _RESERVED_KEYWORDS:
+    # Prefix reserved keywords so they don't clash with SQLite syntax
+    if safe in _SQLITE_RESERVED:
         safe = f"col_{safe}"
     return safe
 
@@ -104,7 +110,7 @@ def _native(value: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 def _infer_type(series: pd.Series) -> str:
-    """Map a pandas Series dtype to a PostgreSQL type string.
+    """Map a pandas Series dtype to a SQLite-friendly type string.
 
     For object/string columns, additionally checks for boolean-like and
     datetime-like patterns.
@@ -116,15 +122,15 @@ def _infer_type(series: pd.Series) -> str:
     if pd.api.types.is_integer_dtype(dtype):
         return "INTEGER"
     if pd.api.types.is_float_dtype(dtype):
-        return "DOUBLE PRECISION"
+        return "REAL"
     if pd.api.types.is_datetime64_any_dtype(dtype):
-        return "TIMESTAMP"
+        return "DATETIME"
 
     # Object / string columns: try deeper detection
     if _is_boolean_like(series):
         return "BOOLEAN"
     if _is_datetime_like(series):
-        return "TIMESTAMP"
+        return "DATETIME"
 
     return "TEXT"
 
@@ -191,12 +197,12 @@ def profile_dataframe(df: pd.DataFrame) -> dict:
         col_max = None
         col_mean = None
 
-        if inferred_type in ("INTEGER", "DOUBLE PRECISION") and not non_null.empty:
+        if inferred_type in ("INTEGER", "REAL") and not non_null.empty:
             col_min = _native(non_null.min())
             col_max = _native(non_null.max())
             raw_mean = _native(non_null.mean())
             if raw_mean is not None:
-                col_mean = round(raw_mean, 2)
+                col_mean = round(raw_mean, 2) if inferred_type == "REAL" else round(raw_mean, 2)
 
         columns.append(
             {
@@ -223,7 +229,7 @@ def profile_dataframe(df: pd.DataFrame) -> dict:
 
 
 def infer_schema(df: pd.DataFrame) -> list[dict[str, str]]:
-    """Infer column names and PostgreSQL types from a DataFrame sample.
+    """Infer column names and SQLite types from a DataFrame sample.
 
     Returns a list of ``{"name": ..., "original_name": ..., "inferred_type": ...}``
     dicts.  No stats are computed — this is meant for a small sample used only

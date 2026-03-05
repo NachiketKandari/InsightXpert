@@ -24,8 +24,8 @@ _SQL_QUERIES: dict[str, str] = {
     "overall": """
         SELECT
             COUNT(*)                                                          AS txn_count,
-            MIN(timestamp::date)                                              AS date_min,
-            MAX(timestamp::date)                                              AS date_max,
+            MIN(DATE(timestamp))                                              AS date_min,
+            MAX(DATE(timestamp))                                              AS date_max,
             AVG(amount_inr)                                                   AS avg_amount,
             ROUND(100.0 * SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END) / COUNT(*), 4) AS failure_rate_pct,
             ROUND(100.0 * SUM(fraud_flag) / COUNT(*), 4)                     AS fraud_rate_pct,
@@ -123,14 +123,14 @@ _SQL_QUERIES: dict[str, str] = {
     """,
     "monthly": """
         SELECT
-            TO_CHAR(timestamp::timestamp, 'YYYY-MM')                          AS dimension,
+            STRFTIME('%Y-%m', timestamp)                                      AS dimension,
             COUNT(*)                                                          AS txn_count,
             AVG(amount_inr)                                                   AS avg_amount_inr,
             SUM(amount_inr)                                                   AS total_volume_inr,
             SUM(CASE WHEN transaction_status = 'FAILED' THEN 1 ELSE 0 END)   AS failure_count,
             SUM(fraud_flag)                                                   AS fraud_count
         FROM transactions
-        GROUP BY TO_CHAR(timestamp::timestamp, 'YYYY-MM')
+        GROUP BY STRFTIME('%Y-%m', timestamp)
         ORDER BY dimension
     """,
     "hourly": """
