@@ -35,44 +35,45 @@ logger = logging.getLogger("insightxpert")
 
 def _migrate_schema(engine) -> None:
     """Add new columns to existing tables (idempotent, no Alembic needed)."""
-    from insightxpert.db.migrations import (
-        MIGRATION_COLUMNS,
-        MIGRATION_TABLES,
-        SCHEMA_INDEXES,
-    )
+    from insightxpert.db.migrations import MIGRATION_COLUMNS, SCHEMA_INDEXES
 
     insp = inspect(engine)
+    dialect = engine.dialect.name
+
     existing_tables = set(insp.get_table_names())
 
     with engine.begin() as conn:
-        # Create new tables if they don't exist
-        for table_sql in MIGRATION_TABLES:
-            try:
-                conn.execute(text(table_sql))
-                logger.info("Migration: created table external_database_connections")
-            except Exception as e:
-                logger.debug("Table creation skipped: %s", e)
-
         def _add_column(table: str, column: str, col_def: str) -> None:
             if table not in existing_tables:
                 return
             cols = {c["name"] for c in insp.get_columns(table)}
             if column in cols:
                 return
-            sql = f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
+            if dialect == "postgresql":
+                sql = f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {col_def}"
+            else:
+                sql = f"ALTER TABLE {table} ADD COLUMN {column} {col_def}"
             try:
                 conn.execute(text(sql))
                 logger.info("Migration: added %s.%s", table, column)
             except Exception:
-                logger.debug("Column %s.%s already exists", table, column)
+                logger.debug("Column %s.%s already exists (dialect=%s)", table, column, dialect)
+
+        # PostgreSQL uses different boolean syntax
+        pg_overrides = {
+            ("users", "is_admin"): "BOOLEAN DEFAULT FALSE NOT NULL",
+            ("conversations", "is_starred"): "BOOLEAN DEFAULT FALSE NOT NULL",
+        }
 
         for table, column, col_def in MIGRATION_COLUMNS:
+            if dialect == "postgresql" and (table, column) in pg_overrides:
+                col_def = pg_overrides[(table, column)]
             _add_column(table, column, col_def)
 
         # Backfill updated_at = created_at for existing rows that don't have it
-        conn.execute(
-            text("UPDATE users SET updated_at = created_at WHERE updated_at IS NULL")
-        )
+        conn.execute(text(
+            "UPDATE users SET updated_at = created_at WHERE updated_at IS NULL"
+        ))
 
         for idx_sql in SCHEMA_INDEXES:
             try:
@@ -82,11 +83,9 @@ def _migrate_schema(engine) -> None:
 
         # Transaction timestamp index (table may not exist yet at migration time)
         try:
-            conn.execute(
-                text(
-                    "CREATE INDEX IF NOT EXISTS idx_timestamp ON transactions (timestamp)"
-                )
-            )
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_timestamp ON transactions (timestamp)"
+            ))
         except Exception:
             logger.debug("transactions table not present yet, skipping idx_timestamp")
 
@@ -109,12 +108,14 @@ def _migrate_trigger_conditions(engine) -> None:
     from insightxpert.auth.models import AutomationTrigger, _uuid, _utcnow
 
     with Session(engine) as session:
-        rows = session.execute(
-            text(
-                "SELECT id, trigger_conditions FROM automations "
-                "WHERE trigger_conditions IS NOT NULL AND trigger_conditions != '[]'"
-            )
-        ).fetchall()
+        rows = (
+            session.execute(
+                text(
+                    "SELECT id, trigger_conditions FROM automations "
+                    "WHERE trigger_conditions IS NOT NULL AND trigger_conditions != '[]'"
+                )
+            ).fetchall()
+        )
         migrated = 0
         for auto_id, tc_json in rows:
             # Skip if already migrated
@@ -136,23 +137,21 @@ def _migrate_trigger_conditions(engine) -> None:
 
             now = _utcnow()
             for i, cond in enumerate(conditions):
-                session.add(
-                    AutomationTrigger(
-                        id=_uuid(),
-                        automation_id=auto_id,
-                        ordinal_position=i,
-                        type=cond.get("type", "threshold"),
-                        column=cond.get("column"),
-                        operator=cond.get("operator"),
-                        value=cond.get("value"),
-                        change_percent=cond.get("change_percent"),
-                        scope=cond.get("scope"),
-                        slope_window=cond.get("slope_window"),
-                        nl_text=cond.get("nl_text"),
-                        created_at=now,
-                        updated_at=now,
-                    )
-                )
+                session.add(AutomationTrigger(
+                    id=_uuid(),
+                    automation_id=auto_id,
+                    ordinal_position=i,
+                    type=cond.get("type", "threshold"),
+                    column=cond.get("column"),
+                    operator=cond.get("operator"),
+                    value=cond.get("value"),
+                    change_percent=cond.get("change_percent"),
+                    scope=cond.get("scope"),
+                    slope_window=cond.get("slope_window"),
+                    nl_text=cond.get("nl_text"),
+                    created_at=now,
+                    updated_at=now,
+                ))
             migrated += 1
 
         if migrated:
@@ -170,17 +169,15 @@ def _backfill_conversation_org(engine) -> None:
     created before the org_id column existed.
     """
     with engine.begin() as conn:
-        result = conn.execute(
-            text(
-                "UPDATE conversations SET org_id = ("
-                "  SELECT users.org_id FROM users WHERE users.id = conversations.user_id"
-                ") WHERE conversations.org_id IS NULL"
-                "  AND EXISTS ("
-                "    SELECT 1 FROM users"
-                "    WHERE users.id = conversations.user_id AND users.org_id IS NOT NULL"
-                "  )"
-            )
-        )
+        result = conn.execute(text(
+            "UPDATE conversations SET org_id = ("
+            "  SELECT users.org_id FROM users WHERE users.id = conversations.user_id"
+            ") WHERE conversations.org_id IS NULL"
+            "  AND EXISTS ("
+            "    SELECT 1 FROM users"
+            "    WHERE users.id = conversations.user_id AND users.org_id IS NOT NULL"
+            "  )"
+        ))
         if result.rowcount:
             logger.info("Backfilled org_id on %d conversations", result.rowcount)
 
@@ -188,44 +185,34 @@ def _backfill_conversation_org(engine) -> None:
 def _backfill_automation_org(engine) -> None:
     """Stamp automations.org_id and trigger_templates.org_id from creator's users.org_id."""
     with engine.begin() as conn:
-        result = conn.execute(
-            text(
-                "UPDATE automations SET org_id = ("
-                "  SELECT users.org_id FROM users WHERE users.id = automations.created_by"
-                ") WHERE automations.org_id IS NULL"
-                "  AND EXISTS ("
-                "    SELECT 1 FROM users"
-                "    WHERE users.id = automations.created_by AND users.org_id IS NOT NULL"
-                "  )"
-            )
-        )
+        result = conn.execute(text(
+            "UPDATE automations SET org_id = ("
+            "  SELECT users.org_id FROM users WHERE users.id = automations.created_by"
+            ") WHERE automations.org_id IS NULL"
+            "  AND EXISTS ("
+            "    SELECT 1 FROM users"
+            "    WHERE users.id = automations.created_by AND users.org_id IS NOT NULL"
+            "  )"
+        ))
         if result.rowcount:
             logger.info("Backfilled org_id on %d automations", result.rowcount)
 
-        result2 = conn.execute(
-            text(
-                "UPDATE trigger_templates SET org_id = ("
-                "  SELECT users.org_id FROM users WHERE users.id = trigger_templates.created_by"
-                ") WHERE trigger_templates.org_id IS NULL"
-                "  AND EXISTS ("
-                "    SELECT 1 FROM users"
-                "    WHERE users.id = trigger_templates.created_by AND users.org_id IS NOT NULL"
-                "  )"
-            )
-        )
+        result2 = conn.execute(text(
+            "UPDATE trigger_templates SET org_id = ("
+            "  SELECT users.org_id FROM users WHERE users.id = trigger_templates.created_by"
+            ") WHERE trigger_templates.org_id IS NULL"
+            "  AND EXISTS ("
+            "    SELECT 1 FROM users"
+            "    WHERE users.id = trigger_templates.created_by AND users.org_id IS NOT NULL"
+            "  )"
+        ))
         if result2.rowcount:
             logger.info("Backfilled org_id on %d trigger_templates", result2.rowcount)
 
 
 def _seed_datasets(engine) -> None:
     """Seed the datasets, dataset_columns, and example_queries tables from hardcoded training data."""
-    from insightxpert.auth.models import (
-        Dataset,
-        DatasetColumn,
-        ExampleQuery,
-        _uuid,
-        _utcnow,
-    )
+    from insightxpert.auth.models import Dataset, DatasetColumn, ExampleQuery, _uuid, _utcnow
     from insightxpert.training.documentation import DOCUMENTATION
     from insightxpert.training.queries import EXAMPLE_QUERIES
     from insightxpert.training.schema import DDL
@@ -253,39 +240,33 @@ def _seed_datasets(engine) -> None:
         session.add(dataset)
 
         for i, col in enumerate(COLUMNS_META):
-            session.add(
-                DatasetColumn(
-                    id=_uuid(),
-                    dataset_id=dataset_id,
-                    column_name=col["column_name"],
-                    column_type=col["column_type"],
-                    description=col["description"],
-                    domain_values=col["domain_values"],
-                    domain_rules=col["domain_rules"],
-                    ordinal_position=i,
-                    created_at=now,
-                )
-            )
+            session.add(DatasetColumn(
+                id=_uuid(),
+                dataset_id=dataset_id,
+                column_name=col["column_name"],
+                column_type=col["column_type"],
+                description=col["description"],
+                domain_values=col["domain_values"],
+                domain_rules=col["domain_rules"],
+                ordinal_position=i,
+                created_at=now,
+            ))
 
         for qa in EXAMPLE_QUERIES:
-            session.add(
-                ExampleQuery(
-                    id=_uuid(),
-                    dataset_id=dataset_id,
-                    question=qa["question"],
-                    sql=qa["sql"],
-                    category=qa.get("category"),
-                    is_active=True,
-                    created_at=now,
-                )
-            )
+            session.add(ExampleQuery(
+                id=_uuid(),
+                dataset_id=dataset_id,
+                question=qa["question"],
+                sql=qa["sql"],
+                category=qa.get("category"),
+                is_active=True,
+                created_at=now,
+            ))
 
         session.commit()
         logger.info(
             "Seeded dataset '%s': %d columns, %d example queries",
-            "transactions",
-            len(COLUMNS_META),
-            len(EXAMPLE_QUERIES),
+            "transactions", len(COLUMNS_META), len(EXAMPLE_QUERIES),
         )
 
 
@@ -295,21 +276,9 @@ def _seed_prompts(engine) -> None:
     from insightxpert.prompts import get_file_content
 
     templates = [
-        (
-            "analyst_system",
-            "analyst_system.j2",
-            "System prompt for the SQL analyst agent",
-        ),
-        (
-            "statistician_system",
-            "statistician_system.j2",
-            "System prompt for the statistician agent",
-        ),
-        (
-            "advanced_system",
-            "advanced_system.j2",
-            "System prompt for the advanced analytics agent",
-        ),
+        ("analyst_system", "analyst_system.j2", "System prompt for the SQL analyst agent"),
+        ("statistician_system", "statistician_system.j2", "System prompt for the statistician agent"),
+        ("advanced_system", "advanced_system.j2", "System prompt for the advanced analytics agent"),
     ]
     with Session(engine) as session:
         seeded = 0
@@ -326,9 +295,7 @@ def _seed_prompts(engine) -> None:
                     existing.content = content
                     existing.updated_at = _utcnow()
                     seeded += 1
-                    logger.info(
-                        "Updated prompt template: %s (added clarification block)", name
-                    )
+                    logger.info("Updated prompt template: %s (added clarification block)", name)
                 continue
             prompt = PromptTemplate(
                 id=_uuid(),
@@ -352,21 +319,17 @@ def _setup_logging(level: str) -> None:
     root.setLevel(getattr(logging, level.upper(), logging.DEBUG))
     if not root.handlers:
         handler = logging.StreamHandler(sys.stderr)
-        handler.setFormatter(
-            logging.Formatter(
-                "\033[90m%(asctime)s\033[0m %(levelname)-5s \033[36m%(name)s\033[0m  %(message)s",
-                datefmt="%H:%M:%S",
-            )
-        )
+        handler.setFormatter(logging.Formatter(
+            "\033[90m%(asctime)s\033[0m %(levelname)-5s \033[36m%(name)s\033[0m  %(message)s",
+            datefmt="%H:%M:%S",
+        ))
         root.addHandler(handler)
     # Quiet down noisy libraries
     for lib in ("chromadb", "httpcore", "httpx", "urllib3", "sqlalchemy.engine"):
         logging.getLogger(lib).setLevel(logging.WARNING)
 
 
-def _run_rag_training(
-    rag: VectorStore, db: DatabaseConnector, dataset_service=None
-) -> None:
+def _run_rag_training(rag: VectorStore, db: DatabaseConnector, dataset_service=None) -> None:
     """Run RAG training in a background thread (called via asyncio.to_thread)."""
     trainer = Trainer(rag)
     try:
@@ -377,24 +340,20 @@ def _run_rag_training(
 
 
 def _ensure_transactions_loaded(engine) -> None:
-    """Load transactions from CSV into PostgreSQL if table is empty or missing."""
+    """Load transactions from CSV into local SQLite if table is empty or missing."""
     from sqlalchemy import inspect as sa_inspect
-
     insp = sa_inspect(engine)
 
     if "transactions" in insp.get_table_names():
         with engine.connect() as conn:
             count = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar()
             if count and count > 0:
-                logger.debug(
-                    "transactions table already has %d rows, skipping CSV load", count
-                )
+                logger.debug("transactions table already has %d rows, skipping CSV load", count)
                 return
 
     # Find the CSV file relative to the backend directory
     csv_candidates = [
-        Path(__file__).resolve().parent.parent.parent.parent
-        / "upi_transactions_2024.csv",
+        Path(__file__).resolve().parent.parent.parent.parent / "upi_transactions_2024.csv",
         Path("upi_transactions_2024.csv"),
         Path("backend/upi_transactions_2024.csv"),
     ]
@@ -406,18 +365,13 @@ def _ensure_transactions_loaded(engine) -> None:
             break
 
     if csv_path is None:
-        logger.warning(
-            "No CSV file found for transactions table — queries will fail until data is loaded"
-        )
+        logger.warning("No CSV file found for transactions table — queries will fail until data is loaded")
         return
 
     from insightxpert.db.data_loader import load_data
-
     db_url = str(engine.url)
-    logger.info("Loading transactions from %s into PostgreSQL...", csv_path)
-    count = load_data(
-        source=csv_path, table="transactions", db_url=db_url, if_exists="append"
-    )
+    logger.info("Loading transactions from %s into local SQLite...", csv_path)
+    count = load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="replace")
     logger.info("Loaded %d transactions from CSV", count)
 
 
@@ -428,12 +382,12 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting InsightXpert (log_level=%s)", settings.log_level)
 
-    # 1. Connect to PostgreSQL
+    # 1. Connect to local SQLite (sub-ms queries)
     db = DatabaseConnector()
     try:
         db.connect(settings.database_url)
         safe_url = db.engine.url.render_as_string(hide_password=True)
-        logger.info("Database connected: %s", safe_url)
+        logger.info("Local database connected: %s", safe_url)
     except Exception as e:
         logger.error("Database connection failed: %s", e, exc_info=True)
         raise
@@ -474,7 +428,6 @@ async def lifespan(app: FastAPI):
     # 6. Pre-compute dataset statistics (idempotent)
     try:
         from insightxpert.db.stats_computer import compute_and_store_stats
-
         n = await asyncio.to_thread(compute_and_store_stats, auth_engine)
         if n:
             logger.info("Dataset stats computed: %d rows written", n)
@@ -493,28 +446,19 @@ async def lifespan(app: FastAPI):
 
     # Dataset service
     from insightxpert.datasets.service import DatasetService
-
     dataset_service = DatasetService(auth_engine)
-
-    # External database service
-    from insightxpert.external_databases.service import ExternalDatabaseService, UserDatabaseService
-
-    external_db_service = ExternalDatabaseService(auth_engine)
-    user_db_service = UserDatabaseService(auth_engine)
 
     # Bootstrap RAG in a background thread (after dataset tables are seeded)
     rag_task = asyncio.create_task(
         asyncio.to_thread(_run_rag_training, rag, db, dataset_service)
     )
 
-    # Persistent conversation store (PostgreSQL-backed)
+    # Persistent conversation store (SQLite-backed)
     persistent_conv_store = PersistentConversationStore(auth_engine)
     logger.info("Persistent conversation store initialized")
 
     # Conversation memory (in-memory for LLM context)
-    conversation_store = ConversationStore(
-        ttl_seconds=settings.conversation_ttl_seconds
-    )
+    conversation_store = ConversationStore(ttl_seconds=settings.conversation_ttl_seconds)
     logger.info("Conversation memory initialized (in-memory)")
 
     # Store on app state
@@ -526,13 +470,10 @@ async def lifespan(app: FastAPI):
     app.state.auth_engine = auth_engine
     app.state.persistent_conv_store = persistent_conv_store
     app.state.dataset_service = dataset_service
-    app.state.external_db_service = external_db_service
-    app.state.user_db_service = user_db_service
 
     # Automation service + scheduler
     from insightxpert.automations.service import AutomationService
     from insightxpert.automations.scheduler import AutomationScheduler
-
     app.state.automation_service = AutomationService(auth_engine)
     automation_scheduler = AutomationScheduler(auth_engine, db)
     try:
@@ -543,9 +484,7 @@ async def lifespan(app: FastAPI):
         logger.error("Automation scheduler startup failed: %s", e, exc_info=True)
 
     # Admin config — stored in the DB; migrate from legacy JSON file if needed
-    legacy_config_path = (
-        Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
-    )
+    legacy_config_path = Path(__file__).resolve().parent.parent.parent / "config" / "client-configs.json"
     try:
         migrate_from_json(auth_engine, legacy_config_path)
         logger.info("Admin config ready (DB-backed)")
@@ -557,9 +496,7 @@ async def lifespan(app: FastAPI):
     try:
         await asyncio.wait_for(rag_task, timeout=rag_timeout)
     except asyncio.TimeoutError:
-        logger.warning(
-            "RAG training still running after %ds, continuing startup", rag_timeout
-        )
+        logger.warning("RAG training still running after %ds, continuing startup", rag_timeout)
     except Exception as e:
         logger.error("RAG training error: %s", e, exc_info=True)
 
@@ -570,8 +507,7 @@ async def lifespan(app: FastAPI):
         while True:
             try:
                 cleaned = await asyncio.to_thread(
-                    dataset_service.cleanup_stale_unconfirmed,
-                    30,
+                    dataset_service.cleanup_stale_unconfirmed, 30,
                 )
                 if cleaned:
                     logger.info("Orphan cleanup: removed %d stale datasets", cleaned)
@@ -586,7 +522,7 @@ async def lifespan(app: FastAPI):
 
     # Shutdown
     orphan_cleanup_task.cancel()
-    if hasattr(app.state, "automation_scheduler"):
+    if hasattr(app.state, 'automation_scheduler'):
         await app.state.automation_scheduler.shutdown()
     if not rag_task.done():
         rag_task.cancel()
@@ -687,15 +623,9 @@ async def health_check():
 
 
 from insightxpert.datasets.routes import router as datasets_router
-from insightxpert.automations.routes import (
-    router as automations_router,
-    notifications_router,
-    templates_router,
-)
+from insightxpert.automations.routes import router as automations_router, notifications_router, templates_router
 from insightxpert.insights.routes import router as insights_router
 from insightxpert.voice.routes import router as voice_router
-from insightxpert.external_databases.routes import router as external_db_router
-from insightxpert.external_databases.routes import user_connections_router
 
 app.include_router(router)
 app.include_router(auth_router)
@@ -706,12 +636,9 @@ app.include_router(notifications_router)
 app.include_router(templates_router)
 app.include_router(insights_router)
 app.include_router(voice_router)
-app.include_router(external_db_router)
-app.include_router(user_connections_router)
 
 if __name__ == "__main__":
     import os
     import uvicorn
-
     port = int(os.environ.get("PORT", 8000))
     uvicorn.run("insightxpert.main:app", host="0.0.0.0", port=port, reload=True)

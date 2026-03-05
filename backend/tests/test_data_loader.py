@@ -104,14 +104,14 @@ class TestApplyColumnMap:
 # ---------------------------------------------------------------------------
 
 class TestLoadData:
-    def _test_db_url(self, tmp_path: Path) -> str:
+    def _sqlite_url(self, tmp_path: Path) -> str:
         return f"sqlite:///{tmp_path / 'test.db'}"
 
-    def test_load_data_csv(self, tmp_path):
-        """load_data should load CSV rows into a table and return the
+    def test_load_data_csv_to_sqlite(self, tmp_path):
+        """load_data should load CSV rows into a SQLite table and return the
         correct row count."""
         csv_path = _write_csv(tmp_path / "data.csv", rows=5)
-        db_url = self._test_db_url(tmp_path)
+        db_url = self._sqlite_url(tmp_path)
 
         row_count = load_data(
             source=csv_path,
@@ -131,7 +131,7 @@ class TestLoadData:
     def test_load_data_creates_indexes(self, tmp_path):
         """load_data should create indexes on the transactions table."""
         csv_path = _write_csv(tmp_path / "data.csv", rows=2)
-        db_url = self._test_db_url(tmp_path)
+        db_url = self._sqlite_url(tmp_path)
 
         load_data(source=csv_path, table="transactions", db_url=db_url)
 
@@ -159,7 +159,7 @@ class TestLoadData:
     def test_load_data_replace_mode(self, tmp_path):
         """Loading twice with if_exists='replace' should overwrite, not append."""
         csv_path = _write_csv(tmp_path / "data.csv", rows=3)
-        db_url = self._test_db_url(tmp_path)
+        db_url = self._sqlite_url(tmp_path)
 
         load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="replace")
         load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="replace")

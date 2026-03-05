@@ -91,12 +91,7 @@ class _TokenCountingLLM:
     def model(self) -> str:
         return self._llm.model
 
-    async def chat(
-        self,
-        messages: list[dict],
-        tools: list[dict] | None = None,
-        force_tool_use: bool = False,
-    ):
+    async def chat(self, messages: list[dict], tools: list[dict] | None = None, force_tool_use: bool = False):
         resp = await self._llm.chat(messages, tools, force_tool_use=force_tool_use)
         self.input_tokens += resp.input_tokens
         self.output_tokens += resp.output_tokens
@@ -131,7 +126,6 @@ def _get_deps(request: Request):
         request.app.state.settings,
         request.app.state.conversation_store,
         getattr(request.app.state, "dataset_service", None),
-        getattr(request.app.state, "external_db_service", None),
     )
 
 
@@ -139,11 +133,9 @@ async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     """Shared setup for both SSE and poll chat endpoints.
 
     DB calls are offloaded to a thread to avoid blocking the event loop.
-    Returns (llm, db, rag, settings, conv_store, dataset_service, external_db_service, persistent_store, cid, persistent_cid, history).
+    Returns (llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history).
     """
-    llm, db, rag, settings, conv_store, dataset_service, external_db_service = (
-        _get_deps(request)
-    )
+    llm, db, rag, settings, conv_store, dataset_service = _get_deps(request)
     persistent_store = request.app.state.persistent_conv_store
 
     cid = chat_req.conversation_id or ""
@@ -154,9 +146,7 @@ async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     # from prior turns (e.g. after server restart or TTL expiry).
     if not history and cid:
         try:
-            convo_data = await asyncio.to_thread(
-                persistent_store.get_conversation, cid, user.id
-            )
+            convo_data = await asyncio.to_thread(persistent_store.get_conversation, cid, user.id)
             if convo_data and convo_data.get("messages"):
                 for m in convo_data["messages"]:
                     if m["role"] == "user":
@@ -164,15 +154,9 @@ async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
                     elif m["role"] == "assistant":
                         conv_store.add_assistant_message(cid, m["content"])
                 history = conv_store.get_history(cid)
-                logger.info(
-                    "Hydrated %d history messages from persistent store for %s",
-                    len(history),
-                    cid,
-                )
+                logger.info("Hydrated %d history messages from persistent store for %s", len(history), cid)
         except Exception as e:
-            logger.warning(
-                "Failed to hydrate history from persistent store: %s", e, exc_info=True
-            )
+            logger.warning("Failed to hydrate history from persistent store: %s", e, exc_info=True)
 
     if cid:
         conv_store.add_user_message(cid, chat_req.message)
@@ -181,48 +165,20 @@ async def _prepare_chat(request: Request, chat_req: ChatRequest, user: User):
     if cid:
         persistent_cid = cid
         try:
-            await asyncio.to_thread(
-                persistent_store.get_or_create_conversation,
-                cid,
-                user.id,
-                title,
-                user.org_id,
-            )
+            await asyncio.to_thread(persistent_store.get_or_create_conversation, cid, user.id, title, user.org_id)
         except Exception as e:
-            logger.error(
-                "Failed to ensure persistent conversation: %s", e, exc_info=True
-            )
+            logger.error("Failed to ensure persistent conversation: %s", e, exc_info=True)
             raise DatabaseError("Failed to create conversation")
     else:
-        convo = await asyncio.to_thread(
-            persistent_store.create_conversation, user.id, title, user.org_id
-        )
+        convo = await asyncio.to_thread(persistent_store.create_conversation, user.id, title, user.org_id)
         persistent_cid = convo["id"]
 
     try:
-        await asyncio.to_thread(
-            persistent_store.save_message,
-            persistent_cid,
-            user.id,
-            "user",
-            chat_req.message,
-        )
+        await asyncio.to_thread(persistent_store.save_message, persistent_cid, user.id, "user", chat_req.message)
     except Exception as e:
         logger.error("Failed to persist user message: %s", e, exc_info=True)
 
-    return (
-        llm,
-        db,
-        rag,
-        settings,
-        conv_store,
-        dataset_service,
-        external_db_service,
-        persistent_store,
-        cid,
-        persistent_cid,
-        history,
-    )
+    return llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history
 
 
 def _persist_response(
@@ -250,11 +206,7 @@ def _persist_response(
     if final_answer:
         try:
             message_id = persistent_store.save_message(
-                persistent_cid,
-                user_id,
-                "assistant",
-                final_answer,
-                chunks_blob,
+                persistent_cid, user_id, "assistant", final_answer, chunks_blob,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
                 generation_time_ms=generation_time_ms,
@@ -266,79 +218,37 @@ def _persist_response(
         # Persist enrichment traces if present (legacy conversations)
         if message_id and chunks_blob:
             try:
-                chunks = (
-                    json.loads(chunks_blob)
-                    if isinstance(chunks_blob, str)
-                    else chunks_blob
-                )
-                trace_chunks = [
-                    c
-                    for c in chunks
-                    if isinstance(c, dict) and c.get("type") == "enrichment_trace"
-                ]
+                chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
+                trace_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "enrichment_trace"]
                 if trace_chunks:
                     traces = [c.get("data", {}) for c in trace_chunks if c.get("data")]
                     if traces:
                         persistent_store.save_enrichment_traces(message_id, traces)
             except Exception as e:
-                logger.error(
-                    "Failed to persist enrichment traces: %s", e, exc_info=True
-                )
+                logger.error("Failed to persist enrichment traces: %s", e, exc_info=True)
 
         # Persist orchestrator plan and agent executions
         if message_id and chunks_blob:
             try:
-                chunks = (
-                    json.loads(chunks_blob)
-                    if isinstance(chunks_blob, str)
-                    else chunks_blob
-                )
-                plan_chunks = [
-                    c
-                    for c in chunks
-                    if isinstance(c, dict) and c.get("type") == "orchestrator_plan"
-                ]
+                chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
+                plan_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "orchestrator_plan"]
                 if plan_chunks:
                     plan_data = plan_chunks[0].get("data", {})
-                    plan_id = persistent_store.save_orchestrator_plan(
-                        message_id, plan_data
-                    )
+                    plan_id = persistent_store.save_orchestrator_plan(message_id, plan_data)
 
-                    agent_trace_chunks = [
-                        c
-                        for c in chunks
-                        if isinstance(c, dict) and c.get("type") == "agent_trace"
-                    ]
+                    agent_trace_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "agent_trace"]
                     if agent_trace_chunks and plan_id:
-                        executions = [
-                            c.get("data", {})
-                            for c in agent_trace_chunks
-                            if c.get("data")
-                        ]
+                        executions = [c.get("data", {}) for c in agent_trace_chunks if c.get("data")]
                         if executions:
-                            persistent_store.save_agent_executions(
-                                plan_id, message_id, executions
-                            )
+                            persistent_store.save_agent_executions(plan_id, message_id, executions)
             except Exception as e:
-                logger.error(
-                    "Failed to persist orchestrator plan/executions: %s",
-                    e,
-                    exc_info=True,
-                )
+                logger.error("Failed to persist orchestrator plan/executions: %s", e, exc_info=True)
 
         # Persist insight only if quality evaluator deemed it a genuine insight
         if message_id and chunks_blob and question:
             try:
-                chunks = (
-                    json.loads(chunks_blob)
-                    if isinstance(chunks_blob, str)
-                    else chunks_blob
-                )
-                insight_chunks = [
-                    c
-                    for c in chunks
-                    if isinstance(c, dict) and c.get("type") == "insight"
-                ]
+                chunks = json.loads(chunks_blob) if isinstance(chunks_blob, str) else chunks_blob
+                insight_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "insight"]
                 if insight_chunks:
                     # Use the last insight chunk (investigation re-synthesis overrides initial)
                     last_insight = insight_chunks[-1]
@@ -346,25 +256,14 @@ def _persist_response(
 
                     # Only save if the quality evaluator approved it
                     if not insight_data.get("save_as_insight", False):
-                        logger.info(
-                            "Insight quality gate: not saving (not deemed insightful)"
-                        )
+                        logger.info("Insight quality gate: not saving (not deemed insightful)")
                     else:
                         insight_content = last_insight.get("content", "")
                         insight_summary = insight_data.get("insight_summary", "")
-                        plan_chunks = [
-                            c
-                            for c in chunks
-                            if isinstance(c, dict)
-                            and c.get("type") == "orchestrator_plan"
-                        ]
-                        plan_data = (
-                            plan_chunks[0].get("data", {}) if plan_chunks else {}
-                        )
+                        plan_chunks = [c for c in chunks if isinstance(c, dict) and c.get("type") == "orchestrator_plan"]
+                        plan_data = plan_chunks[0].get("data", {}) if plan_chunks else {}
                         tasks = plan_data.get("tasks", [])
-                        categories = list(
-                            {t.get("category", "") for t in tasks if t.get("category")}
-                        )
+                        categories = list({t.get("category", "") for t in tasks if t.get("category")})
                         # Fall back to plan reasoning if evaluator didn't provide a summary
                         if not insight_summary:
                             insight_summary = plan_data.get("reasoning", "")
@@ -389,26 +288,8 @@ async def chat_sse(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    logger.info(
-        "POST /chat (SSE) message=%r conv=%s user=%s mode=%s",
-        chat_req.message[:80],
-        chat_req.conversation_id,
-        user.email,
-        chat_req.agent_mode,
-    )
-    (
-        llm,
-        db,
-        rag,
-        settings,
-        conv_store,
-        dataset_service,
-        external_db_service,
-        persistent_store,
-        cid,
-        persistent_cid,
-        history,
-    ) = await _prepare_chat(request, chat_req, user)
+    logger.info("POST /chat (SSE) message=%r conv=%s user=%s mode=%s", chat_req.message[:80], chat_req.conversation_id, user.email, chat_req.agent_mode)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, chat_req, user)
     features = _resolve_user_features(request, user)
 
     final_answer: list[str] = []
@@ -433,10 +314,6 @@ async def chat_sse(
             stats_context_injection=features.stats_context_injection,
             clarification_enabled=features.clarification_enabled,
             rag_retrieval=features.rag_retrieval,
-            external_db_service=external_db_service,
-            user_org_id=user.org_id,
-            user_db_service=getattr(request.app.state, "user_db_service", None),
-            user_id=user.id,
         ):
             actual_cid = chunk.conversation_id
             chunk_json = chunk.model_dump_json()
@@ -469,11 +346,7 @@ async def chat_sse(
         asyncio.ensure_future(
             asyncio.to_thread(
                 _persist_response,
-                conv_store,
-                persistent_store,
-                store_cid,
-                persistent_cid,
-                user.id,
+                conv_store, persistent_store, store_cid, persistent_cid, user.id,
                 final_answer[-1] if final_answer else "",
                 executed_sql,
                 "[" + ",".join(all_chunks) + "]",
@@ -497,19 +370,7 @@ async def _run_orchestrator_to_completion(
 
     Returns dict with keys: chunks, final_answer, sql, conversation_id
     """
-    (
-        llm,
-        db,
-        rag,
-        settings,
-        conv_store,
-        dataset_service,
-        external_db_service,
-        persistent_store,
-        cid,
-        persistent_cid,
-        history,
-    ) = await _prepare_chat(request, body, user)
+    llm, db, rag, settings, conv_store, dataset_service, persistent_store, cid, persistent_cid, history = await _prepare_chat(request, body, user)
     features = _resolve_user_features(request, user)
 
     all_chunks: list[dict] = []
@@ -531,10 +392,6 @@ async def _run_orchestrator_to_completion(
         stats_context_injection=features.stats_context_injection,
         clarification_enabled=features.clarification_enabled,
         rag_retrieval=features.rag_retrieval,
-        external_db_service=external_db_service,
-        user_org_id=user.org_id,
-        user_db_service=getattr(request.app.state, "user_db_service", None),
-        user_id=user.id,
     ):
         all_chunks.append(chunk.model_dump())
         if chunk.type == "sql" and chunk.sql:
@@ -546,14 +403,8 @@ async def _run_orchestrator_to_completion(
     store_cid = cid or (all_chunks[0]["conversation_id"] if all_chunks else "")
     await asyncio.to_thread(
         _persist_response,
-        conv_store,
-        persistent_store,
-        store_cid,
-        persistent_cid,
-        user.id,
-        final_answer,
-        executed_sql,
-        json.dumps(all_chunks),
+        conv_store, persistent_store, store_cid, persistent_cid, user.id,
+        final_answer, executed_sql, json.dumps(all_chunks),
         counting_llm.input_tokens or None,
         counting_llm.output_tokens or None,
         generation_time_ms,
@@ -575,12 +426,7 @@ async def chat_poll(
     request: Request,
     user: User = Depends(get_current_user),
 ):
-    logger.info(
-        "POST /chat/poll message=%r conv=%s user=%s",
-        chat_req.message[:80],
-        chat_req.conversation_id,
-        user.email,
-    )
+    logger.info("POST /chat/poll message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
     result = await _run_orchestrator_to_completion(request, chat_req, user)
     logger.info("POST /chat/poll done: %d chunks", len(result["chunks"]))
     return {"chunks": result["chunks"]}
@@ -593,12 +439,7 @@ async def chat_answer(
     user: User = Depends(get_current_user),
 ):
     """Run the full pipeline and return only the final answer, conversation ID, and SQL."""
-    logger.info(
-        "POST /chat/answer message=%r conv=%s user=%s",
-        chat_req.message[:80],
-        chat_req.conversation_id,
-        user.email,
-    )
+    logger.info("POST /chat/answer message=%r conv=%s user=%s", chat_req.message[:80], chat_req.conversation_id, user.email)
     result = await _run_orchestrator_to_completion(request, chat_req, user)
     logger.info("POST /chat/answer done: answer_len=%d", len(result["final_answer"]))
     return ChatAnswerResponse(
@@ -615,7 +456,7 @@ async def train(
     user: User = Depends(get_current_user),
 ):
     logger.info("POST /train type=%s", req.type)
-    _, _, rag, _, _, _, _ = _get_deps(request)
+    _, _, rag, _, _, _ = _get_deps(request)
 
     if req.type == "qa_pair":
         sql = req.metadata.get("sql", "")
@@ -641,7 +482,7 @@ async def delete_rag(
 ):
     """Delete all RAG embeddings from all collections (qa_pairs, ddl, docs, findings)."""
     logger.info("DELETE /rag requested by user=%s", user.email)
-    _, _, rag, _, _, _, _ = _get_deps(request)
+    _, _, rag, _, _, _ = _get_deps(request)
     counts = rag.delete_all()
     logger.info("RAG embeddings deleted: %s", counts)
     return RagDeleteResponse(status="ok", deleted=counts)
@@ -653,7 +494,7 @@ async def schema(
     response: Response,
     user: User = Depends(get_current_user),
 ):
-    _, db, _, _, _, _, _ = _get_deps(request)
+    _, db, _, _, _, _ = _get_deps(request)
     ddl = get_schema_ddl(db.engine)
     tables = db.get_tables()
     response.headers["Cache-Control"] = "private, max-age=3600"
@@ -673,7 +514,6 @@ GEMINI_MODELS = [
 VERTEX_AI_MODELS = [
     "zai-org/glm-5-maas",
 ]
-
 
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
@@ -741,7 +581,7 @@ async def switch_model(
             raise HTTPException(
                 status_code=503,
                 detail=f"Cannot reach Ollama or model '{req.model}' not found. "
-                f"Ensure Ollama is running and the model is pulled. Error: {e}",
+                       f"Ensure Ollama is running and the model is pulled. Error: {e}",
             )
 
     # Save original settings so we can roll back on failure
@@ -787,19 +627,14 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
         raise HTTPException(
             status_code=403,
             detail="Only read-only queries (SELECT, WITH, EXPLAIN) are allowed. "
-            "INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked.",
+                   "INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, and other write operations are blocked.",
         )
 
-    _, db, _, settings, _, _, _ = _get_deps(request)
+    _, db, _, settings, _, _ = _get_deps(request)
 
     start = time.time()
     try:
-        rows = db.execute(
-            sql_text,
-            row_limit=settings.sql_row_limit,
-            timeout=settings.sql_timeout_seconds,
-            read_only=True,
-        )
+        rows = db.execute(sql_text, row_limit=settings.sql_row_limit, timeout=settings.sql_timeout_seconds, read_only=True)
         ms = (time.time() - start) * 1000
     except ProgrammingError as e:
         logger.warning("SQL syntax error: %s", e)
@@ -828,7 +663,7 @@ async def execute_sql(req: SqlExecuteRequest, request: Request):
 @router.get("/sql/export-csv")
 async def export_csv(request: Request, table: str = "transactions"):
     """Export an entire table as a CSV file download."""
-    _, db, _, _, _, _, _ = _get_deps(request)
+    _, db, _, _, _, _ = _get_deps(request)
 
     # Validate table name against known tables to prevent SQL injection
     known_tables = db.get_tables()
@@ -839,34 +674,38 @@ async def export_csv(request: Request, table: str = "transactions"):
         from sqlalchemy import text as sa_text
 
         with db.engine.connect() as conn:
-            result = conn.execute(sa_text(f"SELECT * FROM {table}"))
-            columns = list(result.keys())
+            if db.dialect == "sqlite":
+                conn.execute(sa_text("PRAGMA query_only = ON"))
+            try:
+                result = conn.execute(sa_text(f"SELECT * FROM {table}"))
+                columns = list(result.keys())
 
-            # Write header
-            output = io.StringIO()
-            writer = csv.writer(output)
-            writer.writerow(columns)
-            yield output.getvalue()
-            output.seek(0)
-            output.truncate(0)
+                # Write header
+                output = io.StringIO()
+                writer = csv.writer(output)
+                writer.writerow(columns)
+                yield output.getvalue()
+                output.seek(0)
+                output.truncate(0)
 
-            # Stream rows in batches
-            while True:
-                rows = result.fetchmany(5000)
-                if not rows:
-                    break
-                for row in rows:
-                    output.seek(0)
-                    output.truncate(0)
-                    writer.writerow(row)
-                    yield output.getvalue()
+                # Stream rows in batches
+                while True:
+                    rows = result.fetchmany(5000)
+                    if not rows:
+                        break
+                    for row in rows:
+                        output.seek(0)
+                        output.truncate(0)
+                        writer.writerow(row)
+                        yield output.getvalue()
+            finally:
+                if db.dialect == "sqlite":
+                    conn.execute(sa_text("PRAGMA query_only = OFF"))
 
     return StreamingResponse(
         generate(),
         media_type="text/csv",
-        headers={
-            "Content-Disposition": f'attachment; filename="insightxpert-{table}.csv"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="insightxpert-{table}.csv"'},
     )
 
 
@@ -885,9 +724,7 @@ async def list_conversations(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    convos = await asyncio.to_thread(
-        persistent_store.get_conversations, user.id, user.org_id
-    )
+    convos = await asyncio.to_thread(persistent_store.get_conversations, user.id, user.org_id)
     response.headers["Cache-Control"] = "private, max-age=5"
     return [ConversationSummary(**c) for c in convos]
 
@@ -902,9 +739,7 @@ async def search_conversations(
     if len(q) < 2:
         return []
     persistent_store = request.app.state.persistent_conv_store
-    results = await asyncio.to_thread(
-        persistent_store.search_conversations, user.id, q, org_id=user.org_id
-    )
+    results = await asyncio.to_thread(persistent_store.search_conversations, user.id, q, org_id=user.org_id)
     return [SearchResultItem(**r) for r in results]
 
 
@@ -921,9 +756,7 @@ def _truncate_chunks(chunks: list[dict]) -> list[dict]:
             if isinstance(result_str, str):
                 try:
                     result_obj = json.loads(result_str)
-                    if isinstance(result_obj, dict) and isinstance(
-                        result_obj.get("rows"), list
-                    ):
+                    if isinstance(result_obj, dict) and isinstance(result_obj.get("rows"), list):
                         original_count = len(result_obj["rows"])
                         if original_count > _HISTORY_ROW_LIMIT:
                             result_obj["rows"] = result_obj["rows"][:_HISTORY_ROW_LIMIT]
@@ -932,12 +765,8 @@ def _truncate_chunks(chunks: list[dict]) -> list[dict]:
                             data = {**data, "result": json.dumps(result_obj)}
                             chunk = {**chunk, "data": data}
                 except (json.JSONDecodeError, TypeError):
-                    logger.debug(
-                        "Could not parse tool_result for truncation, skipping chunk"
-                    )
-        elif chunk.get("type") == "enrichment_trace" and isinstance(
-            chunk.get("data"), dict
-        ):
+                    logger.debug("Could not parse tool_result for truncation, skipping chunk")
+        elif chunk.get("type") == "enrichment_trace" and isinstance(chunk.get("data"), dict):
             steps = chunk["data"].get("steps")
             if steps and isinstance(steps, list):
                 for step in steps:
@@ -947,10 +776,7 @@ def _truncate_chunks(chunks: list[dict]) -> list[dict]:
                             # Truncate rows inside the JSON to keep it valid
                             try:
                                 rd_obj = json.loads(rd)
-                                if (
-                                    isinstance(rd_obj.get("rows"), list)
-                                    and len(rd_obj["rows"]) > 10
-                                ):
+                                if isinstance(rd_obj.get("rows"), list) and len(rd_obj["rows"]) > 10:
                                     rd_obj["rows"] = rd_obj["rows"][:10]
                                     rd_obj["truncated"] = True
                                     step["result_data"] = json.dumps(rd_obj)
@@ -977,9 +803,7 @@ async def get_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    convo = await asyncio.to_thread(
-        persistent_store.get_conversation, conversation_id, user.id
-    )
+    convo = await asyncio.to_thread(persistent_store.get_conversation, conversation_id, user.id)
     if convo is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
@@ -991,20 +815,18 @@ async def get_conversation(
                 chunks = _truncate_chunks(json.loads(m["chunks_json"]))
             except (json.JSONDecodeError, TypeError):
                 chunks = None
-        messages.append(
-            MessageResponse(
-                id=m["id"],
-                role=m["role"],
-                content=m["content"],
-                chunks=chunks,
-                feedback=m.get("feedback"),
-                feedback_comment=m.get("feedback_comment"),
-                input_tokens=m.get("input_tokens"),
-                output_tokens=m.get("output_tokens"),
-                generation_time_ms=m.get("generation_time_ms"),
-                created_at=m["created_at"],
-            )
-        )
+        messages.append(MessageResponse(
+            id=m["id"],
+            role=m["role"],
+            content=m["content"],
+            chunks=chunks,
+            feedback=m.get("feedback"),
+            feedback_comment=m.get("feedback_comment"),
+            input_tokens=m.get("input_tokens"),
+            output_tokens=m.get("output_tokens"),
+            generation_time_ms=m.get("generation_time_ms"),
+            created_at=m["created_at"],
+        ))
 
     return ConversationDetail(
         id=convo["id"],
@@ -1023,9 +845,7 @@ async def delete_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    deleted = await asyncio.to_thread(
-        persistent_store.delete_conversation, conversation_id, user.id
-    )
+    deleted = await asyncio.to_thread(persistent_store.delete_conversation, conversation_id, user.id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok"}
@@ -1039,9 +859,7 @@ async def rename_conversation(
     user: User = Depends(get_current_user),
 ):
     persistent_store = request.app.state.persistent_conv_store
-    renamed = await asyncio.to_thread(
-        persistent_store.rename_conversation, conversation_id, user.id, body.title
-    )
+    renamed = await asyncio.to_thread(persistent_store.rename_conversation, conversation_id, user.id, body.title)
     if not renamed:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok"}
@@ -1055,9 +873,7 @@ async def star_conversation(
     user: User = Depends(get_current_user),
 ):
     store = request.app.state.persistent_conv_store
-    ok = await asyncio.to_thread(
-        store.star_conversation, conversation_id, user.id, body.starred
-    )
+    ok = await asyncio.to_thread(store.star_conversation, conversation_id, user.id, body.starred)
     if not ok:
         raise HTTPException(status_code=404, detail="Conversation not found")
     return {"status": "ok", "starred": body.starred}
@@ -1071,9 +887,7 @@ def _get_ollama_client(request: Request):
     try:
         import ollama as ollama_sdk
     except ImportError:
-        raise HTTPException(
-            status_code=503, detail="ollama Python package is not installed"
-        )
+        raise HTTPException(status_code=503, detail="ollama Python package is not installed")
     settings = request.app.state.settings
     return ollama_sdk.AsyncClient(host=settings.ollama_base_url)
 
@@ -1093,26 +907,10 @@ async def ollama_pull(
         try:
             stream = await client.pull(model=model_name, stream=True)
             async for progress in stream:
-                status = (
-                    progress.get("status", "")
-                    if isinstance(progress, dict)
-                    else getattr(progress, "status", "")
-                )
-                completed = (
-                    progress.get("completed")
-                    if isinstance(progress, dict)
-                    else getattr(progress, "completed", None)
-                )
-                total = (
-                    progress.get("total")
-                    if isinstance(progress, dict)
-                    else getattr(progress, "total", None)
-                )
-                digest = (
-                    progress.get("digest")
-                    if isinstance(progress, dict)
-                    else getattr(progress, "digest", None)
-                )
+                status = progress.get("status", "") if isinstance(progress, dict) else getattr(progress, "status", "")
+                completed = progress.get("completed") if isinstance(progress, dict) else getattr(progress, "completed", None)
+                total = progress.get("total") if isinstance(progress, dict) else getattr(progress, "total", None)
+                digest = progress.get("digest") if isinstance(progress, dict) else getattr(progress, "digest", None)
 
                 event = {"status": status}
                 if completed is not None and total is not None and total > 0:
@@ -1149,21 +947,15 @@ async def ollama_list_models(
 
     models = []
     for m in response.models:
-        size_bytes = (
-            m.size
-            if isinstance(m.size, (int, float))
-            else getattr(m.size, "real", None)
-        )
+        size_bytes = m.size if isinstance(m.size, (int, float)) else getattr(m.size, "real", None)
         details = m.details
-        models.append(
-            OllamaModelInfo(
-                model=(m.model or "").replace(":latest", ""),
-                size_mb=round(size_bytes / 1_048_576, 1) if size_bytes else None,
-                parameter_size=details.parameter_size if details else None,
-                quantization=details.quantization_level if details else None,
-                family=details.family if details else None,
-            )
-        )
+        models.append(OllamaModelInfo(
+            model=(m.model or "").replace(":latest", ""),
+            size_mb=round(size_bytes / 1_048_576, 1) if size_bytes else None,
+            parameter_size=details.parameter_size if details else None,
+            quantization=details.quantization_level if details else None,
+            family=details.family if details else None,
+        ))
 
     return OllamaModelsResponse(models=models)
 
@@ -1179,17 +971,11 @@ async def ollama_delete_model(
     logger.info("DELETE /ollama/models/%s user=%s", model_name, user.email)
     try:
         result = await client.delete(model_name)
-        status = (
-            result.get("status", "success")
-            if isinstance(result, dict)
-            else getattr(result, "status", "success")
-        )
+        status = result.get("status", "success") if isinstance(result, dict) else getattr(result, "status", "success")
         return {"status": status, "model": model_name}
     except Exception as e:
         logger.warning("Failed to delete Ollama model '%s': %s", model_name, e)
-        raise HTTPException(
-            status_code=400, detail=f"Failed to delete model '{model_name}'"
-        )
+        raise HTTPException(status_code=400, detail=f"Failed to delete model '{model_name}'")
 
 
 # --- Dataset Stats -------------------------------------------------------
@@ -1205,14 +991,11 @@ async def get_dataset_stats(
 
     def _fetch_stats():
         from sqlalchemy import text as sa_text
-
         with auth_engine.connect() as conn:
-            result = conn.execute(
-                sa_text(
-                    "SELECT stat_group, dimension, metric, value, string_value, updated_at "
-                    "FROM dataset_stats ORDER BY stat_group, dimension, metric"
-                )
-            )
+            result = conn.execute(sa_text(
+                "SELECT stat_group, dimension, metric, value, string_value, updated_at "
+                "FROM dataset_stats ORDER BY stat_group, dimension, metric"
+            ))
             return [dict(zip(result.keys(), row)) for row in result.fetchall()]
 
     try:
@@ -1249,10 +1032,7 @@ async def submit_feedback(
     store = request.app.state.persistent_conv_store
     ok = await asyncio.to_thread(
         store.update_message_feedback,
-        body.message_id,
-        user.id,
-        body.feedback,
-        body.comment,
+        body.message_id, user.id, body.feedback, body.comment,
     )
     if not ok:
         raise HTTPException(status_code=404, detail="Message not found")

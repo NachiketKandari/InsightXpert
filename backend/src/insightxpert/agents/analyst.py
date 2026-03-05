@@ -98,8 +98,6 @@ async def analyst_loop(
     allowed_tables: set[str] | None = None,
     dataset_id: str | None = None,
     org_id: str | None = None,
-    external_db_config=None,
-    use_external_db: bool = False,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst agentic loop for a single user question.
 
@@ -139,14 +137,8 @@ async def analyst_loop(
     if tool_registry is None:
         tool_registry = default_registry(clarification_enabled=clarification_enabled)
     tool_context = ToolContext(
-        db=db,
-        rag=rag,
-        row_limit=config.sql_row_limit,
-        allowed_tables=allowed_tables,
-        dataset_id=dataset_id,
-        org_id=org_id,
-        external_db_config=external_db_config,
-        use_external_db=use_external_db,
+        db=db, rag=rag, row_limit=config.sql_row_limit,
+        allowed_tables=allowed_tables, dataset_id=dataset_id, org_id=org_id,
     )
 
     logger.info("=" * 60)
@@ -169,26 +161,18 @@ async def analyst_loop(
     if rag_retrieval:
         rag_start = time.time()
         similar_qa = await asyncio.to_thread(
-            rag.search_qa,
-            question,
-            n=3,
-            max_distance=1.0,
-            sql_valid_only=True,
-            dataset_id=dataset_id,
-            org_id=org_id,
+            rag.search_qa, question, n=3, max_distance=1.0, sql_valid_only=True,
+            dataset_id=dataset_id, org_id=org_id,
         )
         rag_ms = (time.time() - rag_start) * 1000
 
         logger.info(
             "RAG retrieval (%.0fms): qa=%d (threshold=1.0, valid-only)",
-            rag_ms,
-            len(similar_qa),
+            rag_ms, len(similar_qa),
         )
         if similar_qa:
             for i, qa in enumerate(similar_qa):
-                logger.debug(
-                    "  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100]
-                )
+                logger.debug("  qa[%d] dist=%.3f: %s", i, qa["distance"], qa["document"][:100])
     else:
         logger.info("RAG retrieval skipped (rag_retrieval=False)")
 
@@ -248,9 +232,7 @@ async def analyst_loop(
     # Inject conversation history for multi-turn context
     if history:
         messages.extend(history)
-        logger.info(
-            "Injected %d history messages for conversation %s", len(history), cid
-        )
+        logger.info("Injected %d history messages for conversation %s", len(history), cid)
 
     messages.append({"role": "user", "content": question})
 
@@ -310,31 +292,23 @@ async def analyst_loop(
                     "LLM answered without tool calls on iteration %d — forcing tool use",
                     iteration + 1,
                 )
-                messages.append(
-                    {
-                        "role": "assistant",
-                        "content": response.content or "",
-                    }
-                )
+                messages.append({
+                    "role": "assistant",
+                    "content": response.content or "",
+                })
                 force_msg = (
-                    (
-                        "You MUST use a tool before answering. "
-                        "Use run_sql to query the database, or use clarify if the "
-                        "question is ambiguous. Do not answer from memory or prior context."
-                    )
-                    if clarification_enabled
-                    else (
-                        "You MUST use the run_sql tool to query the database before "
-                        "answering. Do not answer from memory or prior context. "
-                        "Please write and execute a SQL query now."
-                    )
+                    "You MUST use a tool before answering. "
+                    "Use run_sql to query the database, or use clarify if the "
+                    "question is ambiguous. Do not answer from memory or prior context."
+                ) if clarification_enabled else (
+                    "You MUST use the run_sql tool to query the database before "
+                    "answering. Do not answer from memory or prior context. "
+                    "Please write and execute a SQL query now."
                 )
-                messages.append(
-                    {
-                        "role": "user",
-                        "content": force_msg,
-                    }
-                )
+                messages.append({
+                    "role": "user",
+                    "content": force_msg,
+                })
                 continue
 
         if response.tool_calls:
@@ -343,13 +317,11 @@ async def analyst_loop(
             if response.content:
                 logger.debug("LLM thinking: %s", response.content[:200])
 
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": response.content or "",
-                    "tool_calls": response.tool_calls,
-                }
-            )
+            messages.append({
+                "role": "assistant",
+                "content": response.content or "",
+                "tool_calls": response.tool_calls,
+            })
 
             llm_reasoning = response.content or None
 
@@ -394,15 +366,11 @@ async def analyst_loop(
 
                 tool_start = time.time()
                 result = await tool_registry.execute(
-                    tc.name,
-                    tc.arguments,
-                    tool_context,
+                    tc.name, tc.arguments, tool_context,
                 )
                 tool_ms = (time.time() - tool_start) * 1000
                 tools_executed = True
-                logger.info(
-                    "Tool %s completed (%.0fms): %s", tc.name, tool_ms, result[:200]
-                )
+                logger.info("Tool %s completed (%.0fms): %s", tc.name, tool_ms, result[:200])
 
                 # Handle clarification tool — emit clarification chunk and stop
                 if tc.name == "clarify":
@@ -419,21 +387,17 @@ async def analyst_loop(
                     )
                     return
 
-                messages.append(
-                    {
-                        "role": "tool",
-                        "content": result,
-                        "tool_call_id": tc.id,
-                        "tool_name": tc.name,
-                    }
-                )
+                messages.append({
+                    "role": "tool",
+                    "content": result,
+                    "tool_call_id": tc.id,
+                    "tool_name": tc.name,
+                })
 
                 tool_result_data = {"tool": tc.name, "result": result}
                 if tc.name == "run_sql":
                     if tc.arguments.get("visualization"):
-                        tool_result_data["visualization"] = tc.arguments[
-                            "visualization"
-                        ]
+                        tool_result_data["visualization"] = tc.arguments["visualization"]
                     if tc.arguments.get("x_column"):
                         tool_result_data["x_column"] = tc.arguments["x_column"]
                     if tc.arguments.get("y_column"):
@@ -454,15 +418,12 @@ async def analyst_loop(
                 logger.warning(
                     "LLM returned empty final answer (%.0fms) on iteration %d — "
                     "model may have produced a thinking-only response or been safety-filtered",
-                    llm_ms,
-                    iteration + 1,
+                    llm_ms, iteration + 1,
                 )
             logger.info("LLM final answer (%.0fms): %s...", llm_ms, answer_preview)
             logger.info(
                 "DONE [%s] total=%.0fms iterations=%d",
-                cid,
-                total_ms,
-                iteration + 1,
+                cid, total_ms, iteration + 1,
             )
 
             yield ChatChunk(
@@ -488,10 +449,7 @@ async def analyst_loop(
                     if org_id:
                         save_meta["org_id"] = org_id
                     await asyncio.to_thread(
-                        rag.add_qa_pair,
-                        question,
-                        sql,
-                        save_meta,
+                        rag.add_qa_pair, question, sql, save_meta,
                     )
                     logger.debug("Auto-saved QA pair to RAG (sql_valid=True)")
                 except Exception:
@@ -501,9 +459,7 @@ async def analyst_loop(
         total_ms = (time.time() - loop_start) * 1000
         logger.warning(
             "EXHAUSTED [%s] max iterations=%d total=%.0fms",
-            cid,
-            max_iter,
-            total_ms,
+            cid, max_iter, total_ms,
         )
         yield ChatChunk(
             type="error",

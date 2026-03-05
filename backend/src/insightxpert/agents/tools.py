@@ -6,25 +6,8 @@ import logging
 
 from insightxpert.agents.sql_guard import FORBIDDEN_SQL_RE, validate_tables
 from insightxpert.agents.tool_base import Tool, ToolContext, ToolRegistry
-from insightxpert.db.connector import ExternalDatabaseConnector, ExternalDatabasePoolManager
 
 logger = logging.getLogger("insightxpert.tools")
-
-
-def _get_external_connector(context: ToolContext) -> ExternalDatabaseConnector:
-    """Return a pooled ExternalDatabaseConnector for the active external DB.
-
-    Uses the singleton ``ExternalDatabasePoolManager`` so that connection
-    pools are reused across tool invocations rather than creating (and
-    immediately disposing) a fresh engine on every call.
-    """
-    assert context.external_db_config is not None
-    pool_mgr = ExternalDatabasePoolManager.get_instance()
-
-    # Ensure the config is registered (idempotent if already present).
-    pool_mgr.register(context.external_db_config)
-
-    return pool_mgr.get(context.external_db_config.id)
 
 
 class RunSqlTool(Tool):
@@ -64,44 +47,21 @@ class RunSqlTool(Tool):
     async def execute(self, context: ToolContext, args: dict) -> str:
         sql = args["sql"]
 
+        # Block write operations
         if FORBIDDEN_SQL_RE.match(sql):
-            return json.dumps(
-                {
-                    "error": "Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed."
-                }
-            )
+            return json.dumps({"error": "Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed."})
 
+        # Enforce table-level access control
         if context.allowed_tables is not None:
             error = validate_tables(sql, context.allowed_tables)
             if error:
                 return json.dumps({"error": error})
 
-        if context.use_external_db and context.external_db_config is not None:
-            return await self._execute_external(context, args)
-
         rows = await asyncio.to_thread(
-            context.db.execute,
-            sql,
-            row_limit=context.row_limit,
+            context.db.execute, sql, row_limit=context.row_limit,
         )
         logger.debug("run_sql returned %d rows", len(rows))
         return json.dumps({"rows": rows, "row_count": len(rows)}, default=str)
-
-    async def _execute_external(self, context: ToolContext, args: dict) -> str:
-        sql = args["sql"]
-        connector = _get_external_connector(context)
-
-        try:
-            rows = await asyncio.to_thread(
-                connector.execute,
-                sql,
-                row_limit=context.row_limit,
-            )
-            logger.debug("external_db_run_sql returned %d rows", len(rows))
-            return json.dumps({"rows": rows, "row_count": len(rows)}, default=str)
-        except Exception as e:
-            logger.error("External DB query failed: %s", e, exc_info=True)
-            return json.dumps({"error": str(e)})
 
 
 class GetSchemaTool(Tool):
@@ -130,30 +90,20 @@ class GetSchemaTool(Tool):
 
         tables = args.get("tables", [])
 
-        if context.use_external_db and context.external_db_config is not None:
-            return await self._execute_external(context, args)
-
         # Filter to allowed tables when dataset isolation is active
         if context.allowed_tables is not None:
             allowed_lower = {t.lower() for t in context.allowed_tables}
             if tables:
                 tables = [t for t in tables if t.lower() in allowed_lower]
                 if not tables:
-                    return json.dumps(
-                        {
-                            "error": "None of the requested tables are in the active dataset."
-                        }
-                    )
+                    return json.dumps({"error": "None of the requested tables are in the active dataset."})
             else:
                 # No specific tables requested — return only allowed tables
                 tables = sorted(context.allowed_tables)
 
         if tables:
             results = await asyncio.gather(
-                *(
-                    asyncio.to_thread(get_table_info, context.db.engine, t)
-                    for t in tables
-                )
+                *(asyncio.to_thread(get_table_info, context.db.engine, t) for t in tables)
             )
             logger.debug("get_schema returned info for tables: %s", tables)
             return json.dumps(list(results), default=str)
@@ -161,27 +111,6 @@ class GetSchemaTool(Tool):
             ddl = await asyncio.to_thread(get_schema_ddl, context.db.engine)
             logger.debug("get_schema returned full DDL (%d chars)", len(ddl))
             return ddl
-
-    async def _execute_external(self, context: ToolContext, args: dict) -> str:
-        tables = args.get("tables", [])
-        connector = _get_external_connector(context)
-
-        try:
-            if not tables:
-                tables = connector.get_tables()
-                logger.debug("get_schema returned tables: %s", tables)
-
-            results = []
-            for table in tables:
-                info = connector.get_columns(table)
-                ddl_parts = [f'    "{col["name"]}" {col["type"]}' for col in info]
-                ddl = f'CREATE TABLE "{table}" (\n' + ",\n".join(ddl_parts) + "\n);"
-                results.append(ddl)
-
-            return json.dumps(results, default=str)
-        except Exception as e:
-            logger.error("External DB get_schema failed: %s", e, exc_info=True)
-            return json.dumps({"error": str(e)})
 
 
 class ClarifyTool(Tool):
@@ -246,36 +175,24 @@ class SearchSimilarTool(Tool):
         collection = args["collection"]
         if collection == "qa_pairs":
             items = await asyncio.to_thread(
-                context.rag.search_qa,
-                query,
-                max_distance=1.0,
-                sql_valid_only=True,
-                dataset_id=context.dataset_id,
-                org_id=context.org_id,
+                context.rag.search_qa, query,
+                max_distance=1.0, sql_valid_only=True,
+                dataset_id=context.dataset_id, org_id=context.org_id,
             )
         elif collection == "ddl":
             items = await asyncio.to_thread(
-                context.rag.search_ddl,
-                query,
-                dataset_id=context.dataset_id,
-                org_id=context.org_id,
+                context.rag.search_ddl, query,
+                dataset_id=context.dataset_id, org_id=context.org_id,
             )
         elif collection == "docs":
             items = await asyncio.to_thread(
-                context.rag.search_docs,
-                query,
-                dataset_id=context.dataset_id,
-                org_id=context.org_id,
+                context.rag.search_docs, query,
+                dataset_id=context.dataset_id, org_id=context.org_id,
             )
         else:
             logger.warning("Unknown collection: %s", collection)
             return json.dumps({"error": f"Unknown collection: {collection}"})
-        logger.debug(
-            "search_similar(%s, %s) returned %d items",
-            collection,
-            query[:50],
-            len(items),
-        )
+        logger.debug("search_similar(%s, %s) returned %d items", collection, query[:50], len(items))
         return json.dumps(items, default=str)
 
 

@@ -65,10 +65,6 @@ async def orchestrator_loop(
     stats_context_injection: bool = False,
     clarification_enabled: bool = False,
     rag_retrieval: bool = True,
-    external_db_service=None,
-    user_org_id: str | None = None,
-    user_db_service=None,
-    user_id: str | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the orchestrator pipeline.
 
@@ -91,17 +87,12 @@ async def orchestrator_loop(
     dataset_id: str | None = None
     org_id: str | None = None
 
-    # External database configuration
-    external_db_config = None
-    use_external_db = False
-
     if dataset_service is not None:
         active_ds = await asyncio.to_thread(dataset_service.get_active_dataset)
         if active_ds:
             ddl_override = active_ds.get("ddl")
             docs_override = await asyncio.to_thread(
-                dataset_service.build_documentation_markdown,
-                active_ds["id"],
+                dataset_service.build_documentation_markdown, active_ds["id"],
             )
             # Extract table isolation context from the active dataset
             dataset_id = active_ds.get("id")
@@ -109,61 +100,6 @@ async def orchestrator_loop(
             table_name = dataset_service._extract_table_name(ddl_override)
             if table_name:
                 allowed_tables = {table_name}
-
-    # Resolve active user-scoped database (highest priority)
-    if user_db_service is not None and user_id is not None:
-        active_user_db = await asyncio.to_thread(
-            user_db_service.get_active_connection, user_id
-        )
-        if active_user_db:
-            from insightxpert.db.connector import ExternalDatabaseConfig
-
-            external_db_config = ExternalDatabaseConfig(
-                id=int(active_user_db["id"].replace("-", "")[:8], 16),
-                host=active_user_db["host"],
-                port=active_user_db["port"],
-                database=active_user_db["database"],
-                username=active_user_db["username"],
-                password=active_user_db["password"],
-                dialect=active_user_db.get("connection_type", "postgresql"),
-            )
-            use_external_db = True
-            allowed_tables = None
-            ddl_override = None
-            docs_override = None
-            logger.info("Using user database: %s", active_user_db["name"])
-
-    # Resolve active external database (takes precedence over internal datasets)
-    if not use_external_db and external_db_service is not None:
-        effective_org_id = org_id or user_org_id
-        active_ext_db = await asyncio.to_thread(
-            external_db_service.get_active_external_database,
-            effective_org_id,
-        )
-        if active_ext_db:
-            from insightxpert.db.connector import ExternalDatabaseConfig
-            from insightxpert.auth.encryption import decrypt_credentials
-
-            password = active_ext_db.get("password", "")
-            try:
-                password = decrypt_credentials(password)
-            except Exception:
-                pass
-
-            external_db_config = ExternalDatabaseConfig(
-                id=int(active_ext_db["id"].replace("-", "")[:8], 16),
-                host=active_ext_db["host"],
-                port=active_ext_db["port"],
-                database=active_ext_db["database"],
-                username=active_ext_db["username"],
-                password=password,
-                dialect=active_ext_db.get("connection_type", "postgresql"),
-            )
-            use_external_db = True
-            allowed_tables = None
-            ddl_override = None
-            docs_override = None
-            logger.info("Using external database: %s", active_ext_db["name"])
 
     effective_ddl = ddl_override or DDL
     effective_docs = docs_override or DOCUMENTATION
@@ -177,18 +113,13 @@ async def orchestrator_loop(
     stats_groups: list[str] = []
     if config.enable_stats_context and stats_context_injection:
         from insightxpert.agents.stats_resolver import StatsResolver
-
         try:
-            stats_result = await asyncio.to_thread(
-                StatsResolver().resolve, question, db.engine
-            )
+            stats_result = await asyncio.to_thread(StatsResolver().resolve, question, db.engine)
             if stats_result:
                 stats_context = stats_result.markdown
                 stats_groups = stats_result.groups
         except Exception as _stats_err:
-            logger.debug(
-                "StatsResolver failed, continuing without stats context: %s", _stats_err
-            )
+            logger.debug("StatsResolver failed, continuing without stats context: %s", _stats_err)
 
     cid = conversation_id or ""
 
@@ -211,8 +142,6 @@ async def orchestrator_loop(
             allowed_tables=allowed_tables,
             dataset_id=dataset_id,
             org_id=org_id,
-            external_db_config=external_db_config,
-            use_external_db=use_external_db,
         ):
             yield chunk
         return
@@ -238,8 +167,6 @@ async def orchestrator_loop(
             allowed_tables=allowed_tables,
             dataset_id=dataset_id,
             org_id=org_id,
-            external_db_config=external_db_config,
-            use_external_db=use_external_db,
         ):
             yield chunk
         return
@@ -267,28 +194,18 @@ async def orchestrator_loop(
         allowed_tables=allowed_tables,
         dataset_id=dataset_id,
         org_id=org_id,
-        external_db_config=external_db_config,
-        use_external_db=use_external_db,
     ):
         yield chunk
         collector.process_chunk(chunk)
 
     # If analyst failed or returned a clarification, stop here
     if collector.had_error or not collector.answer:
-        logger.info(
-            "Skipping enrichment: error=%s, answer_empty=%s",
-            collector.had_error,
-            not collector.answer,
-        )
+        logger.info("Skipping enrichment: error=%s, answer_empty=%s", collector.had_error, not collector.answer)
         return
 
     # ── Phase 2: Evaluate whether enrichment is needed ───────────────
-    logger.info(
-        "Phase 2: evaluating enrichment (analyst_sql=%s, rows=%d, answer_len=%d)",
-        bool(collector.sql),
-        len(collector.rows),
-        len(collector.answer),
-    )
+    logger.info("Phase 2: evaluating enrichment (analyst_sql=%s, rows=%d, answer_len=%d)",
+                bool(collector.sql), len(collector.rows), len(collector.answer))
     yield ChatChunk(
         type="status",
         content="Evaluating if deeper analysis is needed...",
@@ -352,13 +269,9 @@ async def orchestrator_loop(
         timestamp=time.time(),
     )
 
-    pending_chunks, on_task_start, on_task_complete = build_dag_callbacks(
-        "orchestrator", cid
-    )
+    pending_chunks, on_task_start, on_task_complete = build_dag_callbacks("orchestrator", cid)
 
-    async def run_task(
-        task: SubTask, upstream: dict[str, SubTaskResult]
-    ) -> SubTaskResult:
+    async def run_task(task: SubTask, upstream: dict[str, SubTaskResult]) -> SubTaskResult:
         if task.agent == "sql_analyst":
             return await _run_sql_analyst(
                 task=task,
@@ -374,8 +287,6 @@ async def orchestrator_loop(
                 allowed_tables=allowed_tables,
                 dataset_id=dataset_id,
                 org_id=org_id,
-                external_db_config=external_db_config,
-                use_external_db=use_external_db,
             )
         elif task.agent == "quant_analyst":
             return await _run_quant_analyst(
@@ -486,8 +397,6 @@ async def _run_sql_analyst(
     allowed_tables: set[str] | None = None,
     dataset_id: str | None = None,
     org_id: str | None = None,
-    external_db_config=None,
-    use_external_db: bool = False,
 ) -> SubTaskResult:
     """Run analyst_loop for a sub-task and collect results."""
     collected_sql = ""
@@ -513,8 +422,6 @@ async def _run_sql_analyst(
             allowed_tables=allowed_tables,
             dataset_id=dataset_id,
             org_id=org_id,
-            external_db_config=external_db_config,
-            use_external_db=use_external_db,
         ):
             step: dict = {
                 "type": chunk.type,
@@ -544,9 +451,7 @@ async def _run_sql_analyst(
                                 collected_rows = rows
                             # Store structured result for trace display
                             display_data = {
-                                "columns": parsed.get(
-                                    "columns", list(rows[0].keys()) if rows else []
-                                ),
+                                "columns": parsed.get("columns", list(rows[0].keys()) if rows else []),
                                 "rows": rows[:50],
                                 "row_count": len(rows),
                             }
@@ -638,15 +543,11 @@ async def _run_quant_analyst(
                         parsed_r = json.loads(str(chunk.data["result"]))
                         r = parsed_r.get("rows", [])
                         if r:
-                            step["result_data"] = json.dumps(
-                                {
-                                    "columns": parsed_r.get(
-                                        "columns", list(r[0].keys()) if r else []
-                                    ),
-                                    "rows": r[:50],
-                                    "row_count": len(r),
-                                }
-                            )
+                            step["result_data"] = json.dumps({
+                                "columns": parsed_r.get("columns", list(r[0].keys()) if r else []),
+                                "rows": r[:50],
+                                "row_count": len(r),
+                            })
                         else:
                             # Non-table results (run_python output, stat tool
                             # results, errors) — store as valid JSON so the
@@ -683,3 +584,5 @@ async def _run_quant_analyst(
             trace_steps=trace_steps,
             duration_ms=duration_ms,
         )
+
+
