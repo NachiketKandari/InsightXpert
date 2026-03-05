@@ -7,7 +7,7 @@ on:
 
 env:
   GCP_PROJECT_ID: insightx-487005
-  GCP_REGION: asia-south1
+  GCP_REGION: us-east1
   CLOUD_RUN_SERVICE: insightxpert-api
   WIF_PROVIDER: projects/413119399385/locations/global/workloadIdentityPools/github-pool/providers/github-provider
   WIF_SERVICE_ACCOUNT: github-actions@insightx-487005.iam.gserviceaccount.com
