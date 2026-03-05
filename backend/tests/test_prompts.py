@@ -10,7 +10,7 @@ from insightxpert.prompts import render as render_prompt, get_file_content
 
 @pytest.fixture
 def auth_engine():
-    """In-memory SQLite engine with auth tables created."""
+    """In-memory SQLAlchemy engine with auth tables created."""
     engine = create_engine("sqlite:///:memory:")
     AuthBase.metadata.create_all(engine)
     yield engine

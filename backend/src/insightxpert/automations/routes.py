@@ -74,9 +74,9 @@ def _validate_single_sql(sql: str) -> None:
     if ";" in stripped:
         raise HTTPException(status_code=400, detail="Multi-statement SQL is not allowed")
 
-    import sqlite3
-    if not sqlite3.complete_statement(stripped + ";"):
-        raise HTTPException(status_code=400, detail="Invalid SQL: incomplete or malformed statement")
+    # Basic syntax check: ensure it looks like a complete SELECT statement
+    if not stripped.upper().startswith("SELECT"):
+        raise HTTPException(status_code=400, detail="Only SELECT queries are allowed")
 
 
 def _validate_sql_queries(queries: list[str]) -> None:

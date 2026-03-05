@@ -36,12 +36,15 @@ def _now() -> datetime:
 
 @pytest.fixture()
 def engine():
-    """Create an in-memory SQLite engine with all auth tables."""
+    """Create an in-memory SQLAlchemy engine with all auth tables.
+
+    Uses SQLite in-memory for fast isolated ORM tests (dialect-agnostic).
+    """
     eng = create_engine("sqlite:///:memory:")
 
-    # Enable foreign key enforcement so ON DELETE CASCADE works in SQLite.
+    # Enable foreign key enforcement so ON DELETE CASCADE works.
     @event.listens_for(eng, "connect")
-    def _set_sqlite_pragma(dbapi_conn, connection_record):
+    def _enable_fk(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
