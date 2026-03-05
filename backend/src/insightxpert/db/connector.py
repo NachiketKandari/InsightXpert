@@ -45,22 +45,7 @@ class DatabaseConnector:
     def dialect(self) -> str:
         return self.engine.dialect.name
 
-    def connect(self, url: str, *, cloud_sql_connection_name: str = "") -> None:
-        if cloud_sql_connection_name:
-            # Cloud SQL Unix socket: override host portion of the URL
-            # Expected format: postgresql://user:pass@/dbname?host=/cloudsql/<connection-name>
-            from urllib.parse import urlparse, urlunparse, urlencode, parse_qs
-
-            parsed = urlparse(url)
-            qs = parse_qs(parsed.query)
-            qs["host"] = [f"/cloudsql/{cloud_sql_connection_name}"]
-            new_query = urlencode(qs, doseq=True)
-            url = urlunparse(
-                parsed._replace(
-                    query=new_query, netloc=f"{parsed.username}:{parsed.password}@"
-                )
-            )
-
+    def connect(self, url: str) -> None:
         self._engine = create_engine(
             url,
             pool_size=5,

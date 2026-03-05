@@ -10,6 +10,14 @@ def _get_fernet() -> Fernet:
     if _fernet is None:
         key = os.environ.get("ENCRYPTION_KEY")
         if not key:
+            # Pydantic-settings loads .env.local into Settings fields but doesn't
+            # set real env vars.  Fall back to reading the file directly.
+            try:
+                from insightxpert.config import Settings
+                key = Settings().encryption_key or None
+            except Exception:
+                key = None
+        if not key:
             raise RuntimeError(
                 "ENCRYPTION_KEY not set. Set a 32-byte base64-encoded key "
                 "(e.g., export ENCRYPTION_KEY=$(python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'))"

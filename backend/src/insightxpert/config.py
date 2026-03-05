@@ -39,9 +39,6 @@ class Settings(BaseSettings):
         """Treat empty DATABASE_URL env var as unset (use default)."""
         return v if v else "postgresql://insightxpert:insightxpert@localhost:5432/insightxpert"
 
-    # Cloud SQL (production)
-    cloud_sql_connection_name: str = ""
-
     # ChromaDB
     chroma_persist_dir: str = "./chroma_data"
 

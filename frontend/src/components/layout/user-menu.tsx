@@ -124,11 +124,10 @@ export const UserMenu = React.memo(function UserMenu() {
             <ListChecks className="size-4" />
             Sample Questions
           </DropdownMenuItem>
-          <DropdownMenuItem asChild>
-            <Link href="/connections">
+          <DropdownMenuItem disabled className="opacity-50">
               <Database className="size-4" />
               My Connections
-            </Link>
+              <span className="ml-auto text-[10px] font-medium text-muted-foreground">Soon</span>
           </DropdownMenuItem>
           {!config?.branding?.color_mode && (
             <DropdownMenuItem onClick={toggleTheme}>

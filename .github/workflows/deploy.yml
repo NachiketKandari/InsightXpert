@@ -7,7 +7,7 @@ on:
 
 env:
   GCP_PROJECT_ID: insightx-487005
-  GCP_REGION: us-central1
+  GCP_REGION: asia-south1
   CLOUD_RUN_SERVICE: insightxpert-api
   WIF_PROVIDER: projects/413119399385/locations/global/workloadIdentityPools/github-pool/providers/github-provider
   WIF_SERVICE_ACCOUNT: github-actions@insightx-487005.iam.gserviceaccount.com
@@ -54,9 +54,8 @@ jobs:
             --min-instances 1 \
             --max-instances 1 \
             --cpu-boost \
-            --add-cloudsql-instances=${{ vars.CLOUD_SQL_CONNECTION_NAME || 'insightx-487005:us-central1:insightxpert-db' }} \
             --startup-probe httpGet.path=/health,periodSeconds=10,failureThreshold=30,timeoutSeconds=3 \
-            --set-env-vars "^||^LLM_PROVIDER=gemini||GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}||GEMINI_MODEL=${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}||DATABASE_URL=${{ secrets.DATABASE_URL }}||CLOUD_SQL_CONNECTION_NAME=${{ vars.CLOUD_SQL_CONNECTION_NAME || 'insightx-487005:us-central1:insightxpert-db' }}||CHROMA_PERSIST_DIR=./chroma_data||CORS_ORIGINS=${{ vars.CORS_ORIGINS || 'https://insightxpert-ai.web.app,https://insightxpert.vercel.app' }}||LOG_LEVEL=INFO||SECRET_KEY=${{ secrets.SECRET_KEY }}||ADMIN_SEED_PASSWORD=${{ secrets.ADMIN_SEED_PASSWORD }}||ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}"
+            --set-env-vars "^||^LLM_PROVIDER=gemini||GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}||GEMINI_MODEL=${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}||DATABASE_URL=${{ secrets.DATABASE_URL }}||CHROMA_PERSIST_DIR=./chroma_data||CORS_ORIGINS=${{ vars.CORS_ORIGINS || 'https://insightxpert-ai.web.app,https://insightxpert.vercel.app' }}||LOG_LEVEL=INFO||SECRET_KEY=${{ secrets.SECRET_KEY }}||ADMIN_SEED_PASSWORD=${{ secrets.ADMIN_SEED_PASSWORD }}||ENCRYPTION_KEY=${{ secrets.ENCRYPTION_KEY }}"
 
   # ── Frontend: Build & deploy to Firebase Hosting ──────────────────────
   deploy-frontend:
