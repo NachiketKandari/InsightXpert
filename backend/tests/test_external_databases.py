@@ -115,11 +115,17 @@ class TestEncryptionRequiresKey:
 
     def test_encrypt_raises_without_key(self, monkeypatch):
         monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+        monkeypatch.setattr(
+            "insightxpert.config.Settings", lambda: type("S", (), {"encryption_key": None})(),
+        )
         with pytest.raises(RuntimeError, match="ENCRYPTION_KEY not set"):
             encrypt_credentials("anything")
 
     def test_decrypt_raises_without_key(self, monkeypatch):
         monkeypatch.delenv("ENCRYPTION_KEY", raising=False)
+        monkeypatch.setattr(
+            "insightxpert.config.Settings", lambda: type("S", (), {"encryption_key": None})(),
+        )
         with pytest.raises(RuntimeError, match="ENCRYPTION_KEY not set"):
             decrypt_credentials("anything")
 
