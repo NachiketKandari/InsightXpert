@@ -46,21 +46,11 @@ class DatabaseConnector:
         return self.engine.dialect.name
 
     def connect(self, url: str) -> None:
-        # Forward sslmode from the URL query string to psycopg2 connect_args
-        # so Neon (and other hosted PG) connections work correctly.
-        connect_args: dict[str, Any] = {}
-        if "sslmode=" in url:
-            from urllib.parse import parse_qs, urlparse
-            qs = parse_qs(urlparse(url).query)
-            if "sslmode" in qs:
-                connect_args["sslmode"] = qs["sslmode"][0]
-
         self._engine = create_engine(
             url,
             pool_size=5,
             max_overflow=10,
             pool_pre_ping=True,
-            connect_args=connect_args,
         )
 
         safe_url = self._engine.url.render_as_string(hide_password=True)
@@ -178,6 +168,7 @@ class ExternalDatabaseConnector:
             pool_recycle=3600,
             connect_args={
                 "connect_timeout": self._timeout,
+                "options": f"-c statement_timeout={self._timeout * 1000}",
             },
         )
         safe_url = self._engine.url.render_as_string(hide_password=True)
