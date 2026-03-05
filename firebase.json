@@ -9,7 +9,7 @@
         "source": "/api/**",
         "run": {
           "serviceId": "insightxpert-api",
-          "region": "us-east1"
+          "region": "asia-south1"
         }
       },
       {
