@@ -66,12 +66,21 @@ export function WorkflowBuilder() {
         setPreset("daily");
         setCustomCron("");
         setConditions([]);
+        setMessages([]);
 
         const chatState = useChatStore.getState();
         const conv = chatState.conversations.find((c) => c.id === context.conversationId);
         if (conv && conv.messages.length > 0) {
           setMessages(conv.messages);
         }
+      } else {
+        // Blank create — no conversation context
+        setName("");
+        setDescription("");
+        setPreset("daily");
+        setCustomCron("");
+        setConditions([]);
+        setMessages([]);
       }
     }
   }
@@ -140,7 +149,7 @@ export function WorkflowBuilder() {
     }
   };
 
-  if (!context && !editingId) return null;
+  if (!open && !context && !editingId) return null;
 
   const activeBlockCount = blocks.filter((b) => b.isActive).length;
 

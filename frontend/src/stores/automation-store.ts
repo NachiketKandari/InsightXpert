@@ -131,7 +131,7 @@ interface AutomationState {
   closeAutomationModal: () => void;
 
   // Workflow builder actions
-  openWorkflowBuilder: (context: WorkflowBuilderContext) => void;
+  openWorkflowBuilder: (context?: WorkflowBuilderContext | null) => void;
   openWorkflowBuilderForEdit: (automation: Automation) => void;
   closeWorkflowBuilder: () => void;
   initBlocksFromConversation: (messages: Message[], focusMessageId: string) => void;
@@ -343,10 +343,10 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
   // Workflow builder
   // ---------------------------------------------------------------------------
 
-  openWorkflowBuilder: (context) =>
+  openWorkflowBuilder: (context = null) =>
     set({
       workflowBuilderOpen: true,
-      workflowBuilderContext: context,
+      workflowBuilderContext: context ?? null,
       workflowBlocks: [],
       workflowEdges: [],
       editingAutomationId: null,
