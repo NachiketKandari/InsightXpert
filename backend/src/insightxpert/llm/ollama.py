@@ -79,7 +79,8 @@ class OllamaProvider:
         return tool_calls
 
     async def chat(
-        self, messages: list[dict], tools: list[dict] | None = None
+        self, messages: list[dict], tools: list[dict] | None = None,
+        force_tool_use: bool = False,
     ) -> LLMResponse:
         msg_count = len(messages)
         tool_count = len(tools) if tools else 0
