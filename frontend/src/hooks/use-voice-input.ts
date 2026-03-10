@@ -181,10 +181,6 @@ export function useVoiceInput(onTranscript?: (text: string) => void) {
             clearSilenceTimer();
             silenceTimerRef.current = setTimeout(() => stop(), SILENCE_TIMEOUT_MS);
           }
-
-          if (data.speech_final) {
-            stop();
-          }
         } else if (transcript) {
           interimRef.current = transcript;
           emit();
