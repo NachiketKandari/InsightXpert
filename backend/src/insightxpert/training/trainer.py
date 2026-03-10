@@ -132,6 +132,71 @@ class Trainer:
 
         return count
 
+    def embed_columns_for_dataset(self, dataset_service, dataset_id: str) -> int:
+        """Embed per-column descriptions for a wide dataset into ``column_metadata``.
+
+        Called after a dataset with >20 columns is confirmed.  Each column
+        gets a separate embedding document so the analyst can retrieve only
+        the semantically relevant columns at query time.
+
+        Stale embeddings for the same dataset are deleted first so that
+        re-confirming a dataset (with updated descriptions) produces a clean
+        slate.
+
+        Args:
+            dataset_service: The ``DatasetService`` instance used to fetch
+                column records from the database.
+            dataset_id: The dataset whose columns should be embedded.
+
+        Returns:
+            The number of column documents added.
+        """
+        # Remove stale embeddings from a previous confirm of the same dataset
+        if hasattr(self._rag, "delete_columns_for_dataset"):
+            self._rag.delete_columns_for_dataset(dataset_id)
+
+        columns = dataset_service.get_dataset_columns(dataset_id)
+        if not columns:
+            return 0
+
+        # Extract the table name from the dataset DDL for metadata tagging
+        ds = dataset_service.get_dataset_by_id(dataset_id)
+        table_name = ""
+        if ds and ds.get("ddl"):
+            table_name = dataset_service._extract_table_name(ds["ddl"]) or ""
+
+        org_id = ds.get("organization_id") or "__system__" if ds else "__system__"
+
+        count = 0
+        for col in columns:
+            col_name = col.get("column_name", "")
+            col_type = col.get("column_type", "")
+            description = col.get("description") or ""
+
+            # Build a richer description that includes the type hint so that
+            # the embedding captures both semantic meaning and data shape.
+            embed_text = description.strip() if description.strip() else col_name
+            if col_type and col_type.upper() not in embed_text.upper():
+                embed_text = f"({col_type}) {embed_text}"
+
+            self._rag.add_column(
+                table_name=table_name or col_name,
+                column_name=col_name,
+                description=embed_text,
+                metadata={
+                    "dataset_id": dataset_id,
+                    "org_id": org_id,
+                    "column_type": col_type,
+                },
+            )
+            count += 1
+
+        logger.info(
+            "Embedded %d column descriptions for dataset %s (table=%s)",
+            count, dataset_id, table_name,
+        )
+        return count
+
     def train_insightxpert(self, db: DatabaseConnector | None = None, dataset_service=None) -> int:
         """Bootstrap the RAG store with all InsightXpert training data.
 

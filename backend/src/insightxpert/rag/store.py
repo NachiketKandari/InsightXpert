@@ -16,7 +16,7 @@ logger = logging.getLogger("insightxpert.rag")
 
 
 class VectorStore:
-    """Persistent ChromaDB vector store managing four embedding collections.
+    """Persistent ChromaDB vector store managing five embedding collections.
 
     Collections:
         - **qa_pairs** -- Question-to-SQL pairs used as few-shot examples.
@@ -28,6 +28,10 @@ class VectorStore:
           the trainer from ``training/documentation.py``.
         - **findings** -- Reserved for anomaly-detection results.  Currently
           never populated; ``search_findings()`` always returns an empty list.
+        - **column_metadata** -- Per-column semantic embeddings.  Populated
+          when a wide dataset (>20 columns) is confirmed.  Used to prune the
+          DDL injected into the analyst prompt to only the columns relevant
+          to the user's question.
 
     Deduplication strategy:
         Every document is assigned an ID derived from ``SHA-256(content)[:16]``.
@@ -53,9 +57,11 @@ class VectorStore:
         self._ddl = self._client.get_or_create_collection("ddl")
         self._docs = self._client.get_or_create_collection("docs")
         self._findings = self._client.get_or_create_collection("findings")
+        self._columns = self._client.get_or_create_collection("column_metadata")
         logger.debug(
-            "VectorStore ready: qa=%d ddl=%d docs=%d findings=%d",
-            self._qa.count(), self._ddl.count(), self._docs.count(), self._findings.count(),
+            "VectorStore ready: qa=%d ddl=%d docs=%d findings=%d columns=%d",
+            self._qa.count(), self._ddl.count(), self._docs.count(),
+            self._findings.count(), self._columns.count(),
         )
 
     @staticmethod
@@ -274,6 +280,97 @@ class VectorStore:
         results = self._findings.query(query_texts=[question], n_results=n)
         return self._unpack(results)
 
+    def add_column(
+        self,
+        table_name: str,
+        column_name: str,
+        description: str,
+        metadata: dict | None = None,
+    ) -> str:
+        """Embed a single column's description into the ``column_metadata`` collection.
+
+        The embedding document is formatted as::
+
+            "{table}.{column}: {description}"
+
+        so that semantic search can match on both the column name and its
+        human-readable meaning.
+
+        Args:
+            table_name: The table the column belongs to.
+            column_name: The column name (sanitized).
+            description: Human-readable description (user-provided or auto-generated).
+                If empty, the column name is used as the embedding text.
+            metadata: Optional extra metadata.  ``table_name``, ``column_name``,
+                and ``description`` are always stored automatically.
+
+        Returns:
+            The deterministic document ID.
+        """
+        text = description.strip() if description.strip() else column_name
+        doc = f"{table_name}.{column_name}: {text}"
+        doc_id = self._make_id(doc)
+        meta: dict = {
+            "table_name": table_name,
+            "column_name": column_name,
+            "description": description,
+        }
+        if metadata:
+            meta.update(metadata)
+        self._columns.upsert(ids=[doc_id], documents=[doc], metadatas=[meta])
+        return doc_id
+
+    def search_columns(
+        self,
+        question: str,
+        n: int = 25,
+        dataset_id: str | None = None,
+        max_distance: float | None = None,
+    ) -> list[dict]:
+        """Search the ``column_metadata`` collection for semantically relevant columns.
+
+        Args:
+            question: The natural-language question to search against.
+            n: Maximum number of columns to return (default 25).
+            dataset_id: If set, restrict results to columns tagged with this
+                dataset ID.  Returns columns from all datasets if ``None``.
+            max_distance: If set, discard results with distance > this value.
+
+        Returns:
+            A list of dicts with ``"document"``, ``"metadata"``, ``"distance"``.
+            Each ``metadata`` dict contains at least ``table_name``,
+            ``column_name``, and ``description``.
+        """
+        where: dict | None = {"dataset_id": dataset_id} if dataset_id else None
+        results = self._columns.query(
+            query_texts=[question],
+            n_results=min(n, self._columns.count() or 1),
+            where=where,
+        )
+        items = self._unpack(results)
+        if max_distance is not None:
+            items = [it for it in items if it["distance"] <= max_distance]
+        return items
+
+    def delete_columns_for_dataset(self, dataset_id: str) -> int:
+        """Delete all column embeddings for a specific dataset.
+
+        Used when a dataset is re-confirmed or deleted, to avoid stale
+        column embeddings influencing future queries.
+
+        Args:
+            dataset_id: The dataset whose columns should be removed.
+
+        Returns:
+            The number of column documents deleted.
+        """
+        existing = self._columns.get(where={"dataset_id": dataset_id})
+        ids = existing.get("ids", [])
+        if ids:
+            self._columns.delete(ids=ids)
+            logger.info("Deleted %d column embeddings for dataset %s", len(ids), dataset_id)
+        return len(ids)
+
     def flush_qa_pairs(self) -> int:
         """Delete all QA pairs, keeping DDL, docs, and findings intact.
 
@@ -306,15 +403,17 @@ class VectorStore:
             "ddl": self._ddl.count(),
             "docs": self._docs.count(),
             "findings": self._findings.count(),
+            "column_metadata": self._columns.count(),
         }
         total = sum(counts.values())
-        for name in ("qa_pairs", "ddl", "docs", "findings"):
+        for name in ("qa_pairs", "ddl", "docs", "findings", "column_metadata"):
             self._client.delete_collection(name)
         # Re-create empty collections
         self._qa = self._client.get_or_create_collection("qa_pairs")
         self._ddl = self._client.get_or_create_collection("ddl")
         self._docs = self._client.get_or_create_collection("docs")
         self._findings = self._client.get_or_create_collection("findings")
+        self._columns = self._client.get_or_create_collection("column_metadata")
         logger.info("Deleted all embeddings: %d total (%s)", total, counts)
         return counts
 

@@ -169,6 +169,19 @@ class DatasetService:
                 for c in cols
             ]
 
+    def get_column_count(self, dataset_id: str) -> int:
+        """Return the number of columns for a dataset.
+
+        Cheaper than fetching full column records — used to decide whether
+        semantic column scoping should be activated for a query.
+        """
+        with Session(self._engine) as session:
+            return (
+                session.query(DatasetColumn)
+                .filter(DatasetColumn.dataset_id == dataset_id)
+                .count()
+            )
+
     def get_example_queries(self, dataset_id: str) -> list[dict]:
         """Return active example queries for a dataset."""
         with Session(self._engine) as session:

@@ -86,6 +86,7 @@ async def orchestrator_loop(
     allowed_tables: set[str] | None = None
     dataset_id: str | None = None
     org_id: str | None = None
+    column_count: int | None = None
 
     if dataset_service is not None:
         active_ds = await asyncio.to_thread(dataset_service.get_active_dataset)
@@ -100,6 +101,10 @@ async def orchestrator_loop(
             table_name = dataset_service._extract_table_name(ddl_override)
             if table_name:
                 allowed_tables = {table_name}
+            # Fetch column count to decide whether semantic scoping applies
+            column_count = await asyncio.to_thread(
+                dataset_service.get_column_count, dataset_id,
+            )
 
     effective_ddl = ddl_override or DDL
     effective_docs = docs_override or DOCUMENTATION
@@ -142,6 +147,7 @@ async def orchestrator_loop(
             allowed_tables=allowed_tables,
             dataset_id=dataset_id,
             org_id=org_id,
+            column_count=column_count,
         ):
             yield chunk
         return
@@ -194,6 +200,7 @@ async def orchestrator_loop(
         allowed_tables=allowed_tables,
         dataset_id=dataset_id,
         org_id=org_id,
+        column_count=column_count,
     ):
         yield chunk
         collector.process_chunk(chunk)

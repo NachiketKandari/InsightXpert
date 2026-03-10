@@ -44,6 +44,173 @@ from .tools import default_registry
 
 logger = logging.getLogger("insightxpert.analyst")
 
+# Datasets with more columns than this threshold get semantic column pruning.
+_COLUMN_SCOPING_THRESHOLD = 20
+
+
+def _parse_ddl_columns(ddl: str) -> dict[str, str]:
+    """Extract a mapping of column_name -> full DDL line from a CREATE TABLE statement.
+
+    Returns only lines that are column definitions (not PRIMARY KEY / FOREIGN KEY /
+    UNIQUE / CHECK constraints).  The returned dict preserves insertion order so
+    the pruned DDL keeps the original column ordering.
+
+    Args:
+        ddl: A ``CREATE TABLE ...`` DDL string.
+
+    Returns:
+        Dict mapping column name (lowercase) to its full DDL line (with leading
+        whitespace stripped).
+    """
+    columns: dict[str, str] = {}
+    inside = False
+    for raw_line in ddl.split("\n"):
+        line = raw_line.strip().rstrip(",")
+        upper = line.upper()
+        if "CREATE TABLE" in upper:
+            inside = True
+            continue
+        if not inside:
+            continue
+        if line.startswith(")"):
+            break
+        # Skip constraint lines
+        if upper.startswith(("PRIMARY KEY", "FOREIGN KEY", "UNIQUE", "CHECK", "INDEX", "--")):
+            continue
+        if not line:
+            continue
+        # First token is the column name
+        col_name = line.split()[0].strip('"').strip("`").strip("'")
+        columns[col_name.lower()] = line
+    return columns
+
+
+def _extract_pk_columns(ddl: str) -> set[str]:
+    """Extract the set of primary key column names from a CREATE TABLE DDL.
+
+    Handles both inline ``column_name TYPE PRIMARY KEY`` and block-level
+    ``PRIMARY KEY (col1, col2)`` syntax.
+
+    Args:
+        ddl: A ``CREATE TABLE ...`` DDL string.
+
+    Returns:
+        Set of lowercase column names that are primary keys.
+    """
+    pks: set[str] = set()
+    for line in ddl.split("\n"):
+        stripped = line.strip().rstrip(",")
+        upper = stripped.upper()
+        if "PRIMARY KEY" in upper:
+            # Inline: col_name TYPE PRIMARY KEY
+            if not upper.startswith("PRIMARY KEY"):
+                col = stripped.split()[0].strip('"').strip("`").lower()
+                pks.add(col)
+            else:
+                # Block: PRIMARY KEY (col1, col2)
+                m = re.search(r"\(([^)]+)\)", stripped)
+                if m:
+                    for c in m.group(1).split(","):
+                        pks.add(c.strip().strip('"').strip("`").lower())
+    return pks
+
+
+def _build_pruned_ddl(
+    original_ddl: str,
+    selected_columns: list[str],
+) -> str:
+    """Reconstruct a CREATE TABLE statement with only the selected columns.
+
+    Primary key columns are always included regardless of ``selected_columns``
+    to preserve SQL validity and join capability.
+
+    Args:
+        original_ddl: The full CREATE TABLE DDL string.
+        selected_columns: Lowercase column names to keep.
+
+    Returns:
+        A pruned CREATE TABLE string.  If parsing fails or fewer than 2
+        columns would remain, returns the original DDL unchanged.
+    """
+    all_cols = _parse_ddl_columns(original_ddl)
+    pk_cols = _extract_pk_columns(original_ddl)
+
+    keep = set(c.lower() for c in selected_columns) | pk_cols
+
+    pruned = {name: line for name, line in all_cols.items() if name in keep}
+    if len(pruned) < 2:
+        # Safety: never return a degenerate DDL
+        return original_ddl
+
+    # Reconstruct table header from original
+    header_match = re.match(r"(CREATE TABLE\s+\S+\s*\()", original_ddl, re.IGNORECASE)
+    header = header_match.group(1) if header_match else "CREATE TABLE unknown ("
+
+    col_lines = [f"  {line}" for line in pruned.values()]
+
+    # Re-append PRIMARY KEY block if present (block-style only)
+    for raw_line in original_ddl.split("\n"):
+        stripped = raw_line.strip()
+        if stripped.upper().startswith("PRIMARY KEY"):
+            col_lines.append(f"  {stripped.rstrip(',')}")
+            break
+
+    return header + "\n" + ",\n".join(col_lines) + "\n);"
+
+
+def _build_pruned_docs(original_docs: str, selected_columns: list[str]) -> str:
+    """Filter the column details table in documentation to only selected columns.
+
+    The documentation markdown produced by ``build_documentation_markdown()``
+    contains a ``## Column Details`` section with a markdown table.  This
+    function keeps only the rows for the selected columns (plus any PK columns
+    already captured in the DDL pruning step), leaving the header and all
+    non-table prose intact.
+
+    If no column table is found, the original docs are returned unchanged.
+
+    Args:
+        original_docs: The full documentation markdown string.
+        selected_columns: Lowercase column names to keep in the table.
+
+    Returns:
+        Pruned documentation string with filtered column rows.
+    """
+    keep = {c.lower() for c in selected_columns}
+    lines = original_docs.split("\n")
+    result: list[str] = []
+    in_col_table = False
+
+    for line in lines:
+        stripped = line.strip()
+        # Detect the start of the column details markdown table (header row)
+        if stripped.startswith("| Column") and "Description" in stripped:
+            in_col_table = True
+            result.append(line)
+            continue
+
+        if in_col_table:
+            # Separator row (|---|---|...)
+            if stripped.startswith("|--") or stripped.startswith("| --"):
+                result.append(line)
+                continue
+            # Data row: first cell is the column name
+            if stripped.startswith("|"):
+                col_name = stripped.split("|")[1].strip().lower()
+                if col_name in keep:
+                    result.append(line)
+                # Otherwise skip this row (column not selected)
+                continue
+            else:
+                # End of table
+                in_col_table = False
+
+        result.append(line)
+
+    pruned = "\n".join(result)
+    # Safety: if we accidentally stripped everything, return original
+    return pruned if pruned.strip() else original_docs
+
 
 def _extract_sql_from_messages(messages: list[dict]) -> str | None:
     """Extract the last SQL query from the conversation message history.
@@ -98,6 +265,7 @@ async def analyst_loop(
     allowed_tables: set[str] | None = None,
     dataset_id: str | None = None,
     org_id: str | None = None,
+    column_count: int | None = None,
 ) -> AsyncGenerator[ChatChunk, None]:
     """Run the analyst agentic loop for a single user question.
 
@@ -196,6 +364,37 @@ async def analyst_loop(
     # the hardcoded training files.
     active_ddl = ddl_override or DDL
     active_docs = documentation_override or DOCUMENTATION
+
+    # -- Step 2a: Semantic column pruning (wide datasets only) --
+    # For datasets with more than _COLUMN_SCOPING_THRESHOLD columns, retrieve
+    # the most semantically relevant columns from the vector store and rebuild
+    # the DDL with only those columns.  This keeps the prompt tight and reduces
+    # noise for the LLM, preventing it from fixating on irrelevant columns.
+    # PK columns are always preserved regardless of semantic score.
+    if (
+        dataset_id
+        and column_count is not None
+        and column_count > _COLUMN_SCOPING_THRESHOLD
+        and hasattr(rag, "search_columns")
+    ):
+        try:
+            col_results = await asyncio.to_thread(
+                rag.search_columns,
+                question,
+                min(column_count, 25),  # retrieve at most 25 candidates
+                dataset_id,
+                1.5,  # max_distance — generous threshold to avoid over-pruning
+            )
+            if col_results:
+                selected = [r["metadata"]["column_name"] for r in col_results]
+                active_ddl = _build_pruned_ddl(active_ddl, selected)
+                active_docs = _build_pruned_docs(active_docs, selected)
+                logger.info(
+                    "Column scoping: %d/%d columns selected via semantic search",
+                    len(selected), column_count,
+                )
+        except Exception:
+            logger.warning("Semantic column scoping failed — using full DDL", exc_info=True)
 
     system_prompt = render_prompt(
         "analyst_system.j2",

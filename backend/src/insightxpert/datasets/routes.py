@@ -291,6 +291,9 @@ async def delete_dataset(
     return {"status": "ok"}
 
 
+COLUMN_SCOPING_THRESHOLD = 20
+
+
 @router.post("/{dataset_id}/confirm")
 async def confirm_dataset(
     dataset_id: str,
@@ -302,6 +305,11 @@ async def confirm_dataset(
 
     Compiles rich documentation from the profiler output and user-provided
     descriptions.  Only the dataset owner or an admin can confirm.
+
+    For datasets with more than ``COLUMN_SCOPING_THRESHOLD`` columns, each
+    column's description is also embedded into the ``column_metadata`` vector
+    store collection.  This enables the analyst to retrieve only the
+    semantically relevant columns at query time, keeping the SQL prompt tight.
     """
     svc = _get_dataset_service(request)
 
@@ -321,6 +329,28 @@ async def confirm_dataset(
         raise HTTPException(status_code=404, detail="Dataset not found")
 
     logger.info("User %s confirmed dataset %s", roles.user.id, dataset_id)
+
+    # Embed per-column descriptions for wide datasets (>COLUMN_SCOPING_THRESHOLD columns)
+    # so the analyst can do semantic column retrieval at query time.
+    if body.profile.column_count > COLUMN_SCOPING_THRESHOLD:
+        rag = getattr(request.app.state, "rag", None)
+        if rag is not None:
+            from insightxpert.training.trainer import Trainer
+            trainer = Trainer(rag)
+            try:
+                n_embedded = await asyncio.to_thread(
+                    trainer.embed_columns_for_dataset, svc, dataset_id,
+                )
+                logger.info(
+                    "Embedded %d column descriptions for wide dataset %s (%d columns)",
+                    n_embedded, dataset_id, body.profile.column_count,
+                )
+            except Exception:
+                logger.warning(
+                    "Column embedding failed for dataset %s — column scoping will be unavailable",
+                    dataset_id, exc_info=True,
+                )
+
     return result
 
 
