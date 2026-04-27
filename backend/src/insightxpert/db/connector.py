@@ -14,12 +14,6 @@ FORBIDDEN_SQL_RE = re.compile(
     re.IGNORECASE,
 )
 
-# Module-level holder for libSQL sync-owner connections. These connections
-# spawn the background thread that syncs the local replica from the remote
-# Turso primary. We never close them and never use them for queries — they
-# exist solely to keep the sync thread alive. List, not single global, so
-# multiple engines (e.g. tests + app) can coexist without clobbering.
-_SYNC_OWNERS: list = []
 
 
 def _is_libsql_url(url: str) -> bool:
@@ -70,36 +64,36 @@ def _build_libsql_engine(
 
     if local_replica_path:
         import libsql_experimental as libsql  # type: ignore[import-untyped]
+        from sqlalchemy.pool import StaticPool
 
-        # Embedded replica with a single long-lived sync owner. Only ONE
-        # connection has sync_interval set — that connection's libsql client
-        # spawns the background sync thread that pulls remote changes into
-        # the local replica file. Per-checkout SQLAlchemy connections open
-        # WITHOUT sync_interval; otherwise each pool slot would spawn its
-        # own background sync thread and they race on WAL writes
-        # (`wal_insert_begin failed`).
+        # Embedded replica WITHOUT background sync_interval. Background sync
+        # races with active SQLAlchemy queries: libSQL's sync thread calls
+        # `wal_insert_begin` to apply remote frames into the local WAL while
+        # SQLAlchemy holds the file via concurrent connections, producing
+        # "wal_insert_begin failed" errors that propagate as ValueError and
+        # block writes (e.g. user registration).
+        #
+        # Trade-off: without periodic sync, the replica only refreshes on
+        # explicit `conn.sync()` calls. The libSQL client syncs on connection
+        # open, so each new connection sees the latest committed state.
+        # Combined with StaticPool (one connection for the whole engine),
+        # all queries serialize through a single libSQL connection that
+        # writes-through to the remote primary and reads from local file.
+        # For this app's traffic profile this is plenty fast and avoids the
+        # WAL contention entirely.
         _connect_kwargs: dict = {
             "database": local_replica_path,
             "sync_url": sync_url,
             "auth_token": auth_token,
         }
-        _sync_owner_kwargs: dict = dict(_connect_kwargs)
-        if sync_interval_seconds > 0:
-            _sync_owner_kwargs["sync_interval"] = sync_interval_seconds
 
         try:
-            # Hold a module-level reference so the sync owner's background
-            # thread isn't GC'd. We never close this connection.
-            _SYNC_OWNERS.append(libsql.connect(**_sync_owner_kwargs))
-            _SYNC_OWNERS[-1].sync()
-            logger.info(
-                "libSQL initial sync complete (replica=%s, sync_owner_interval=%ds)",
-                local_replica_path, sync_interval_seconds,
-            )
+            _bootstrap = libsql.connect(**_connect_kwargs)
+            _bootstrap.sync()
+            _bootstrap.close()
+            logger.info("libSQL initial sync complete (replica=%s)", local_replica_path)
         except Exception as exc:  # noqa: BLE001
-            logger.warning(
-                "Initial libSQL sync failed (will retry in background): %s", exc
-            )
+            logger.warning("Initial libSQL sync failed (will retry on first query): %s", exc)
 
         def _creator():
             return libsql.connect(**_connect_kwargs)
@@ -107,11 +101,12 @@ def _build_libsql_engine(
         engine = create_engine(
             "sqlite+libsql://",
             creator=_creator,
-            pool_pre_ping=True,
+            poolclass=StaticPool,
+            pool_pre_ping=False,  # StaticPool: single conn, ping is meaningless
         )
         logger.info(
-            "libSQL embedded-replica engine ready (local=%s, sync_url=%s, interval=%ds)",
-            local_replica_path, sync_url, sync_interval_seconds,
+            "libSQL embedded-replica engine ready (local=%s, sync_url=%s, pool=Static)",
+            local_replica_path, sync_url,
         )
         event.listen(engine, "connect", _enable_libsql_pragmas)
         return engine
