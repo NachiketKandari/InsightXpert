@@ -15,17 +15,115 @@ FORBIDDEN_SQL_RE = re.compile(
 )
 
 
+def _is_libsql_url(url: str) -> bool:
+    return url.startswith("libsql://") or url.startswith("sqlite+libsql://")
+
+
 def _enable_sqlite_pragmas(dbapi_conn, connection_record):
-    """Enable foreign key enforcement and WAL mode for every new SQLite connection."""
+    """Enable foreign keys + WAL on local-file SQLite connections only."""
     cursor = dbapi_conn.cursor()
     cursor.execute("PRAGMA foreign_keys = ON")
     cursor.execute("PRAGMA journal_mode = WAL")
     cursor.close()
 
 
+def _enable_libsql_pragmas(dbapi_conn, connection_record):
+    """Enable foreign keys on libSQL connections (skip WAL — protocol-owned)."""
+    cursor = dbapi_conn.cursor()
+    try:
+        cursor.execute("PRAGMA foreign_keys = ON")
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("PRAGMA foreign_keys = ON not applied on libSQL connection: %s", exc)
+    finally:
+        cursor.close()
+
+
+def _build_libsql_engine(
+    url: str,
+    *,
+    auth_token: str,
+    local_replica_path: str,
+    sync_interval_seconds: int,
+) -> Engine:
+    """Build a SQLAlchemy engine for Turso/libSQL.
+
+    If `local_replica_path` is set, use an embedded replica (local SQLite file
+    that syncs from remote). Otherwise connect pure-remote (every query is a
+    network round-trip).
+    """
+    if not auth_token:
+        raise ValueError(
+            "TURSO_AUTH_TOKEN is required when DATABASE_URL is libsql://. "
+            "Set the env var (or .env.local entry) and retry."
+        )
+
+    sync_url = url
+    if sync_url.startswith("sqlite+libsql://"):
+        sync_url = "libsql://" + sync_url[len("sqlite+libsql://"):]
+
+    if local_replica_path:
+        import libsql_experimental as libsql  # type: ignore[import-untyped]
+
+        # Pull the remote snapshot once at engine init. The libsql client's
+        # background sync_interval handles ongoing replication. Avoid calling
+        # conn.sync() inside the per-checkout creator — SQLAlchemy invokes the
+        # creator on every pool refill, and re-syncing per checkout adds
+        # latency + risks racing on the local replica file.
+        _initial_sync_kwargs: dict = {
+            "database": local_replica_path,
+            "sync_url": sync_url,
+            "auth_token": auth_token,
+        }
+        try:
+            _bootstrap_conn = libsql.connect(**_initial_sync_kwargs)
+            _bootstrap_conn.sync()
+            _bootstrap_conn.close()
+            logger.info("libSQL initial sync complete (replica at %s)", local_replica_path)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Initial libSQL sync failed (will retry on first query): %s", exc
+            )
+
+        def _creator():
+            kwargs: dict = dict(_initial_sync_kwargs)
+            if sync_interval_seconds > 0:
+                kwargs["sync_interval"] = sync_interval_seconds
+            return libsql.connect(**kwargs)
+
+        engine = create_engine(
+            "sqlite+libsql://",
+            creator=_creator,
+            pool_pre_ping=True,
+        )
+        logger.info(
+            "libSQL embedded-replica engine ready (local=%s, sync_url=%s, interval=%ds)",
+            local_replica_path, sync_url, sync_interval_seconds,
+        )
+        event.listen(engine, "connect", _enable_libsql_pragmas)
+        return engine
+
+    # Pure remote (no local replica). Every query is a network call.
+    engine_url = url if url.startswith("sqlite+libsql://") else "sqlite+libsql://" + url[len("libsql://"):]
+    if "?" in engine_url:
+        if "secure=true" not in engine_url:
+            engine_url += "&secure=true"
+    else:
+        engine_url += "?secure=true"
+
+    engine = create_engine(
+        engine_url,
+        connect_args={"auth_token": auth_token},
+        pool_pre_ping=True,
+    )
+    logger.info("libSQL pure-remote engine ready (url=%s)", engine_url)
+    event.listen(engine, "connect", _enable_libsql_pragmas)
+    return engine
+
+
 class DatabaseConnector:
     def __init__(self) -> None:
         self._engine: Engine | None = None
+        self._is_libsql: bool = False
 
     @property
     def engine(self) -> Engine:
@@ -37,9 +135,30 @@ class DatabaseConnector:
     def dialect(self) -> str:
         return self.engine.dialect.name
 
-    def connect(self, url: str) -> None:
-        self._engine = create_engine(url, pool_pre_ping=True)
-        event.listen(self._engine, "connect", _enable_sqlite_pragmas)
+    @property
+    def is_libsql(self) -> bool:
+        return self._is_libsql
+
+    def connect(
+        self,
+        url: str,
+        *,
+        turso_auth_token: str = "",
+        turso_local_replica_path: str = "",
+        turso_sync_interval_seconds: int = 60,
+    ) -> None:
+        if _is_libsql_url(url):
+            self._engine = _build_libsql_engine(
+                url,
+                auth_token=turso_auth_token,
+                local_replica_path=turso_local_replica_path,
+                sync_interval_seconds=turso_sync_interval_seconds,
+            )
+            self._is_libsql = True
+        else:
+            self._engine = create_engine(url, pool_pre_ping=True)
+            event.listen(self._engine, "connect", _enable_sqlite_pragmas)
+            self._is_libsql = False
 
         safe_url = self._engine.url.render_as_string(hide_password=True)
         logger.debug("Engine created for %s (dialect=%s)", safe_url, self._engine.dialect.name)
@@ -54,9 +173,11 @@ class DatabaseConnector:
         self, sql: str, *, row_limit: int = 1000, timeout: int = 30, read_only: bool = False
     ) -> list[dict]:
         start = time.time()
-        _sqlite_local = self.dialect == "sqlite"
+        # PRAGMA query_only is unsupported on libSQL/Turso — read-only enforcement
+        # for libSQL relies entirely on FORBIDDEN_SQL_RE at the validation layer.
+        use_query_only_pragma = read_only and self.dialect == "sqlite" and not self._is_libsql
         with self.engine.connect() as conn:
-            if read_only and _sqlite_local:
+            if use_query_only_pragma:
                 conn.execute(text("PRAGMA query_only = ON"))
             try:
                 result = conn.execute(text(sql))
@@ -71,11 +192,7 @@ class DatabaseConnector:
                 logger.debug("SQL (%.0fms, %d affected): %s", ms, result.rowcount, sql[:200])
                 return [{"affected_rows": result.rowcount}]
             finally:
-                # Reset query_only so the connection isn't returned to the pool in
-                # read-only state, which would cause writes from other callers sharing
-                # the same engine (e.g. PersistentConversationStore) to fail with
-                # "attempt to write a readonly database".
-                if read_only and _sqlite_local:
+                if use_query_only_pragma:
                     conn.execute(text("PRAGMA query_only = OFF"))
 
     def get_tables(self) -> list[str]:

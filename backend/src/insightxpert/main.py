@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 import traceback
 from contextlib import asynccontextmanager
@@ -339,16 +340,45 @@ def _run_rag_training(rag: VectorStore, db: DatabaseConnector, dataset_service=N
         logger.error("RAG bootstrap failed: %s", e, exc_info=True)
 
 
-def _ensure_transactions_loaded(engine) -> None:
-    """Load transactions from CSV into local SQLite if table is empty or missing."""
+_TRANSACTIONS_MIN_EXPECTED = 200_000
+
+
+def _ensure_transactions_loaded(db: DatabaseConnector) -> None:
+    """Load transactions from CSV if table is empty/sparse and seeding is allowed.
+
+    Skips entirely when:
+      - INSIGHTXPERT_SKIP_SEED is truthy (production safety against accidental
+        re-seeds against Turso primary).
+      - Connector is libSQL/Turso. The remote primary is the source of truth
+        and already holds the canonical 250K rows; seeding from a Cloud Run
+        instance over the network would be slow and would risk duplicating or
+        overwriting live data.
+      - Table already has >= _TRANSACTIONS_MIN_EXPECTED rows.
+    """
+    if os.environ.get("INSIGHTXPERT_SKIP_SEED", "").lower() in {"1", "true", "yes"}:
+        logger.info("INSIGHTXPERT_SKIP_SEED set — skipping transactions seed")
+        return
+
+    if db.is_libsql:
+        logger.info("Connector is libSQL/Turso — skipping CSV seed (remote primary is canonical)")
+        return
+
+    engine = db.engine
     from sqlalchemy import inspect as sa_inspect
     insp = sa_inspect(engine)
 
     if "transactions" in insp.get_table_names():
         with engine.connect() as conn:
-            count = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar()
-            if count and count > 0:
+            count = conn.execute(text("SELECT COUNT(*) FROM transactions")).scalar() or 0
+            if count >= _TRANSACTIONS_MIN_EXPECTED:
                 logger.debug("transactions table already has %d rows, skipping CSV load", count)
+                return
+            if count > 0:
+                logger.warning(
+                    "transactions has %d rows (< %d expected); refusing to auto-seed over partial data — "
+                    "set INSIGHTXPERT_SKIP_SEED=0 and manually clear the table to re-seed",
+                    count, _TRANSACTIONS_MIN_EXPECTED,
+                )
                 return
 
     # Find the CSV file relative to the backend directory
@@ -371,7 +401,7 @@ def _ensure_transactions_loaded(engine) -> None:
     from insightxpert.db.data_loader import load_data
     db_url = str(engine.url)
     logger.info("Loading transactions from %s into local SQLite...", csv_path)
-    count = load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="replace")
+    count = load_data(source=csv_path, table="transactions", db_url=db_url, if_exists="append")
     logger.info("Loaded %d transactions from CSV", count)
 
 
@@ -382,12 +412,17 @@ async def lifespan(app: FastAPI):
 
     logger.info("Starting InsightXpert (log_level=%s)", settings.log_level)
 
-    # 1. Connect to local SQLite (sub-ms queries)
+    # 1. Connect to database (local SQLite for dev, Turso libSQL embedded replica for prod)
     db = DatabaseConnector()
     try:
-        db.connect(settings.database_url)
+        db.connect(
+            settings.database_url,
+            turso_auth_token=settings.turso_auth_token,
+            turso_local_replica_path=settings.turso_local_replica_path,
+            turso_sync_interval_seconds=settings.turso_sync_interval_seconds,
+        )
         safe_url = db.engine.url.render_as_string(hide_password=True)
-        logger.info("Local database connected: %s", safe_url)
+        logger.info("Database connected: %s (libsql=%s)", safe_url, db.is_libsql)
     except Exception as e:
         logger.error("Database connection failed: %s", e, exc_info=True)
         raise
@@ -421,7 +456,7 @@ async def lifespan(app: FastAPI):
 
     # 5. Load transactions from CSV if not already present
     try:
-        await asyncio.to_thread(_ensure_transactions_loaded, auth_engine)
+        await asyncio.to_thread(_ensure_transactions_loaded, db)
     except Exception as e:
         logger.error("Transaction loading failed: %s", e, exc_info=True)
 

@@ -33,6 +33,13 @@ class Settings(BaseSettings):
     # Local SQLite (primary runtime DB — sub-ms queries)
     database_url: str = "sqlite:///./insightxpert.db"
 
+    # Turso (libSQL) — used when database_url has libsql:// scheme.
+    # Set turso_local_replica_path to enable embedded-replica mode (recommended);
+    # leave empty for pure-remote (every query is a network round-trip).
+    turso_auth_token: str = ""
+    turso_local_replica_path: str = ""
+    turso_sync_interval_seconds: int = Field(default=60, ge=0)
+
     @field_validator("database_url", mode="before")
     @classmethod
     def _default_database_url(cls, v: str) -> str:
