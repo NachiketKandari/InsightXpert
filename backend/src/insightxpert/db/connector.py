@@ -14,6 +14,13 @@ FORBIDDEN_SQL_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Module-level holder for libSQL sync-owner connections. These connections
+# spawn the background thread that syncs the local replica from the remote
+# Turso primary. We never close them and never use them for queries — they
+# exist solely to keep the sync thread alive. List, not single global, so
+# multiple engines (e.g. tests + app) can coexist without clobbering.
+_SYNC_OWNERS: list = []
+
 
 def _is_libsql_url(url: str) -> bool:
     return url.startswith("libsql://") or url.startswith("sqlite+libsql://")
@@ -64,31 +71,38 @@ def _build_libsql_engine(
     if local_replica_path:
         import libsql_experimental as libsql  # type: ignore[import-untyped]
 
-        # Pull the remote snapshot once at engine init. The libsql client's
-        # background sync_interval handles ongoing replication. Avoid calling
-        # conn.sync() inside the per-checkout creator — SQLAlchemy invokes the
-        # creator on every pool refill, and re-syncing per checkout adds
-        # latency + risks racing on the local replica file.
-        _initial_sync_kwargs: dict = {
+        # Embedded replica with a single long-lived sync owner. Only ONE
+        # connection has sync_interval set — that connection's libsql client
+        # spawns the background sync thread that pulls remote changes into
+        # the local replica file. Per-checkout SQLAlchemy connections open
+        # WITHOUT sync_interval; otherwise each pool slot would spawn its
+        # own background sync thread and they race on WAL writes
+        # (`wal_insert_begin failed`).
+        _connect_kwargs: dict = {
             "database": local_replica_path,
             "sync_url": sync_url,
             "auth_token": auth_token,
         }
+        _sync_owner_kwargs: dict = dict(_connect_kwargs)
+        if sync_interval_seconds > 0:
+            _sync_owner_kwargs["sync_interval"] = sync_interval_seconds
+
         try:
-            _bootstrap_conn = libsql.connect(**_initial_sync_kwargs)
-            _bootstrap_conn.sync()
-            _bootstrap_conn.close()
-            logger.info("libSQL initial sync complete (replica at %s)", local_replica_path)
+            # Hold a module-level reference so the sync owner's background
+            # thread isn't GC'd. We never close this connection.
+            _SYNC_OWNERS.append(libsql.connect(**_sync_owner_kwargs))
+            _SYNC_OWNERS[-1].sync()
+            logger.info(
+                "libSQL initial sync complete (replica=%s, sync_owner_interval=%ds)",
+                local_replica_path, sync_interval_seconds,
+            )
         except Exception as exc:  # noqa: BLE001
             logger.warning(
-                "Initial libSQL sync failed (will retry on first query): %s", exc
+                "Initial libSQL sync failed (will retry in background): %s", exc
             )
 
         def _creator():
-            kwargs: dict = dict(_initial_sync_kwargs)
-            if sync_interval_seconds > 0:
-                kwargs["sync_interval"] = sync_interval_seconds
-            return libsql.connect(**kwargs)
+            return libsql.connect(**_connect_kwargs)
 
         engine = create_engine(
             "sqlite+libsql://",
