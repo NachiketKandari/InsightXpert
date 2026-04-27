@@ -25,9 +25,6 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-  DropdownMenuSub,
-  DropdownMenuSubTrigger,
-  DropdownMenuSubContent,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
 } from "@/components/ui/dropdown-menu";
@@ -305,30 +302,27 @@ export function InputToolbar({
                 <DropdownMenuContent
                   side="top"
                   align="end"
-                  className="min-w-[200px]"
+                  className="min-w-[240px] max-h-[60vh] overflow-y-auto"
                 >
-                  {providers.map((p) => (
-                    <DropdownMenuSub key={p.provider}>
-                      <DropdownMenuSubTrigger>
+                  {providers.map((p, idx) => (
+                    <div key={p.provider}>
+                      {idx > 0 && <DropdownMenuSeparator />}
+                      <DropdownMenuLabel className="text-xs text-muted-foreground">
                         {PROVIDER_LABELS[p.provider] ?? p.provider}
-                      </DropdownMenuSubTrigger>
-                      <DropdownMenuSubContent>
-                        <DropdownMenuRadioGroup
-                          value={
-                            p.provider === currentProvider ? currentModel : ""
-                          }
-                          onValueChange={(model) =>
-                            handleModelSelect(p.provider, model)
-                          }
-                        >
-                          {p.models.map((model) => (
-                            <DropdownMenuRadioItem key={model} value={model}>
-                              {formatModelName(model, p.provider)}
-                            </DropdownMenuRadioItem>
-                          ))}
-                        </DropdownMenuRadioGroup>
-                      </DropdownMenuSubContent>
-                    </DropdownMenuSub>
+                      </DropdownMenuLabel>
+                      <DropdownMenuRadioGroup
+                        value={p.provider === currentProvider ? currentModel : ""}
+                        onValueChange={(model) =>
+                          handleModelSelect(p.provider, model)
+                        }
+                      >
+                        {p.models.map((model) => (
+                          <DropdownMenuRadioItem key={model} value={model}>
+                            {formatModelName(model, p.provider)}
+                          </DropdownMenuRadioItem>
+                        ))}
+                      </DropdownMenuRadioGroup>
+                    </div>
                   ))}
                 </DropdownMenuContent>
               </DropdownMenu>
