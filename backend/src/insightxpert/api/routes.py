@@ -516,6 +516,11 @@ VERTEX_AI_MODELS = [
     "zai-org/glm-5-maas",
 ]
 
+DEEPSEEK_MODELS = [
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+]
+
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     request: Request,
@@ -529,6 +534,7 @@ async def get_config(
     current_model = llm.model
 
     providers = [
+        ProviderModels(provider="deepseek", models=DEEPSEEK_MODELS),
         ProviderModels(provider="gemini", models=GEMINI_MODELS),
     ]
 
@@ -588,12 +594,16 @@ async def switch_model(
     # Save original settings so we can roll back on failure
     prev_provider = settings.llm_provider
     prev_gemini_model = settings.gemini_model
+    prev_deepseek_model = settings.deepseek_model
     prev_ollama_model = settings.ollama_model
     prev_vertex_model = settings.vertex_ai_model
 
     if req.provider == "gemini":
         settings.llm_provider = LLMProviderEnum.GEMINI
         settings.gemini_model = req.model
+    elif req.provider == "deepseek":
+        settings.llm_provider = LLMProviderEnum.DEEPSEEK
+        settings.deepseek_model = req.model
     elif req.provider == "ollama":
         settings.llm_provider = LLMProviderEnum.OLLAMA
         settings.ollama_model = req.model
@@ -608,6 +618,7 @@ async def switch_model(
         # Roll back settings on failure
         settings.llm_provider = prev_provider
         settings.gemini_model = prev_gemini_model
+        settings.deepseek_model = prev_deepseek_model
         settings.ollama_model = prev_ollama_model
         settings.vertex_ai_model = prev_vertex_model
         raise HTTPException(status_code=400, detail="Invalid model configuration")

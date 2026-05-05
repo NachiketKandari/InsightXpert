@@ -107,10 +107,15 @@ class GeminiProvider:
                 if msg.get("content"):
                     parts.append(types.Part.from_text(text=msg["content"]))
                 for tc in msg.get("tool_calls", []):
-                    parts.append(types.Part.from_function_call(
+                    part = types.Part.from_function_call(
                         name=tc.name,
                         args=tc.arguments,
-                    ))
+                    )
+                    # Gemini 3.x requires thought_signature on functionCall parts
+                    # when they are included in history for a subsequent request.
+                    if getattr(tc, 'thought_signature', None) is not None:
+                        part.thought_signature = tc.thought_signature
+                    parts.append(part)
                 if parts:
                     contents.append(types.Content(role="model", parts=parts))
             elif role == "tool":
@@ -171,6 +176,11 @@ class GeminiProvider:
                         id=str(uuid.uuid4())[:8],
                         name=fc.name,
                         arguments=dict(fc.args) if fc.args else {},
+                        # Gemini 3.x models require thought_signature to be
+                        # preserved on functionCall parts across multi-turn
+                        # tool-use conversations. Capture it here so it can
+                        # be re-applied when reconstructing history.
+                        thought_signature=part.thought_signature,
                     ))
 
         input_tokens = 0

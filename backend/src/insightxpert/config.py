@@ -13,15 +13,18 @@ class LLMProvider(str, Enum):
     OLLAMA = "ollama"
     GEMINI = "gemini"
     VERTEX_AI = "vertex_ai"
+    DEEPSEEK = "deepseek"
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env.local", env_file_encoding="utf-8", extra="ignore")
 
     # LLM
-    llm_provider: LLMProvider = LLMProvider.GEMINI
+    llm_provider: LLMProvider = LLMProvider.DEEPSEEK
     gemini_api_key: str = ""
     gemini_model: str = "gemini-2.5-flash"
+    deepseek_api_key: str = ""
+    deepseek_model: str = "deepseek-v4-flash"
     ollama_model: str = "llama3.1"
     ollama_base_url: str = "http://localhost:11434"
 
@@ -88,6 +91,8 @@ class Settings(BaseSettings):
             _logger.warning("admin_seed_password is insecure — set ADMIN_SEED_PASSWORD to a strong password for production")
         if self.llm_provider == LLMProvider.GEMINI and not self.gemini_api_key:
             _logger.warning("llm_provider is 'gemini' but gemini_api_key is empty")
+        if self.llm_provider == LLMProvider.DEEPSEEK and not self.deepseek_api_key:
+            _logger.warning("llm_provider is 'deepseek' but deepseek_api_key is empty — set DEEPSEEK_API_KEY")
         if self.llm_provider == LLMProvider.VERTEX_AI and not self.gcp_project_id:
             _logger.warning("llm_provider is 'vertex_ai' but gcp_project_id is empty — set GCP_PROJECT_ID")
         return self

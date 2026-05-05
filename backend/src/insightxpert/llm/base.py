@@ -10,6 +10,7 @@ class ToolCall:
     id: str
     name: str
     arguments: dict
+    thought_signature: bytes | None = None
 
 
 @dataclass
@@ -18,6 +19,7 @@ class LLMResponse:
     tool_calls: list[ToolCall] = field(default_factory=list)
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_content: str | None = None
 
 
 def log_llm_response(logger: logging.Logger, ms: float, response: LLMResponse) -> None:

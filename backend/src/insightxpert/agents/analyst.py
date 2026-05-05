@@ -520,6 +520,7 @@ async def analyst_loop(
                 "role": "assistant",
                 "content": response.content or "",
                 "tool_calls": response.tool_calls,
+                **({"reasoning_content": response.reasoning_content} if response.reasoning_content else {}),
             })
 
             llm_reasoning = response.content or None

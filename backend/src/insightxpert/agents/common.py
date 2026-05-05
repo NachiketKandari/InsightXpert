@@ -352,6 +352,7 @@ async def agent_tool_loop(
                 "role": "assistant",
                 "content": response.content or "",
                 "tool_calls": response.tool_calls,
+                **({"reasoning_content": response.reasoning_content} if response.reasoning_content else {}),
             })
 
             for tc in response.tool_calls:
