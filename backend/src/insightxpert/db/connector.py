@@ -128,8 +128,6 @@ def _build_libsql_engine(
         connect_args={"auth_token": auth_token},
         pool_pre_ping=True,
         pool_recycle=300,
-        pool_size=2,
-        max_overflow=5,
     )
     logger.info("libSQL pure-remote engine ready (url=%s, recycle=300s)", engine_url)
     event.listen(engine, "connect", _enable_libsql_pragmas)
