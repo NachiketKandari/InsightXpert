@@ -96,6 +96,7 @@ docs/security-audit.md
 
 # Personal engineering notes
 ENGINEERING_ASSESSMENT.md
+SESSION_LOG.md
 
 # Alembic (not used — migrations handled in-code)
 backend/alembic/
