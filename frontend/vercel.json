@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://api.insightxpert.in/api/:path*"
+      "destination": "https://old.insightxpert.in/api/:path*"
     }
   ]
 }
