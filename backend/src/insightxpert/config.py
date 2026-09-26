@@ -14,6 +14,7 @@ class LLMProvider(str, Enum):
     GEMINI = "gemini"
     VERTEX_AI = "vertex_ai"
     DEEPSEEK = "deepseek"
+    OPENROUTER = "openrouter"
 
 
 class Settings(BaseSettings):
@@ -25,6 +26,13 @@ class Settings(BaseSettings):
     gemini_model: str = "gemini-2.5-flash"
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-v4-flash"
+    # OpenRouter (OpenAI-compatible gateway, 100+ models). Model is env-driven
+    # so free-tier rotation doesn't require code changes.
+    openrouter_api_key: str = ""
+    openrouter_chat_model: str = "nvidia/nemotron-3-ultra-550b-a55b:free"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_site_url: str = ""
+    openrouter_app_name: str = "InsightXpert"
     ollama_model: str = "llama3.1"
     ollama_base_url: str = "http://localhost:11434"
 
@@ -100,6 +108,8 @@ class Settings(BaseSettings):
             _logger.warning("llm_provider is 'gemini' but gemini_api_key is empty")
         if self.llm_provider == LLMProvider.DEEPSEEK and not self.deepseek_api_key:
             _logger.warning("llm_provider is 'deepseek' but deepseek_api_key is empty — set DEEPSEEK_API_KEY")
+        if self.llm_provider == LLMProvider.OPENROUTER and not self.openrouter_api_key:
+            _logger.warning("llm_provider is 'openrouter' but openrouter_api_key is empty — set OPENROUTER_API_KEY")
         if self.llm_provider == LLMProvider.VERTEX_AI and not self.gcp_project_id:
             _logger.warning("llm_provider is 'vertex_ai' but gcp_project_id is empty — set GCP_PROJECT_ID")
         return self

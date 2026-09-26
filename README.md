@@ -572,9 +572,14 @@ InsightXpert/
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
 | `GEMINI_API_KEY` | — | **Yes** (Gemini) | Google Gemini API key |
+| `DEEPSEEK_API_KEY` | — | **Yes** (DeepSeek) | DeepSeek API key |
+| `OPENROUTER_API_KEY` | — | **Yes** (OpenRouter) | OpenRouter API key (https://openrouter.ai/keys) |
 | `SECRET_KEY` | `CHANGE-ME-…` | **Yes** | JWT signing secret (32+ chars) |
-| `LLM_PROVIDER` | `gemini` | No | `gemini` \| `ollama` \| `vertex_ai` |
+| `LLM_PROVIDER` | `gemini` | No | `gemini` \| `deepseek` \| `openrouter` \| `ollama` \| `vertex_ai` |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | No | Gemini model name |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | No | DeepSeek model name |
+| `OPENROUTER_CHAT_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | No | OpenRouter model ID (env-driven, free-tier rotation needs no code change) |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | No | OpenRouter endpoint |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | No | Ollama endpoint |
 | `OLLAMA_MODEL` | `llama3.1` | No | Ollama model name |
 | `GCP_PROJECT_ID` | — | Vertex only | GCP project ID |
