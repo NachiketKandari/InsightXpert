@@ -521,6 +521,10 @@ DEEPSEEK_MODELS = [
     "deepseek-v4-pro",
 ]
 
+OPENROUTER_MODELS = [
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+]
+
 @router.get("/config", response_model=ConfigResponse)
 async def get_config(
     request: Request,
@@ -537,6 +541,10 @@ async def get_config(
         ProviderModels(provider="deepseek", models=DEEPSEEK_MODELS),
         ProviderModels(provider="gemini", models=GEMINI_MODELS),
     ]
+
+    # Advertise OpenRouter when a key is configured (env-driven free-tier model)
+    if settings.openrouter_api_key:
+        providers.append(ProviderModels(provider="openrouter", models=OPENROUTER_MODELS))
 
     # Advertise Vertex AI if GCP project is configured
     if settings.gcp_project_id:
@@ -595,6 +603,7 @@ async def switch_model(
     prev_provider = settings.llm_provider
     prev_gemini_model = settings.gemini_model
     prev_deepseek_model = settings.deepseek_model
+    prev_openrouter_model = settings.openrouter_chat_model
     prev_ollama_model = settings.ollama_model
     prev_vertex_model = settings.vertex_ai_model
 
@@ -604,6 +613,9 @@ async def switch_model(
     elif req.provider == "deepseek":
         settings.llm_provider = LLMProviderEnum.DEEPSEEK
         settings.deepseek_model = req.model
+    elif req.provider == "openrouter":
+        settings.llm_provider = LLMProviderEnum.OPENROUTER
+        settings.openrouter_chat_model = req.model
     elif req.provider == "ollama":
         settings.llm_provider = LLMProviderEnum.OLLAMA
         settings.ollama_model = req.model
@@ -619,6 +631,7 @@ async def switch_model(
         settings.llm_provider = prev_provider
         settings.gemini_model = prev_gemini_model
         settings.deepseek_model = prev_deepseek_model
+        settings.openrouter_chat_model = prev_openrouter_model
         settings.ollama_model = prev_ollama_model
         settings.vertex_ai_model = prev_vertex_model
         raise HTTPException(status_code=400, detail="Invalid model configuration")
