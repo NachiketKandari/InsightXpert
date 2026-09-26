@@ -1,13 +1,13 @@
 export const PROVIDER_LABELS: Record<string, string> = {
-  gemini: "Gemini",
+  deepseek: "DeepSeek",
+  openrouter: "OpenRouter",
   ollama: "Ollama",
-  vertex_ai: "Vertex AI",
 };
 
-/** Strip provider prefix and title-case: "gemini-2.5-flash" -> "2.5 Flash" */
+/** Strip provider prefix and title-case: "deepseek-v4-flash" -> "V4 Flash" */
 export function formatModelName(model: string, provider: string): string {
   let name = model;
-  // Strip provider prefix (e.g. "gemini-", "ollama/")
+  // Strip provider prefix (e.g. "deepseek-", "openrouter/")
   const prefixes = [provider + "-", provider + "/"];
   for (const p of prefixes) {
     if (name.toLowerCase().startsWith(p)) {

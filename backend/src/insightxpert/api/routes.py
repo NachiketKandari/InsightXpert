@@ -501,28 +501,25 @@ async def schema(
     return SchemaResponse(ddl=ddl, tables=tables)
 
 
-GEMINI_MODELS = [
-    "gemini-3.1-pro-preview",
-    "gemini-3.1-flash-lite-preview",
-    "gemini-3-flash-preview",
-    "gemini-2.5-pro",
-    "gemini-2.5-flash",
-    "gemini-2.5-flash-lite",
-    "gemini-2.0-flash",
-    "gemini-2.0-flash-lite",
-]
-
-VERTEX_AI_MODELS = [
-    "zai-org/glm-5-maas",
-]
-
 DEEPSEEK_MODELS = [
     "deepseek-v4-flash",
     "deepseek-v4-pro",
 ]
 
+# Free-tier OpenRouter models with tool-calling support for agentic workflows.
+# Full list: https://openrouter.ai/models?q=free
+# Default (first entry) should stay a stable, high-context free model.
 OPENROUTER_MODELS = [
     "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "openai/gpt-oss-120b:free",
+    "openai/gpt-oss-20b:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "cohere/north-mini-code:free",
+    "openrouter/free",
 ]
 
 @router.get("/config", response_model=ConfigResponse)
@@ -539,16 +536,13 @@ async def get_config(
 
     providers = [
         ProviderModels(provider="deepseek", models=DEEPSEEK_MODELS),
-        ProviderModels(provider="gemini", models=GEMINI_MODELS),
     ]
 
-    # Advertise OpenRouter when a key is configured (env-driven free-tier model)
+    # Advertise OpenRouter free-tier models when a key is configured.
+    # Model list is env-driven via OPENROUTER_CHAT_MODEL so rotation
+    # needs no code change; the full free list is in OPENROUTER_MODELS.
     if settings.openrouter_api_key:
         providers.append(ProviderModels(provider="openrouter", models=OPENROUTER_MODELS))
-
-    # Advertise Vertex AI if GCP project is configured
-    if settings.gcp_project_id:
-        providers.append(ProviderModels(provider="vertex_ai", models=VERTEX_AI_MODELS))
 
     # Only advertise Ollama if it's actually reachable
     try:
@@ -601,16 +595,11 @@ async def switch_model(
 
     # Save original settings so we can roll back on failure
     prev_provider = settings.llm_provider
-    prev_gemini_model = settings.gemini_model
     prev_deepseek_model = settings.deepseek_model
     prev_openrouter_model = settings.openrouter_chat_model
     prev_ollama_model = settings.ollama_model
-    prev_vertex_model = settings.vertex_ai_model
 
-    if req.provider == "gemini":
-        settings.llm_provider = LLMProviderEnum.GEMINI
-        settings.gemini_model = req.model
-    elif req.provider == "deepseek":
+    if req.provider == "deepseek":
         settings.llm_provider = LLMProviderEnum.DEEPSEEK
         settings.deepseek_model = req.model
     elif req.provider == "openrouter":
@@ -619,9 +608,11 @@ async def switch_model(
     elif req.provider == "ollama":
         settings.llm_provider = LLMProviderEnum.OLLAMA
         settings.ollama_model = req.model
-    elif req.provider == "vertex_ai":
-        settings.llm_provider = LLMProviderEnum.VERTEX_AI
-        settings.vertex_ai_model = req.model
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown provider {req.provider!r}. Supported: deepseek, openrouter, ollama",
+        )
 
     try:
         new_llm = create_llm(req.provider, settings)
@@ -629,11 +620,9 @@ async def switch_model(
         logger.warning("Model switch failed: %s", e)
         # Roll back settings on failure
         settings.llm_provider = prev_provider
-        settings.gemini_model = prev_gemini_model
         settings.deepseek_model = prev_deepseek_model
         settings.openrouter_chat_model = prev_openrouter_model
         settings.ollama_model = prev_ollama_model
-        settings.vertex_ai_model = prev_vertex_model
         raise HTTPException(status_code=400, detail="Invalid model configuration")
 
     request.app.state.llm = new_llm

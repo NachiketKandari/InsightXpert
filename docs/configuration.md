@@ -15,36 +15,66 @@ Which LLM backend to use.
 
 | Value | Description |
 |---|---|
-| `gemini` | Google Gemini via AI Studio API key (default) |
+| `deepseek` | DeepSeek via API key (default) |
+| `openrouter` | OpenRouter gateway — 100+ models, free-tier available |
 | `ollama` | Local Ollama server |
-| `vertex_ai` | Google Cloud Vertex AI Model Garden |
 
-Default: `gemini`
-
----
-
-**`GEMINI_API_KEY`**
-Google AI Studio API key. Required when `LLM_PROVIDER=gemini`.
-
-Obtain at: https://aistudio.google.com/app/apikey
-
-Default: `""` (empty — a warning is logged at startup if the provider is Gemini and this is unset)
+Default: `deepseek`
 
 ---
 
-**`GEMINI_MODEL`**
-Gemini model name to use.
+**`DEEPSEEK_API_KEY`**
+DeepSeek API key. Required when `LLM_PROVIDER=deepseek`.
+
+Obtain at: https://platform.deepseek.com/api_keys
+
+Default: `""` (empty — a warning is logged at startup if the provider is DeepSeek and this is unset)
+
+---
+
+**`DEEPSEEK_MODEL`**
+DeepSeek model name to use.
 
 Available models (also served by `GET /api/config`):
-- `gemini-3-flash-preview`
-- `gemini-3.1-pro-preview`
-- `gemini-2.5-flash` ← **default**
-- `gemini-2.5-pro`
-- `gemini-2.5-flash-lite`
-- `gemini-2.0-flash`
-- `gemini-2.0-flash-lite`
+- `deepseek-v4-flash` ← **default**
+- `deepseek-v4-pro`
 
-Default: `gemini-2.5-flash`
+Default: `deepseek-v4-flash`
+
+---
+
+**`OPENROUTER_API_KEY`**
+OpenRouter API key. Required when `LLM_PROVIDER=openrouter`.
+
+Obtain at: https://openrouter.ai/keys
+
+Default: `""` (empty — a warning is logged at startup if the provider is OpenRouter and this is unset)
+
+---
+
+**`OPENROUTER_CHAT_MODEL`**
+OpenRouter model name to use. Fully env-driven so free-tier rotation needs no code change.
+
+Free-tier models with tool-calling support (see https://openrouter.ai/models?q=free):
+- `nvidia/nemotron-3-ultra-550b-a55b:free` ← **default** (1M ctx)
+- `nvidia/nemotron-3-super-120b-a12b:free`
+- `openai/gpt-oss-120b:free`
+- `openai/gpt-oss-20b:free`
+- `qwen/qwen3-next-80b-a3b-instruct:free`
+- `meta-llama/llama-3.3-70b-instruct:free`
+- `google/gemma-4-31b-it:free`
+- `google/gemma-4-26b-a4b-it:free`
+- `cohere/north-mini-code:free`
+- `openrouter/free` (auto-router)
+
+Default: `nvidia/nemotron-3-ultra-550b-a55b:free`
+
+---
+
+**`OPENROUTER_BASE_URL`**
+OpenRouter API base URL.
+
+Default: `https://openrouter.ai/api/v1`
 
 ---
 
@@ -61,27 +91,6 @@ Default Ollama model name. Used when `LLM_PROVIDER=ollama`.
 Default: `llama3.1`
 
 Any model name accepted by Ollama is valid (e.g., `mistral`, `llama3.2:1b`, `codellama`). The model must be pulled before use.
-
----
-
-**`GCP_PROJECT_ID`**
-Google Cloud project ID for Vertex AI. When set, the `vertex_ai` provider becomes available in `GET /api/config`. Leave empty to disable Vertex AI.
-
-Default: `""` (disabled)
-
----
-
-**`VERTEX_AI_REGION`**
-Google Cloud region for Vertex AI API calls.
-
-Default: `global`
-
----
-
-**`VERTEX_AI_MODEL`**
-Model name for Vertex AI. Currently supports Model Garden models.
-
-Default: `zai-org/glm-5-maas`
 
 ---
 

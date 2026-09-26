@@ -96,14 +96,14 @@ All services are attached to `app.state` during lifespan and accessed via `reque
 
 | Variable | Default | Description |
 |---|---|---|
-| `LLM_PROVIDER` | `gemini` | `gemini`, `ollama`, or `vertex_ai` |
-| `GEMINI_API_KEY` | — | Gemini API key |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Model name |
+| `LLM_PROVIDER` | `deepseek` | `deepseek`, `openrouter`, or `ollama` |
+| `DEEPSEEK_API_KEY` | — | DeepSeek API key |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek model name |
+| `OPENROUTER_API_KEY` | — | OpenRouter API key (free-tier models) |
+| `OPENROUTER_CHAT_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | OpenRouter model (env-driven) |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter endpoint |
 | `OLLAMA_MODEL` | `llama3.1` | Ollama model name |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | Ollama server URL |
-| `GCP_PROJECT_ID` | — | GCP project for Vertex AI |
-| `VERTEX_AI_REGION` | `global` | Vertex AI region |
-| `VERTEX_AI_MODEL` | `zai-org/glm-5-maas` | Vertex AI model |
 | `DATABASE_URL` | `sqlite:///./insightxpert.db` | SQLite database path |
 | `CHROMA_PERSIST_DIR` | `./chroma_data` | ChromaDB persistence directory |
 | `MAX_AGENT_ITERATIONS` | `10` | Max analyst tool-call iterations |
@@ -235,21 +235,21 @@ class LLMResponse:
 
 ```python
 def create_llm(provider: str, settings: Settings) -> LLMProvider:
-    if provider == "gemini":
-        return GeminiProvider(api_key=..., model=...)
+    if provider == "deepseek":
+        return DeepSeekProvider(api_key=..., model=...)
+    elif provider == "openrouter":
+        return OpenRouterProvider(api_key=..., model=..., base_url=...)
     elif provider == "ollama":
         return OllamaProvider(model=..., base_url=...)
-    elif provider == "vertex_ai":
-        return VertexAIProvider(project_id=..., region=..., model=...)
 ```
 
 This avoids if/else chains in callers — the factory is the single registration point. Unsupported providers raise `ValueError`.
 
 ### Providers
 
-- **GeminiProvider** (`llm/gemini.py`) — Uses the `google-generativeai` SDK. Default model: `gemini-2.5-flash`.
+- **DeepSeekProvider** (`llm/deepseek.py`) — OpenAI-compatible endpoint. Default model: `deepseek-v4-flash`.
+- **OpenRouterProvider** (`llm/openrouter.py`) — OpenAI-compatible gateway for 100+ models incl. free tier. Default: `nvidia/nemotron-3-ultra-550b-a55b:free`.
 - **OllamaProvider** (`llm/ollama.py`) — Uses the `ollama` Python SDK with a 120-second timeout for slow local inference.
-- **VertexAIProvider** (`llm/vertex.py`) — Uses Vertex AI Model Garden (GLM-5 and similar models).
 
 ### Token Counting Wrapper
 

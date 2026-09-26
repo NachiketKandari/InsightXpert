@@ -14,7 +14,7 @@ from insightxpert.agents.orchestrator import orchestrator_loop
 from insightxpert.api.models import ChatChunk
 from insightxpert.config import Settings
 from insightxpert.db.connector import DatabaseConnector
-from insightxpert.llm.gemini import GeminiProvider
+from insightxpert.llm.deepseek import DeepSeekProvider
 from insightxpert.llm.ollama import OllamaProvider
 
 from .models import BenchmarkReport, ChunkTrace, ModelRunResult, QuestionResult
@@ -310,7 +310,7 @@ async def run_benchmark(
     questions: list[str],
     output_dir: Path,
     *,
-    skip_gemini: bool = False,
+    skip_deepseek: bool = False,
     skip_ollama: bool = False,
     timeout: int = 300,
     agent_mode: str = "analyst",
@@ -330,14 +330,14 @@ async def run_benchmark(
 
     model_results: list[ModelRunResult] = []
 
-    # --- Gemini baseline ---
-    if not skip_gemini:
-        logger.info("Setting up Gemini baseline (%s)", config.gemini_model)
-        gemini_llm = GeminiProvider(api_key=config.gemini_api_key, model=config.gemini_model)
+    # --- DeepSeek baseline ---
+    if not skip_deepseek:
+        logger.info("Setting up DeepSeek baseline (%s)", config.deepseek_model)
+        deepseek_llm = DeepSeekProvider(api_key=config.deepseek_api_key, model=config.deepseek_model)
         result = await _run_model(
-            model_name=config.gemini_model,
-            provider="gemini",
-            llm=gemini_llm,
+            model_name=config.deepseek_model,
+            provider="deepseek",
+            llm=deepseek_llm,
             db=db,
             config=config,
             questions=questions,

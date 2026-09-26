@@ -500,19 +500,27 @@ Get the current LLM configuration and the list of available providers and models
 **Response** `200 OK`:
 ```json
 {
-  "current_provider": "gemini",
-  "current_model": "gemini-2.5-flash",
+  "current_provider": "deepseek",
+  "current_model": "deepseek-v4-flash",
   "providers": [
     {
-      "provider": "gemini",
+      "provider": "deepseek",
       "models": [
-        "gemini-3-flash-preview",
-        "gemini-3.1-pro-preview",
-        "gemini-2.5-flash",
-        "gemini-2.5-pro",
-        "gemini-2.5-flash-lite",
-        "gemini-2.0-flash",
-        "gemini-2.0-flash-lite"
+        "deepseek-v4-flash",
+        "deepseek-v4-pro"
+      ]
+    },
+    {
+      "provider": "openrouter",
+      "models": [
+        "nvidia/nemotron-3-ultra-550b-a55b:free",
+        "nvidia/nemotron-3-super-120b-a12b:free",
+        "openai/gpt-oss-120b:free",
+        "openai/gpt-oss-20b:free",
+        "qwen/qwen3-next-80b-a3b-instruct:free",
+        "meta-llama/llama-3.3-70b-instruct:free",
+        "google/gemma-4-31b-it:free",
+        "openrouter/free"
       ]
     },
     {
@@ -523,7 +531,7 @@ Get the current LLM configuration and the list of available providers and models
 }
 ```
 
-`vertex_ai` appears in `providers` only when `GCP_PROJECT_ID` is configured.
+`openrouter` appears in `providers` only when `OPENROUTER_API_KEY` is configured.
 
 ---
 
@@ -533,14 +541,14 @@ Switch the active LLM provider and model at runtime. The change takes effect imm
 
 **Request body:**
 ```json
-{"provider": "gemini", "model": "gemini-2.5-pro"}
+{"provider": "deepseek", "model": "deepseek-v4-flash"}
 ```
 
-Valid `provider` values: `"gemini"`, `"ollama"`, `"vertex_ai"`.
+Valid `provider` values: `"deepseek"`, `"openrouter"`, `"ollama"`.
 
 **Response** `200 OK`:
 ```json
-{"provider": "gemini", "model": "gemini-2.5-pro"}
+{"provider": "deepseek", "model": "deepseek-v4-flash"}
 ```
 
 **Errors:**

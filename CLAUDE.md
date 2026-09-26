@@ -5,7 +5,7 @@
 # InsightXpert
 
 AI data analyst for the Techfest IIT Bombay Leadership Analytics Challenge.
-Queries 250K synthetic Indian digital payment transactions via natural language using Vanna 2.0 + Gemini + SQLite.
+Queries 250K synthetic Indian digital payment transactions via natural language using DeepSeek / OpenRouter + SQLite.
 
 ## Project Structure
 
@@ -31,8 +31,11 @@ python -m app.main
 
 ## Key Config (env vars)
 
-- `GOOGLE_API_KEY` — Gemini API key
-- `GEMINI_MODEL` — model name (default: gemini-2.5-flash)
+- `DEEPSEEK_API_KEY` — DeepSeek API key (https://platform.deepseek.com/api_keys)
+- `OPENROUTER_API_KEY` — OpenRouter API key for free-tier models (https://openrouter.ai/keys)
+- `LLM_PROVIDER` — `deepseek` | `openrouter` | `ollama` (default: deepseek)
+- `DEEPSEEK_MODEL` — model name (default: deepseek-v4-flash)
+- `OPENROUTER_CHAT_MODEL` — model name (default: nvidia/nemotron-3-ultra-550b-a55b:free)
 - `DATABASE_PATH` — SQLite DB path (default: ./insightxpert.db)
 - `CHROMA_PERSIST_DIR` — ChromaDB persistence (default: ./chroma_data)
 

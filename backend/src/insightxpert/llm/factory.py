@@ -11,12 +11,10 @@ logger = logging.getLogger("insightxpert.llm.factory")
 def create_llm(provider: str, settings: Settings) -> LLMProvider:
     """Create an LLM provider instance by name.
 
+    Supported providers: deepseek, openrouter, ollama.
     Raises ValueError if the provider is not supported.
     """
-    if provider == "gemini":
-        from insightxpert.llm.gemini import GeminiProvider
-        return GeminiProvider(api_key=settings.gemini_api_key, model=settings.gemini_model)
-    elif provider == "deepseek":
+    if provider == "deepseek":
         from insightxpert.llm.deepseek import DeepSeekProvider
         return DeepSeekProvider(api_key=settings.deepseek_api_key, model=settings.deepseek_model)
     elif provider == "openrouter":
@@ -31,12 +29,5 @@ def create_llm(provider: str, settings: Settings) -> LLMProvider:
     elif provider == "ollama":
         from insightxpert.llm.ollama import OllamaProvider
         return OllamaProvider(model=settings.ollama_model, base_url=settings.ollama_base_url)
-    elif provider == "vertex_ai":
-        from insightxpert.llm.vertex import VertexAIProvider
-        return VertexAIProvider(
-            project_id=settings.gcp_project_id,
-            region=settings.vertex_ai_region,
-            model=settings.vertex_ai_model,
-        )
     else:
-        raise ValueError(f"Unknown LLM provider: {provider!r}. Supported: gemini, deepseek, openrouter, ollama, vertex_ai")
+        raise ValueError(f"Unknown LLM provider: {provider!r}. Supported: deepseek, openrouter, ollama")

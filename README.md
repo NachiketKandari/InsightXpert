@@ -203,7 +203,7 @@ cd backend
 uv sync        # installs from uv.lock — exact reproducible environment
 ```
 
-This installs FastAPI, SQLAlchemy, ChromaDB, google-genai, scipy/numpy/pandas, and all other dependencies into a `.venv` inside `backend/`.
+This installs FastAPI, SQLAlchemy, ChromaDB, httpx, scipy/numpy/pandas, and all other dependencies into a `.venv` inside `backend/`.
 
 #### 2b. Configure environment variables
 
@@ -214,8 +214,9 @@ cp .env.example .env.local
 Open `backend/.env.local` and set at minimum:
 
 ```ini
-# Required
-GEMINI_API_KEY=your-gemini-api-key-here
+# Required (at least one LLM key)
+DEEPSEEK_API_KEY=your-deepseek-api-key-here
+# OPENROUTER_API_KEY=sk-or-v1-your-key-here  # if LLM_PROVIDER=openrouter
 SECRET_KEY=<random-64-char-hex>   # python -c "import secrets; print(secrets.token_hex(32))"
 
 # Recommended — change from the default before sharing
@@ -251,7 +252,7 @@ INFO  insightxpert.main  Auth tables initialized, admin user ensured
 INFO  insightxpert.main  Prompt templates initialized
 INFO  insightxpert.main  Dataset tables initialized
 INFO  insightxpert.main  ChromaDB initialized: ./chroma_data
-INFO  insightxpert.main  LLM provider: gemini
+INFO  insightxpert.main  LLM provider: deepseek
 INFO  insightxpert.main  RAG bootstrap complete: N training items loaded
 INFO  insightxpert.main  InsightXpert ready
 ```
@@ -326,7 +327,8 @@ A `Dockerfile` is included in `backend/`. To run the backend containerised:
 cd backend
 docker build -t insightxpert-backend .
 docker run -p 8000:8000 \
-  -e GEMINI_API_KEY=your-key \
+  -e DEEPSEEK_API_KEY=your-key \
+  -e OPENROUTER_API_KEY=your-key \
   -e SECRET_KEY=your-secret \
   insightxpert-backend
 ```
@@ -339,12 +341,12 @@ The container runs `uvicorn` via `entrypoint.sh`. CSV data must be bundled or mo
 
 | Symptom | Likely cause | Fix |
 |---------|-------------|-----|
-| `LLM request failed` in the chat | Missing or invalid `GEMINI_API_KEY` | Verify the key in `backend/.env.local` and restart |
+| `LLM request failed` in the chat | Missing or invalid `DEEPSEEK_API_KEY` / `OPENROUTER_API_KEY` | Verify the key in `backend/.env.local` and restart |
 | First startup hangs at "RAG bootstrap" | ChromaDB downloading embedding model | Wait up to 2 minutes; check internet connection |
 | `transactions table is empty` warning | CSV not found | Ensure `backend/upi_transactions_2024.csv` exists, then restart |
 | Frontend shows "Backend unavailable" | Backend not running or wrong port | Start `uv run python -m insightxpert.main` and check `NEXT_PUBLIC_API_URL` |
 | `401 Unauthorized` on all API calls | Wrong admin password / token expired | Re-login with correct credentials from `.env.local` |
-| Slow first chat response (30–60 s) | ChromaDB cold start + Gemini latency | Normal on first request; subsequent requests are faster |
+| Slow first chat response (30–60 s) | ChromaDB cold start + LLM latency | Normal on first request; subsequent requests are faster |
 
 ---
 
@@ -356,7 +358,7 @@ The container runs `uvicorn` via `entrypoint.sh`. CSV data must be bundled or mo
 
 2. **System prompt rendering** — A Jinja2 template (`analyst_system.j2`) combines the schema, column documentation, RAG results, and behavioural instructions into the final prompt. Conditional blocks include or exclude RAG sections based on retrieval quality.
 
-3. **LLM + tool loop** — Gemini receives the rendered prompt and the user's message. It calls tools iteratively:
+3. **LLM + tool loop** — The LLM receives the rendered prompt and the user's message. It calls tools iteratively:
    - `run_sql` — executes a SELECT query; results returned as truncated JSON rows
    - `get_schema` — returns DDL for a specific table
    - `search_similar` — searches ChromaDB for related past answers
@@ -437,9 +439,9 @@ Every time the agent produces a valid SQL query that the user does not thumbs-do
 |-------|-----------|-------|
 | Framework | FastAPI | Async, SSE streaming, lifespan events |
 | Runtime | Python 3.11+, uv | hatchling build, `uv.lock` for reproducible installs |
-| LLM — primary | Google Gemini (`google-genai`) | `gemini-2.5-flash` default |
+| LLM — primary | DeepSeek (OpenAI-compatible) | `deepseek-v4-flash` default |
+| LLM — gateway | OpenRouter (100+ models, free-tier) | `nvidia/nemotron-3-ultra-550b-a55b:free` default, env-driven rotation |
 | LLM — local | Ollama | 120s timeout, model existence validated on switch |
-| LLM — cloud alt | Vertex AI | Runtime-switchable via LLM Factory |
 | Prompt templating | Jinja2 | Conditional RAG sections, no f-string spaghetti |
 | Vector store | ChromaDB | Embedded, persistent, 4 collections |
 | Database | SQLite via SQLAlchemy | 80MB, 250K rows, 8 indices |
@@ -518,7 +520,8 @@ InsightXpert/
 │       ├── llm/
 │       │   ├── base.py          # LLMProvider protocol
 │       │   ├── factory.py       # Registry-based provider factory
-│       │   ├── gemini.py        # Google Gemini provider
+│       │   ├── deepseek.py      # DeepSeek provider (OpenAI-compatible)
+│       │   ├── openrouter.py    # OpenRouter gateway (free-tier models)
 │       │   └── ollama.py        # Ollama local provider
 │       ├── db/
 │       │   ├── connector.py     # SQLAlchemy wrapper (read-only guard, row limits)
@@ -571,18 +574,15 @@ InsightXpert/
 
 | Variable | Default | Required | Description |
 |----------|---------|----------|-------------|
-| `GEMINI_API_KEY` | — | **Yes** (Gemini) | Google Gemini API key |
 | `DEEPSEEK_API_KEY` | — | **Yes** (DeepSeek) | DeepSeek API key |
 | `OPENROUTER_API_KEY` | — | **Yes** (OpenRouter) | OpenRouter API key (https://openrouter.ai/keys) |
 | `SECRET_KEY` | `CHANGE-ME-…` | **Yes** | JWT signing secret (32+ chars) |
-| `LLM_PROVIDER` | `gemini` | No | `gemini` \| `deepseek` \| `openrouter` \| `ollama` \| `vertex_ai` |
-| `GEMINI_MODEL` | `gemini-2.5-flash` | No | Gemini model name |
+| `LLM_PROVIDER` | `deepseek` | No | `deepseek` \| `openrouter` \| `ollama` |
 | `DEEPSEEK_MODEL` | `deepseek-v4-flash` | No | DeepSeek model name |
 | `OPENROUTER_CHAT_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | No | OpenRouter model ID (env-driven, free-tier rotation needs no code change) |
 | `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | No | OpenRouter endpoint |
 | `OLLAMA_BASE_URL` | `http://localhost:11434` | No | Ollama endpoint |
 | `OLLAMA_MODEL` | `llama3.1` | No | Ollama model name |
-| `GCP_PROJECT_ID` | — | Vertex only | GCP project ID |
 | `DATABASE_URL` | `sqlite:///./insightxpert.db` | No | SQLAlchemy DB URL |
 | `CHROMA_PERSIST_DIR` | `./chroma_data` | No | ChromaDB persistence directory |
 | `CORS_ORIGINS` | `http://localhost:3000,…` | No | Comma-separated allowed origins |

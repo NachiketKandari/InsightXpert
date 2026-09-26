@@ -11,8 +11,6 @@ _logger = logging.getLogger("insightxpert.config")
 
 class LLMProvider(str, Enum):
     OLLAMA = "ollama"
-    GEMINI = "gemini"
-    VERTEX_AI = "vertex_ai"
     DEEPSEEK = "deepseek"
     OPENROUTER = "openrouter"
 
@@ -22,8 +20,6 @@ class Settings(BaseSettings):
 
     # LLM
     llm_provider: LLMProvider = LLMProvider.DEEPSEEK
-    gemini_api_key: str = ""
-    gemini_model: str = "gemini-2.5-flash"
     deepseek_api_key: str = ""
     deepseek_model: str = "deepseek-v4-flash"
     # OpenRouter (OpenAI-compatible gateway, 100+ models). Model is env-driven
@@ -35,11 +31,6 @@ class Settings(BaseSettings):
     openrouter_app_name: str = "InsightXpert"
     ollama_model: str = "llama3.1"
     ollama_base_url: str = "http://localhost:11434"
-
-    # Vertex AI (for Model Garden models like GLM-5)
-    gcp_project_id: str = ""
-    vertex_ai_region: str = "global"
-    vertex_ai_model: str = "zai-org/glm-5-maas"
 
     # Local SQLite (primary runtime DB — sub-ms queries)
     database_url: str = "sqlite:///./insightxpert.db"
@@ -104,12 +95,8 @@ class Settings(BaseSettings):
             _logger.warning("secret_key is insecure — set a random string of 32+ characters for production")
         if self.admin_seed_password in {"changeme", "admin123", ""} or len(self.admin_seed_password) < 8:
             _logger.warning("admin_seed_password is insecure — set ADMIN_SEED_PASSWORD to a strong password for production")
-        if self.llm_provider == LLMProvider.GEMINI and not self.gemini_api_key:
-            _logger.warning("llm_provider is 'gemini' but gemini_api_key is empty")
         if self.llm_provider == LLMProvider.DEEPSEEK and not self.deepseek_api_key:
             _logger.warning("llm_provider is 'deepseek' but deepseek_api_key is empty — set DEEPSEEK_API_KEY")
         if self.llm_provider == LLMProvider.OPENROUTER and not self.openrouter_api_key:
             _logger.warning("llm_provider is 'openrouter' but openrouter_api_key is empty — set OPENROUTER_API_KEY")
-        if self.llm_provider == LLMProvider.VERTEX_AI and not self.gcp_project_id:
-            _logger.warning("llm_provider is 'vertex_ai' but gcp_project_id is empty — set GCP_PROJECT_ID")
         return self

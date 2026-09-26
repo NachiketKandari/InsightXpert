@@ -64,8 +64,12 @@ CI/CD uses **keyless authentication** via Workload Identity Federation — no se
 
 | Secret | Description |
 |--------|-------------|
-| `GEMINI_API_KEY` | Google Gemini API key for the LLM |
+| `DEEPSEEK_API_KEY` | DeepSeek API key for the LLM (https://platform.deepseek.com/api_keys) |
+| `OPENROUTER_API_KEY` | OpenRouter API key for free-tier models (https://openrouter.ai/keys) |
 | `SECRET_KEY` | Random hex string for JWT signing |
+| `ADMIN_SEED_PASSWORD` | Bootstrap admin password |
+| `TURSO_AUTH_TOKEN` | Turso DB auth token (if using Turso) |
+| `DEEPGRAM_API_KEY` | Deepgram API key for voice/STT (optional) |
 
 `GITHUB_TOKEN` is provided automatically by GitHub Actions.
 
@@ -75,7 +79,10 @@ These are optional overrides — defaults are set in the workflow files.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `GEMINI_MODEL` | `gemini-2.5-flash` | Gemini model name |
+| `LLM_PROVIDER` | `deepseek` | `deepseek` \| `openrouter` \| `ollama` |
+| `DEEPSEEK_MODEL` | `deepseek-v4-flash` | DeepSeek model name |
+| `OPENROUTER_CHAT_MODEL` | `nvidia/nemotron-3-ultra-550b-a55b:free` | OpenRouter model (free-tier, env-driven) |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base URL |
 | `CORS_ORIGINS` | `https://insightx-487005.web.app` | Comma-separated allowed origins |
 
 ## CI/CD Workflows

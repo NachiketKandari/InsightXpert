@@ -20,8 +20,8 @@ interface SettingsState {
 }
 
 export const useSettingsStore = create<SettingsState>((set, get) => ({
-  currentProvider: "gemini",
-  currentModel: "gemini-2.5-flash",
+  currentProvider: "deepseek",
+  currentModel: "deepseek-v4-flash",
   providers: [],
   loading: false,
   agentMode: "basic" as AgentMode,

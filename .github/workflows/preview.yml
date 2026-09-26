@@ -29,8 +29,9 @@ jobs:
       - name: Run tests
         run: uv run pytest
         env:
-          LLM_PROVIDER: gemini
-          GEMINI_API_KEY: fake-key-for-tests
+          LLM_PROVIDER: deepseek
+          DEEPSEEK_API_KEY: fake-key-for-tests
+          OPENROUTER_API_KEY: fake-key-for-tests
           DATABASE_URL: sqlite:///./test.db
 
   # ── Lint & build frontend ────────────────────────────────────────────
